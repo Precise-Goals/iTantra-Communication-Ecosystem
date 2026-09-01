@@ -1,0 +1,57 @@
+# iTantra Android .gitignore
+
+# ==================== Build output ====================
+*.iml
+.gradle
+/local.properties
+/.idea/caches
+/.idea/libraries
+/.idea/modules.xml
+/.idea/workspace.xml
+/.idea/navEditor.xml
+/.idea/assetWizardSettings.xml
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+
+# ==================== Kotlin/Java ====================
+*.class
+*.log
+*.jar
+*.war
+*.ear
+
+# ==================== Android ====================
+bin/
+gen/
+out/
+
+# ==================== ONNX Models (too large for Git) ====================
+# Models should be downloaded separately and placed in:
+# app/src/main/assets/models/
+app/src/main/assets/models/*.onnx
+app/src/main/assets/models/tts/*.onnx
+app/src/main/assets/models/*.ort
+app/src/main/assets/models/*.bin
+
+# ==================== Python ====================
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+model-export/.env
+model-export/venv/
+model-export/__pycache__/
+
+# ==================== Test data ====================
+model-export/test_audio/
+model-export/wer_report.json
+
+# ==================== Signing keys ====================
+*.jks
+*.keystore
+keystore.properties
