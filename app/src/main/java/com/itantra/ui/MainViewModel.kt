@@ -129,6 +129,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         sttModule = sttModule,
         callbacks = audioCallbacks,
         onSpeechReady = { pcm, lang ->
+            sttModule.ensureLoaded(lang)
             val result = sttModule.transcribe(pcm, lang)
             if (result is AppResult.Success && result.data.isNotBlank()) {
                 viewModelScope.launch(Dispatchers.Main) {
@@ -194,7 +195,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 audioCapture.stopCapture()
 
                 if (pcm != null && pcm.isNotEmpty()) {
-                    sttModule.ensureLoaded()
+                    sttModule.ensureLoaded(_selectedLanguage.value)
                     val result = sttModule.transcribe(pcm, _selectedLanguage.value)
                     val transcribed = if (result is AppResult.Success) result.data else ""
                     if (transcribed.isNotBlank()) {

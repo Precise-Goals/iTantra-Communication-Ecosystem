@@ -291,7 +291,7 @@ class ITantraForegroundService : Service() {
             sttModule = sttModule,
             callbacks = audioCallbacks,
             onSpeechReady = { audioBuffer, lang ->
-                sttModule.ensureLoaded()
+                sttModule.ensureLoaded(lang)
                 sttModule.transcribe(audioBuffer, lang)
             }
         )
@@ -319,7 +319,7 @@ class ITantraForegroundService : Service() {
         serviceScope.launch {
             val buffer = audioCaptureModule.flushAndTranscribe()
             if (buffer != null && buffer.isNotEmpty()) {
-                sttModule.ensureLoaded()
+                sttModule.ensureLoaded(sttLanguage)
                 sttModule.transcribe(buffer, sttLanguage)
             }
             audioCaptureModule.stopCapture()

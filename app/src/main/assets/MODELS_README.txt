@@ -4,7 +4,22 @@ Download instructions are in the README.md and model-export/ scripts.
 Required files:
   models/
     silero_vad.onnx          (~2 MB)  — Silero VAD v4
-    indicconformer_int8.onnx (~150 MB) — AI4Bharat IndicConformer Multilingual INT8
+    stt/
+      hi_model.int8.onnx + hi_tokens.txt   (~188 MB) — Hindi STT (IndicConformer, sherpa-onnx)
+      gu_model.int8.onnx + gu_tokens.txt   — Gujarati STT
+      mr_model.int8.onnx + mr_tokens.txt   — Marathi STT
+      kn_model.int8.onnx + kn_tokens.txt   — Kannada STT
+      ml_model.int8.onnx + ml_tokens.txt   — Malayalam STT
+      ta_model.int8.onnx + ta_tokens.txt   — Tamil STT
+      te_model.int8.onnx + te_tokens.txt   — Telugu STT
+      bn_model.int8.onnx + bn_tokens.txt   — Bengali STT
+      en_model.int8.onnx + en_tokens.txt   — English STT
+      NOTE: there is no per-language "multilingual" STT file — each language is a
+      separate ONNX graph with its own tokens.txt vocabulary alongside it (source:
+      huggingface.co/parismitaglobalsolutions/indicconformer-sherpa-onnx).
+      NOTE: Odia (or) has NO model in this source repo — it only has "as" (Assamese).
+      Do not substitute the Assamese model for Odia; leave Odia STT unsupported until
+      a real Odia-trained model is found.
     tts/
       hi_vits_int8.onnx      (~15 MB) — Hindi TTS
       gu_vits_int8.onnx      (~15 MB) — Gujarati TTS

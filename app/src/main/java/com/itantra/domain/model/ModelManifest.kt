@@ -23,11 +23,67 @@ enum class ModelPack(
         isRequired = true,
         requiredFor = "Transceiver"
     ),
-    STT_INDIC_CONFORMER(
-        "Speech-to-Text Engine",
-        "AI4Bharat IndicConformer — all 10 Indian languages",
-        sizeMb = 150,
+    STT_HINDI(
+        "Hindi STT Engine",
+        "IndicConformer (sherpa-onnx) — Hindi speech recognition",
+        sizeMb = 188,
         isRequired = true,
+        requiredFor = "Transceiver"
+    ),
+    STT_GUJARATI(
+        "Gujarati STT Engine",
+        "IndicConformer (sherpa-onnx) — Gujarati speech recognition",
+        sizeMb = 188,
+        isRequired = false,
+        requiredFor = "Transceiver"
+    ),
+    STT_MARATHI(
+        "Marathi STT Engine",
+        "IndicConformer (sherpa-onnx) — Marathi speech recognition",
+        sizeMb = 188,
+        isRequired = false,
+        requiredFor = "Transceiver"
+    ),
+    STT_KANNADA(
+        "Kannada STT Engine",
+        "IndicConformer (sherpa-onnx) — Kannada speech recognition",
+        sizeMb = 188,
+        isRequired = false,
+        requiredFor = "Transceiver"
+    ),
+    STT_MALAYALAM(
+        "Malayalam STT Engine",
+        "IndicConformer (sherpa-onnx) — Malayalam speech recognition",
+        sizeMb = 188,
+        isRequired = false,
+        requiredFor = "Transceiver"
+    ),
+    STT_TAMIL(
+        "Tamil STT Engine",
+        "IndicConformer (sherpa-onnx) — Tamil speech recognition",
+        sizeMb = 188,
+        isRequired = false,
+        requiredFor = "Transceiver"
+    ),
+    STT_TELUGU(
+        "Telugu STT Engine",
+        "IndicConformer (sherpa-onnx) — Telugu speech recognition",
+        sizeMb = 188,
+        isRequired = false,
+        requiredFor = "Transceiver"
+    ),
+    STT_BENGALI(
+        "Bengali STT Engine",
+        "IndicConformer (sherpa-onnx) — Bengali speech recognition",
+        sizeMb = 188,
+        isRequired = false,
+        requiredFor = "Transceiver"
+    ),
+    STT_ENGLISH(
+        "English STT Engine",
+        "IndicConformer (sherpa-onnx) — English speech recognition",
+        sizeMb = 188,
+        isRequired = false,
         requiredFor = "Transceiver"
     ),
     LANG_DETECTION(
@@ -119,7 +175,15 @@ enum class ModelPack(
         /** Returns compulsory packs needed for full multilingual Transceiver & auto-LID */
         fun coreTransceiverPacks(): List<ModelPack> = listOf(
             VAD_MODEL,
-            STT_INDIC_CONFORMER,
+            STT_HINDI,
+            STT_GUJARATI,
+            STT_MARATHI,
+            STT_KANNADA,
+            STT_MALAYALAM,
+            STT_TAMIL,
+            STT_TELUGU,
+            STT_BENGALI,
+            STT_ENGLISH,
             LANG_DETECTION,
             TTS_HINDI,
             TTS_GUJARATI,

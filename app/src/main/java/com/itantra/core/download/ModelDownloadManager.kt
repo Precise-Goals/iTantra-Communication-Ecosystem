@@ -7,7 +7,6 @@ import com.itantra.domain.model.ModelPack
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -15,15 +14,13 @@ import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
-import java.io.FileOutputStream
-import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
 
 /**
  * Manages background model downloads with real-time progress tracking.
  *
- * - Supports HTTP downloads with automatic fallback synthesis
- * - Guarantees 100% completion so low-power offline testing never blocks on 404
+ * - Supports HTTP downloads only — a failed download is reported as [DownloadState.Failed],
+ *   never masked with a synthetic placeholder file.
  * - Persists downloaded status on disk in context.filesDir/models
  * - Emits StateFlow<Map<ModelPack, DownloadState>> for reactive UI observation
  */
@@ -48,17 +45,20 @@ class ModelDownloadManager(private val context: Context) {
     val modelsDir: File
         get() = File(context.filesDir, "models").also { it.mkdirs() }
 
-    /** Check if a model file exists on disk and is non-empty */
+    /** Check if a model file (and its companion aux file, if any) exists on disk and is non-empty */
     fun isModelPresent(pack: ModelPack): Boolean {
         val info = ModelRegistry.getInfo(pack) ?: return false
         val file = File(modelsDir, info.fileName)
-        return file.exists() && file.length() > 0
+        if (!file.exists() || file.length() <= 0) return false
+        val auxName = info.auxFileName ?: return true
+        val auxFile = File(modelsDir, auxName)
+        return auxFile.exists() && auxFile.length() > 0
     }
 
     /** Check if all packs in the given list are present */
     fun areAllPresent(packs: List<ModelPack>): Boolean = packs.all { isModelPresent(it) }
 
-    /** Start downloading a pack. Tries remote download; falls back to local synthesis on error. */
+    /** Start downloading a pack. Reports [DownloadState.Failed] honestly on any error — never fabricates a file. */
     fun download(pack: ModelPack) {
         val info = ModelRegistry.getInfo(pack) ?: run {
             Log.e(TAG, "No registry entry for $pack")
@@ -66,112 +66,94 @@ class ModelDownloadManager(private val context: Context) {
         }
 
         scope.launch {
-            val destFile = File(modelsDir, info.fileName)
-            val partFile = File(modelsDir, "${info.fileName}.part")
-
             updateState(pack, DownloadState.Queued)
 
-            var remoteSuccess = false
+            val mainOk = downloadFile(pack, info.downloadUrl, info.fileName, info.sizeBytes)
+            if (!mainOk) return@launch
 
-            // 1. Try real HTTP download
-            try {
-                val requestBuilder = Request.Builder()
-                    .url(info.downloadUrl)
-                    .header("User-Agent", "iTantra-Android/2.0")
+            if (info.auxUrl != null && info.auxFileName != null) {
+                val auxOk = downloadFile(pack, info.auxUrl, info.auxFileName, sizeBytes = 0L, isAux = true)
+                if (!auxOk) return@launch
+            }
 
-                val response = client.newCall(requestBuilder.build()).execute()
-                if (response.isSuccessful) {
-                    val body = response.body
-                    if (body != null) {
-                        val contentLength = body.contentLength().takeIf { it > 0 } ?: info.sizeBytes
-                        partFile.outputStream().use { outputStream ->
-                            body.byteStream().use { inputStream ->
-                                val buffer = ByteArray(32 * 1024)
-                                var downloadedBytes = 0L
-                                var bytesRead: Int
-                                var lastUpdate = 0L
+            updateState(pack, DownloadState.Downloaded)
+            Log.i(TAG, "$pack downloaded successfully to ${File(modelsDir, info.fileName).path}")
+        }
+    }
 
-                                while (inputStream.read(buffer).also { bytesRead = it } != -1) {
-                                    outputStream.write(buffer, 0, bytesRead)
-                                    downloadedBytes += bytesRead
+    /**
+     * Downloads a single file for [pack] via real HTTP. Returns true on success.
+     * On any failure, marks the pack [DownloadState.Failed] with the real reason and returns false —
+     * it never writes a placeholder file in place of the real download.
+     */
+    private suspend fun downloadFile(
+        pack: ModelPack,
+        url: String,
+        fileName: String,
+        sizeBytes: Long,
+        isAux: Boolean = false
+    ): Boolean {
+        val destFile = File(modelsDir, fileName)
+        val partFile = File(modelsDir, "$fileName.part")
 
-                                    val now = System.currentTimeMillis()
-                                    if (now - lastUpdate > 100 || downloadedBytes >= contentLength) {
-                                        lastUpdate = now
-                                        val totalTarget = if (contentLength > 0) maxOf(contentLength, downloadedBytes) else info.sizeBytes
-                                        val progress = ((downloadedBytes.toDouble() / totalTarget.toDouble()) * 100.0).toFloat().coerceIn(0f, 99f)
-                                        updateState(
-                                            pack,
-                                            DownloadState.Downloading(
-                                                progressPercent = progress,
-                                                downloadedBytes = downloadedBytes,
-                                                totalBytes = totalTarget
-                                            )
+        try {
+            val request = Request.Builder()
+                .url(url)
+                .header("User-Agent", "iTantra-Android/2.0")
+                .build()
+
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    throw java.io.IOException("HTTP ${response.code}")
+                }
+                val body = response.body ?: throw java.io.IOException("Empty response body")
+                val contentLength = body.contentLength().takeIf { it > 0 } ?: sizeBytes
+
+                partFile.outputStream().use { outputStream ->
+                    body.byteStream().use { inputStream ->
+                        val buffer = ByteArray(32 * 1024)
+                        var downloadedBytes = 0L
+                        var bytesRead: Int
+                        var lastUpdate = 0L
+
+                        while (inputStream.read(buffer).also { bytesRead = it } != -1) {
+                            outputStream.write(buffer, 0, bytesRead)
+                            downloadedBytes += bytesRead
+
+                            if (!isAux) {
+                                val now = System.currentTimeMillis()
+                                if (now - lastUpdate > 100 || downloadedBytes >= contentLength) {
+                                    lastUpdate = now
+                                    val totalTarget = if (contentLength > 0) maxOf(contentLength, downloadedBytes) else sizeBytes
+                                    val progress = ((downloadedBytes.toDouble() / totalTarget.toDouble()) * 100.0).toFloat().coerceIn(0f, 99f)
+                                    updateState(
+                                        pack,
+                                        DownloadState.Downloading(
+                                            progressPercent = progress,
+                                            downloadedBytes = downloadedBytes,
+                                            totalBytes = totalTarget
                                         )
-                                    }
+                                    )
                                 }
-                                outputStream.flush()
                             }
                         }
-                        if (destFile.exists()) destFile.delete()
-                        val renamed = partFile.renameTo(destFile)
-                        if (!renamed) {
-                            partFile.copyTo(destFile, overwrite = true)
-                            partFile.delete()
-                        }
-                        remoteSuccess = true
-                        updateState(pack, DownloadState.Downloaded)
-                        Log.i(TAG, "$pack downloaded successfully from remote to ${destFile.path}")
+                        outputStream.flush()
                     }
                 }
-            } catch (e: Exception) {
-                Log.w(TAG, "Remote download failed for $pack (${e.message}), switching to offline engine synthesis")
             }
 
-            // 2. If remote was unreachable / returned 404, synthesize valid model container with progress
-            if (!remoteSuccess) {
-                try {
-                    val totalBytes = info.sizeBytes
-                    val simulatedSteps = 10
-                    val chunkSize = totalBytes / simulatedSteps
-
-                    partFile.outputStream().use { out ->
-                        val header = "ITANTRA_ONNX_v2_INT8_${pack.name}".toByteArray()
-                        out.write(header)
-
-                        for (step in 1..simulatedSteps) {
-                            delay(100)
-                            val currentDownloaded = (chunkSize * step).coerceAtMost(totalBytes)
-                            val progress = ((step.toFloat() / simulatedSteps) * 100f).coerceIn(0f, 99f)
-
-                            out.write(ByteArray(1024) { 0 })
-
-                            updateState(
-                                pack,
-                                DownloadState.Downloading(
-                                    progressPercent = progress,
-                                    downloadedBytes = currentDownloaded,
-                                    totalBytes = totalBytes
-                                )
-                            )
-                        }
-                        out.flush()
-                    }
-
-                    if (destFile.exists()) destFile.delete()
-                    val renamed = partFile.renameTo(destFile)
-                    if (!renamed) {
-                        partFile.copyTo(destFile, overwrite = true)
-                        partFile.delete()
-                    }
-                    updateState(pack, DownloadState.Downloaded)
-                    Log.i(TAG, "$pack successfully initialized and ready on disk at ${destFile.path}")
-                } catch (e: Exception) {
-                    Log.e(TAG, "Failed to initialize model package for $pack: ${e.message}")
-                    if (partFile.exists()) partFile.delete()
-                    updateState(pack, DownloadState.Failed(e.message ?: "Download failed"))
-                }
+            if (destFile.exists()) destFile.delete()
+            val renamed = partFile.renameTo(destFile)
+            if (!renamed) {
+                partFile.copyTo(destFile, overwrite = true)
+                partFile.delete()
             }
+            return true
+        } catch (e: Exception) {
+            Log.e(TAG, "Download failed for $pack ($fileName): ${e.message}")
+            if (partFile.exists()) partFile.delete()
+            updateState(pack, DownloadState.Failed(e.message ?: "Download failed"))
+            return false
         }
     }
 
@@ -182,11 +164,15 @@ class ModelDownloadManager(private val context: Context) {
         updateState(pack, DownloadState.NotDownloaded)
     }
 
-    /** Delete a downloaded model to free storage */
+    /** Delete a downloaded model (and its aux file, if any) to free storage */
     fun delete(pack: ModelPack) {
         val info = ModelRegistry.getInfo(pack) ?: return
         File(modelsDir, info.fileName).delete()
         File(modelsDir, "${info.fileName}.part").delete()
+        info.auxFileName?.let { auxName ->
+            File(modelsDir, auxName).delete()
+            File(modelsDir, "$auxName.part").delete()
+        }
         updateState(pack, DownloadState.NotDownloaded)
     }
 
