@@ -200,7 +200,7 @@ fun DownloadsScreen(viewModel: MainViewModel) {
                     Spacer(Modifier.height(14.dp))
 
                     Text(
-                        text = "Installs complete bundle: Silero VAD (2.3MB), AI4Bharat IndicConformer STT (197MB), FastText Language Auto-Detector (0.9MB), and all 10 Indic Voice Packs (Hindi, Gujarati, Marathi, Kannada, Malayalam, Tamil, Telugu, Odia, Bengali, English). Required for auto-detection and speech synthesis.",
+                        text = "Installs complete bundle: Silero VAD (2.3MB), AI4Bharat IndicConformer STT (197MB), FastText Language Auto-Detector (0.9MB), and real espeak-ng-phonemized Voice Packs for Hindi, Gujarati, Malayalam, Bengali and English — the only languages with a verified free offline TTS source today. Kannada, Tamil, Telugu, Marathi and Odia have no known source yet and aren't offered.",
                         style = MaterialTheme.typography.bodySmall,
                         color = if (allCoreDownloaded) iTantraBlack60 else Color(0xFFCCCCCC)
                     )

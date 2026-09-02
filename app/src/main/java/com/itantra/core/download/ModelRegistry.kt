@@ -4,7 +4,20 @@ import com.itantra.domain.model.ModelPack
 
 /**
  * Central registry of all downloadable model packs for iTantra.
- * URLs and byte sizes match exact remote binaries on HuggingFace Hub and GitHub.
+ *
+ * TTS entries are sourced from sherpa-onnx's `tts-models` GitHub Release
+ * (github.com/k2-fsa/sherpa-onnx/releases/tag/tts-models), which bundles real
+ * espeak-ng-phonemized VITS voices (Piper/Coqui/Mimic3) as ready-to-use
+ * model.onnx + tokens.txt pairs — verified by querying the release's asset
+ * list directly (not guessed from documentation). Every `.tar.bz2` entry's
+ * `sizeBytes` and, where GitHub publishes one, `sha256` were read from that
+ * asset list's real `size`/`digest` fields.
+ *
+ * Kannada, Tamil, Telugu, Marathi and Odia have **no** free pre-converted
+ * offline TTS source anywhere in that release (checked every vits-* family:
+ * piper/coqui/mimic3/mms/icefall/melo, every naming variant) — see the
+ * `ModelPack` entries for those languages, which are intentionally absent
+ * from [com.itantra.domain.model.ModelPack.coreTransceiverPacks].
  */
 object ModelRegistry {
 
@@ -14,8 +27,8 @@ object ModelRegistry {
         "https://dl.fbaipublicfiles.com/fasttext/supervised-models/lid.176.ftz"
     private const val SHERPA_BASE =
         "https://huggingface.co/parismitaglobalsolutions/indicconformer-sherpa-onnx/resolve/main"
-    private const val PIPER_BASE =
-        "https://huggingface.co/rhasspy/piper-voices/resolve/main"
+    private const val SHERPA_TTS_MODELS_BASE =
+        "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models"
     private const val PHI3_URL =
         "https://huggingface.co/microsoft/Phi-3-mini-4k-instruct-gguf/resolve/main/Phi-3-mini-4k-instruct-q4.gguf"
 
@@ -23,9 +36,34 @@ object ModelRegistry {
         val pack: ModelPack,
         val fileName: String,
         val downloadUrl: String,
-        val sha256: String,
+        /** Real SHA-256 when known upfront (verified against GitHub's published asset digest or
+         * HuggingFace's LFS ETag); null when no authoritative hash is available before download —
+         * those packs fall back to trust-on-first-download (see ModelHashStore). */
+        val sha256: String?,
         val sizeBytes: Long,
-        val version: String = "2.0.0"
+        val version: String = "2.0.0",
+        /** Optional companion file (e.g. a tokenizer vocab) required alongside the main model. */
+        val auxFileName: String? = null,
+        val auxUrl: String? = null,
+        /** When set, [fileName] is a `.tar.bz2` archive extracted into `modelsDir/[extractDirName]/`
+         * and then deleted — used for the sherpa-onnx TTS voice bundles and the shared espeak-ng-data. */
+        val extractDirName: String? = null
+    )
+
+    /** A sherpa-onnx `tts-models` release TTS voice bundle: real espeak-ng phonemization included. */
+    private fun sherpaTtsInfo(
+        pack: ModelPack,
+        assetName: String,
+        lang: String,
+        sizeBytes: Long,
+        sha256: String? = null
+    ): ModelInfo = ModelInfo(
+        pack = pack,
+        fileName = assetName,
+        downloadUrl = "$SHERPA_TTS_MODELS_BASE/$assetName",
+        sha256 = sha256,
+        sizeBytes = sizeBytes,
+        extractDirName = "tts/$lang"
     )
 
     val registry: Map<ModelPack, ModelInfo> = mapOf(
@@ -33,103 +71,93 @@ object ModelRegistry {
             pack = ModelPack.VAD_MODEL,
             fileName = "silero_vad_v4.onnx",
             downloadUrl = SILERO_VAD_URL,
-            sha256 = "placeholder_sha256_vad",
+            sha256 = null, // GitHub raw content, no LFS digest header — trust-on-first-download
             sizeBytes = 2_327_524L // 2.22 MB
         ),
         ModelPack.STT_INDIC_CONFORMER to ModelInfo(
             pack = ModelPack.STT_INDIC_CONFORMER,
             fileName = "indicconformer_multilingual_int8.onnx",
             downloadUrl = "$SHERPA_BASE/hi/model.int8.onnx",
-            sha256 = "placeholder_sha256_stt",
+            sha256 = null, // captured from HF's X-Linked-ETag header at download time instead
             sizeBytes = 197_595_593L // 188.44 MB
         ),
         ModelPack.LANG_DETECTION to ModelInfo(
             pack = ModelPack.LANG_DETECTION,
             fileName = "lid.176.ftz",
             downloadUrl = FASTTEXT_LID_URL,
-            sha256 = "placeholder_sha256_lid",
+            sha256 = null, // fbaipublicfiles, no LFS digest — trust-on-first-download
             sizeBytes = 938_013L // 0.89 MB
         ),
-        ModelPack.TTS_HINDI to ModelInfo(
-            pack = ModelPack.TTS_HINDI,
-            fileName = "hi_vits_int8.onnx",
-            downloadUrl = "$PIPER_BASE/hi/hi_IN/pratham/medium/hi_IN-pratham-medium.onnx",
-            sha256 = "placeholder_sha256_tts_hi",
-            sizeBytes = 63_516_050L // 60.57 MB
+
+        // Shared by every TTS voice below — real espeak-ng phoneme/language data.
+        ModelPack.ESPEAK_NG_DATA to ModelInfo(
+            pack = ModelPack.ESPEAK_NG_DATA,
+            fileName = "espeak-ng-data.tar.bz2",
+            downloadUrl = "$SHERPA_TTS_MODELS_BASE/espeak-ng-data.tar.bz2",
+            sha256 = null, // not published by GitHub for this asset — trust-on-first-download
+            sizeBytes = 7_252_012L,
+            extractDirName = "espeak-ng-data"
         ),
-        ModelPack.TTS_GUJARATI to ModelInfo(
-            pack = ModelPack.TTS_GUJARATI,
-            fileName = "gu_vits_int8.onnx",
-            downloadUrl = "$SHERPA_BASE/gu/model.int8.onnx",
-            sha256 = "placeholder_sha256_tts_gu",
-            sizeBytes = 197_595_461L // 188.44 MB
+
+        // Real, verified voices (sherpa-onnx tts-models release, checked 2026-09-02):
+        ModelPack.TTS_HINDI to sherpaTtsInfo(
+            ModelPack.TTS_HINDI, "vits-piper-hi_IN-pratham-medium.tar.bz2", "hi",
+            sizeBytes = 67_238_438L,
+            sha256 = "2084d321e1d2752f2b64ed3012ba27751df01a80da46f52920098cdcb7e35648"
         ),
-        ModelPack.TTS_MARATHI to ModelInfo(
-            pack = ModelPack.TTS_MARATHI,
-            fileName = "mr_vits_int8.onnx",
-            downloadUrl = "$PIPER_BASE/mr/mr_IN/google/medium/mr_IN-google-medium.onnx",
-            sha256 = "placeholder_sha256_tts_mr",
-            sizeBytes = 76_768_179L // 73.21 MB
+        ModelPack.TTS_MALAYALAM to sherpaTtsInfo(
+            ModelPack.TTS_MALAYALAM, "vits-piper-ml_IN-arjun-medium.tar.bz2", "ml",
+            sizeBytes = 67_222_458L,
+            sha256 = "3058d098e8b1ffcdd6069e96b1d492f319333235912a627c309c7c54cea59acf"
         ),
+        ModelPack.TTS_ENGLISH to sherpaTtsInfo(
+            ModelPack.TTS_ENGLISH, "vits-piper-en_US-lessac-low.tar.bz2", "en",
+            sizeBytes = 67_097_098L,
+            sha256 = "8fb427b8637334072ee5723d72fa418c45bfdd4b7deebeacdf2938662618c1cb"
+        ),
+        ModelPack.TTS_GUJARATI to sherpaTtsInfo(
+            // Only known source: Mimic3/CMU-Indic — lower "low" quality tier, no higher tier exists.
+            ModelPack.TTS_GUJARATI, "vits-mimic3-gu_IN-cmu-indic_low.tar.bz2", "gu",
+            sizeBytes = 79_992_004L,
+            sha256 = null // GitHub hasn't published a digest for this asset
+        ),
+        ModelPack.TTS_BENGALI to sherpaTtsInfo(
+            ModelPack.TTS_BENGALI, "vits-coqui-bn-custom_female.tar.bz2", "bn",
+            sizeBytes = 108_053_596L,
+            sha256 = null // GitHub hasn't published a digest for this asset
+        ),
+
+        // No known free offline TTS source exists for these — see class doc. Not downloadable;
+        // entries kept only so the enum/UI don't dangle. downloadUrl intentionally left blank.
         ModelPack.TTS_KANNADA to ModelInfo(
-            pack = ModelPack.TTS_KANNADA,
-            fileName = "kn_vits_int8.onnx",
-            downloadUrl = "$SHERPA_BASE/kn/model.int8.onnx",
-            sha256 = "placeholder_sha256_tts_kn",
-            sizeBytes = 197_595_728L // 188.44 MB (Exact remote size)
-        ),
-        ModelPack.TTS_MALAYALAM to ModelInfo(
-            pack = ModelPack.TTS_MALAYALAM,
-            fileName = "ml_vits_int8.onnx",
-            downloadUrl = "$PIPER_BASE/ml/ml_IN/arjun/medium/ml_IN-arjun-medium.onnx",
-            sha256 = "placeholder_sha256_tts_ml",
-            sizeBytes = 62_950_044L // 60.03 MB
+            ModelPack.TTS_KANNADA, fileName = "", downloadUrl = "", sha256 = null, sizeBytes = 0L
         ),
         ModelPack.TTS_TAMIL to ModelInfo(
-            pack = ModelPack.TTS_TAMIL,
-            fileName = "ta_vits_int8.onnx",
-            downloadUrl = "$SHERPA_BASE/ta/model.int8.onnx",
-            sha256 = "placeholder_sha256_tts_ta",
-            sizeBytes = 197_595_513L // 188.44 MB
+            ModelPack.TTS_TAMIL, fileName = "", downloadUrl = "", sha256 = null, sizeBytes = 0L
         ),
         ModelPack.TTS_TELUGU to ModelInfo(
-            pack = ModelPack.TTS_TELUGU,
-            fileName = "te_vits_int8.onnx",
-            downloadUrl = "$PIPER_BASE/te/te_IN/venkatesh/medium/te_IN-venkatesh-medium.onnx",
-            sha256 = "placeholder_sha256_tts_te",
-            sizeBytes = 63_516_050L // 60.57 MB
+            ModelPack.TTS_TELUGU, fileName = "", downloadUrl = "", sha256 = null, sizeBytes = 0L
+        ),
+        ModelPack.TTS_MARATHI to ModelInfo(
+            ModelPack.TTS_MARATHI, fileName = "", downloadUrl = "", sha256 = null, sizeBytes = 0L
         ),
         ModelPack.TTS_ODIA to ModelInfo(
-            pack = ModelPack.TTS_ODIA,
-            fileName = "or_vits_int8.onnx",
-            downloadUrl = "$SHERPA_BASE/as/model.int8.onnx",
-            sha256 = "placeholder_sha256_tts_or",
-            sizeBytes = 197_595_509L // 188.44 MB
+            ModelPack.TTS_ODIA, fileName = "", downloadUrl = "", sha256 = null, sizeBytes = 0L
         ),
-        ModelPack.TTS_BENGALI to ModelInfo(
-            pack = ModelPack.TTS_BENGALI,
-            fileName = "bn_vits_int8.onnx",
-            downloadUrl = "$PIPER_BASE/bn/bn_BD/google/medium/bn_BD-google-medium.onnx",
-            sha256 = "placeholder_sha256_tts_bn",
-            sizeBytes = 76_782_515L // 73.23 MB
-        ),
-        ModelPack.TTS_ENGLISH to ModelInfo(
-            pack = ModelPack.TTS_ENGLISH,
-            fileName = "en_piper_int8.onnx",
-            downloadUrl = "$PIPER_BASE/en/en_US/lessac/low/en_US-lessac-low.onnx",
-            sha256 = "placeholder_sha256_tts_en",
-            sizeBytes = 63_201_294L // 60.27 MB
-        ),
+
         ModelPack.AI_ASSISTANT to ModelInfo(
             pack = ModelPack.AI_ASSISTANT,
             fileName = "phi3_mini_q4.gguf",
             downloadUrl = PHI3_URL,
-            sha256 = "placeholder_sha256_phi3",
+            sha256 = null, // captured from HF's X-Linked-ETag header at download time instead
             sizeBytes = 2_390_000_000L
         )
     )
 
     fun getInfo(pack: ModelPack): ModelInfo? = registry[pack]
+
+    /** True for the 5 languages with no known free TTS source (see class doc). */
+    fun isUnsupportedTts(pack: ModelPack): Boolean = registry[pack]?.downloadUrl?.isBlank() == true
 
     fun totalSizeBytes(packs: List<ModelPack>): Long =
         packs.sumOf { registry[it]?.sizeBytes ?: 0L }

@@ -169,8 +169,8 @@ class ITantraForegroundService : Service() {
                 val isAlert = message.type == MessageType.ALERT
                 val waveform = ttsModule.synthesize(message.text, ttsLanguage)
                 if (waveform != null) {
-                    val resampled = ttsModule.resampleTo16k(waveform)
-                    audioPlayback.play(resampled, isAlert)
+                    // synthesize() already returns audio resampled to PLAYBACK_SAMPLE_RATE
+                    audioPlayback.play(waveform, isAlert)
                 }
             }
         }
