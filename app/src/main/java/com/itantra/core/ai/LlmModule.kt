@@ -120,7 +120,12 @@ class LlmModule(private val context: Context) {
         val collectorJob = scope.launch {
             flow.collect { event ->
                 when (event) {
+                    is LlamaHelper.LLMEvent.Started -> Log.d(TAG, "generation started")
+                    is LlamaHelper.LLMEvent.Ongoing -> {
+                        if (event.tokenCount % 8 == 0) Log.d(TAG, "generating... ${event.tokenCount} tokens so far")
+                    }
                     is LlamaHelper.LLMEvent.Done -> {
+                        Log.d(TAG, "generation done: ${event.tokenCount} tokens in ${event.duration}ms")
                         if (!deferred.isCompleted) deferred.complete(event.fullText)
                     }
                     is LlamaHelper.LLMEvent.Error -> {
@@ -133,6 +138,7 @@ class LlmModule(private val context: Context) {
         }
 
         try {
+            Log.d(TAG, "generate(): calling predict() with ${prompt.length}-char prompt")
             engine.predict(prompt)
         } catch (e: Exception) {
             Log.e(TAG, "predict() threw: ${e.message}", e)
@@ -141,6 +147,13 @@ class LlmModule(private val context: Context) {
         }
 
         val result = withTimeoutOrNull(GENERATE_TIMEOUT_MS) { deferred.await() }
+        if (result == null) {
+            Log.w(TAG, "generate(): timed out after ${GENERATE_TIMEOUT_MS}ms — stopping in-flight completion")
+            // Without this, the native completion keeps running after we give up on it, and the
+            // next generate() call's predict() collides with it (confirmed on-device: a
+            // "LlamaAndroid.launchCompletion" error immediately following a timeout).
+            runCatching { engine.stopPrediction() }
+        }
         collectorJob.cancel()
         result
     }

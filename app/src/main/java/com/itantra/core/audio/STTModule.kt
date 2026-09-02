@@ -190,14 +190,16 @@ class STTModule(
 
             val inputs = mutableMapOf(ioNames.featureInput to featureTensor)
             val lengthTensor = if (ioNames.lengthInput != null) {
-                OnnxTensor.createTensor(ortEnv, intArrayOf(numFrames)).also { inputs[ioNames.lengthInput] = it }
+                OnnxTensor.createTensor(ortEnv, longArrayOf(numFrames.toLong())).also { inputs[ioNames.lengthInput] = it }
             } else null
 
             val outputs = sess.run(inputs)
 
             @Suppress("UNCHECKED_CAST")
             val logits = outputs[0].value as Array<Array<FloatArray>>
-            val text = CtcDecoder.greedyDecode(logits[0], vocab)
+            // NeMo/IndicConformer CTC convention: blank is the LAST vocab entry, not id 0
+            // (confirmed on-device: hi's tokens.txt has "<unk> 0" ... "<blk> 5632").
+            val text = CtcDecoder.greedyDecode(logits[0], vocab, blankId = vocab.size - 1)
 
             val inferenceMs = System.currentTimeMillis() - inferenceStart
             Log.d(TAG, "STT inference: '${text.take(50)}' in ${inferenceMs}ms [${languageCode}]")
@@ -253,8 +255,28 @@ class STTModule(
             start += HOP_LENGTH
         }
 
-        // Flatten [T, N_MELS] → [N_MELS, T] (transpose for model input)
+        // Per-feature (per-mel-channel) normalization across this utterance's frames — NeMo's
+        // AudioToMelSpectrogramPreprocessor default ("normalize: per_feature"). IndicConformer is
+        // NeMo-trained, so it expects normalized input; without this the encoder saw
+        // out-of-distribution magnitudes and collapsed to the same predicted token regardless of
+        // audio content (confirmed on-device: three different-length recordings all decoded to
+        // the same single repeated character).
         val T = frames.size
+        for (m in 0 until N_MELS) {
+            var mean = 0.0
+            for (t in 0 until T) mean += frames[t][m]
+            mean /= T
+            var variance = 0.0
+            for (t in 0 until T) {
+                val d = frames[t][m] - mean
+                variance += d * d
+            }
+            val std = kotlin.math.sqrt(variance / T)
+            val denom = (std + 1e-5).toFloat()
+            for (t in 0 until T) frames[t][m] = ((frames[t][m] - mean) / denom).toFloat()
+        }
+
+        // Flatten [T, N_MELS] → [N_MELS, T] (transpose for model input)
         val result = FloatArray(N_MELS * T)
         for (t in 0 until T) {
             for (m in 0 until N_MELS) {

@@ -58,7 +58,14 @@ class ModelDownloadManager(private val context: Context) {
 
         if (info.extractDirName != null) {
             val dir = File(modelsDir, info.extractDirName)
-            return dir.exists() && dir.listFiles()?.isNotEmpty() == true
+            val files = dir.listFiles()
+            if (files.isNullOrEmpty()) return false
+            // A TTS voice bundle without its .onnx model is a partial/corrupted extraction (seen
+            // for real: a since-fixed race between duplicate download() calls for the same pack
+            // could clobber another in-flight extraction's output files). The shared
+            // ESPEAK_NG_DATA bundle has no .onnx of its own, so it's exempt from this check.
+            if (pack != ModelPack.ESPEAK_NG_DATA && files.none { it.extension == "onnx" }) return false
+            return true
         }
 
         val file = File(modelsDir, info.fileName)
@@ -77,7 +84,13 @@ class ModelDownloadManager(private val context: Context) {
         return f.exists() && f.length() > 0
     }
 
-    /** Start downloading a pack. Reports [DownloadState.Failed] honestly on any error — never fabricates a file. */
+    /**
+     * Start downloading a pack. Reports [DownloadState.Failed] honestly on any error — never
+     * fabricates a file. A no-op if [pack] is already downloaded or already in flight — calling
+     * this twice concurrently for the same pack (e.g. re-tapping "Download the Pack" while a
+     * previous batch is still running) previously raced two writers on the same `.part` file,
+     * observed on a real device as spurious ENOENT failures and duplicate success logs.
+     */
     fun download(pack: ModelPack) {
         val info = ModelRegistry.getInfo(pack) ?: run {
             Log.e(TAG, "No registry entry for $pack")
@@ -88,10 +101,19 @@ class ModelDownloadManager(private val context: Context) {
             updateState(pack, DownloadState.Failed("No offline TTS source available for this language"))
             return
         }
+        when (_downloadStates.value[pack]) {
+            is DownloadState.Downloaded, is DownloadState.Queued, is DownloadState.Downloading -> {
+                Log.d(TAG, "$pack already downloaded or in flight — ignoring duplicate download() call")
+                return
+            }
+            else -> {}
+        }
+        // Set Queued synchronously (not inside the launched coroutine) so this check-then-set is
+        // atomic from the caller's thread — closes the race two near-simultaneous calls from the
+        // same (Main) thread would otherwise both pass the check above before either reached here.
+        updateState(pack, DownloadState.Queued)
 
         scope.launch {
-            updateState(pack, DownloadState.Queued)
-
             // Skip re-downloading a piece that's already on disk — otherwise a pack that failed
             // only on its (small) aux file after a successful (large) main-file download would
             // re-fetch the whole main file again on every retry.
@@ -142,6 +164,16 @@ class ModelDownloadManager(private val context: Context) {
      *     so the first successful download's hash becomes the baseline; a later re-download that
      *     doesn't match it is treated as corruption/tampering and rejected.
      */
+    /** Searches [response] and every response earlier in its redirect chain for an `X-Linked-ETag` header. */
+    private fun findLinkedETag(response: okhttp3.Response): String? {
+        var current: okhttp3.Response? = response
+        while (current != null) {
+            current.header("x-linked-etag")?.let { return it }
+            current = current.priorResponse
+        }
+        return null
+    }
+
     private suspend fun downloadFile(
         pack: ModelPack,
         url: String,
@@ -164,9 +196,15 @@ class ModelDownloadManager(private val context: Context) {
                 if (!response.isSuccessful) {
                     throw java.io.IOException("HTTP ${response.code}")
                 }
-                remoteHash = HashUtils.normalizeHashHeader(
-                    response.header("x-linked-etag") ?: response.header("etag")
-                )
+                // HuggingFace's LFS "X-Linked-ETag" (the real content SHA-256) is set on the
+                // *redirect* response from huggingface.co, not on the final CDN response OkHttp
+                // hands back after auto-following it — confirmed on a real device: every HF-hosted
+                // download was failing integrity checks because response.header("x-linked-etag")
+                // was null on the terminal response, silently falling back to the CDN's own
+                // unrelated `etag` (a storage revision id, not a content hash). Walk the whole
+                // redirect chain via priorResponse so the real header is found wherever it lives.
+                remoteHash = HashUtils.normalizeHashHeader(findLinkedETag(response))
+                    ?: HashUtils.normalizeHashHeader(response.header("etag"))
                 val body = response.body ?: throw java.io.IOException("Empty response body")
                 val contentLength = body.contentLength().takeIf { it > 0 } ?: sizeBytes
 

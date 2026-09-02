@@ -1,5 +1,6 @@
 package com.itantra.core.download
 
+import android.util.Log
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream
 import org.apache.commons.compress.compressors.bzip2.BZip2CompressorInputStream
 import java.io.File
@@ -25,11 +26,13 @@ object ArchiveExtractor {
      */
     fun extractTarBz2(archiveFile: File, destDir: File, excludePrefixes: List<String> = emptyList()) {
         destDir.mkdirs()
+        var writtenCount = 0
         BZip2CompressorInputStream(archiveFile.inputStream().buffered()).use { bz2 ->
             TarArchiveInputStream(bz2).use { tar ->
                 var entry = tar.nextEntry
                 while (entry != null) {
                     if (!tar.canReadEntryData(entry)) {
+                        Log.w("ArchiveExtractor", "Cannot read entry data, skipping: ${entry.name}")
                         entry = tar.nextEntry
                         continue
                     }
@@ -40,15 +43,15 @@ object ArchiveExtractor {
                             outFile.mkdirs()
                         } else {
                             outFile.parentFile?.mkdirs()
-                            FileOutputStream(outFile).use { out ->
-                                tar.copyTo(out)
-                            }
+                            FileOutputStream(outFile).use { out -> tar.copyTo(out) }
+                            writtenCount++
                         }
                     }
                     entry = tar.nextEntry
                 }
             }
         }
+        Log.i("ArchiveExtractor", "Extracted $writtenCount files from ${archiveFile.name} to ${destDir.path}")
     }
 
     /** sherpa-onnx tar bundles are named e.g. "vits-piper-hi_IN-pratham-medium/model.onnx" — drop that first segment. */
