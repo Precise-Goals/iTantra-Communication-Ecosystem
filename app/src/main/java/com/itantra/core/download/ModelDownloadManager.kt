@@ -71,6 +71,12 @@ class ModelDownloadManager(private val context: Context) {
     /** Check if all packs in the given list are present */
     fun areAllPresent(packs: List<ModelPack>): Boolean = packs.all { isModelPresent(it) }
 
+    /** Whether a single already-downloaded file (main or aux) exists on disk and is non-empty. */
+    private fun isFilePresent(fileName: String): Boolean {
+        val f = File(modelsDir, fileName)
+        return f.exists() && f.length() > 0
+    }
+
     /** Start downloading a pack. Reports [DownloadState.Failed] honestly on any error — never fabricates a file. */
     fun download(pack: ModelPack) {
         val info = ModelRegistry.getInfo(pack) ?: run {
@@ -86,19 +92,26 @@ class ModelDownloadManager(private val context: Context) {
         scope.launch {
             updateState(pack, DownloadState.Queued)
 
-            val mainOk = downloadFile(pack, info.downloadUrl, info.fileName, info.sizeBytes, info.sha256)
+            // Skip re-downloading a piece that's already on disk — otherwise a pack that failed
+            // only on its (small) aux file after a successful (large) main-file download would
+            // re-fetch the whole main file again on every retry.
+            val mainOk = isFilePresent(info.fileName) || downloadFile(pack, info.downloadUrl, info.fileName, info.sizeBytes, info.sha256)
             if (!mainOk) return@launch
 
             if (info.auxUrl != null && info.auxFileName != null) {
-                val auxOk = downloadFile(pack, info.auxUrl, info.auxFileName, sizeBytes = 0L, expectedSha256 = null, isAux = true)
+                val auxOk = isFilePresent(info.auxFileName) ||
+                    downloadFile(pack, info.auxUrl, info.auxFileName, sizeBytes = 0L, expectedSha256 = null, isAux = true)
                 if (!auxOk) return@launch
             }
 
             if (info.extractDirName != null) {
                 val archiveFile = File(modelsDir, info.fileName)
                 val destDir = File(modelsDir, info.extractDirName)
+                // Each Piper voice bundle embeds its own espeak-ng-data copy; skip it for
+                // anything but the shared ESPEAK_NG_DATA pack itself, which needs the real thing.
+                val excludePrefixes = if (pack == ModelPack.ESPEAK_NG_DATA) emptyList() else listOf("espeak-ng-data/")
                 try {
-                    ArchiveExtractor.extractTarBz2(archiveFile, destDir)
+                    ArchiveExtractor.extractTarBz2(archiveFile, destDir, excludePrefixes)
                     archiveFile.delete()
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to extract $pack: ${e.message}", e)

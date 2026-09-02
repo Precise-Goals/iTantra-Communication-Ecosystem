@@ -57,7 +57,18 @@ object ModelRegistry {
 
     /**
      * sherpa-onnx per-language IndicConformer STT model + its tokens.txt vocab
-     * (no shared "multilingual" file exists — each language is a separate ONNX graph).
+     * (no shared "multilingual" *model* file exists — each language is a separate ONNX graph).
+     *
+     * The tokenizer is a different story: verified via HuggingFace's real file-listing API
+     * (`api.github.com`-style `/api/models/...` — not the resolve/main HTTP-status guesswork
+     * this repo's registry used to rely on) that there is **no per-language tokens.txt** except
+     * `en/tokens.txt` — every other language shares one root-level `tokens.txt`. The previous
+     * version of this registry pointed every language at `$lang/tokens.txt`, which 404s for all
+     * 8 non-English languages: the ~188MB model would download fine, then the pack would be
+     * marked Failed on the tokens.txt 404, leaving an orphaned .onnx file that `isModelPresent()`
+     * correctly refuses to count as "downloaded" — from the outside this looked exactly like
+     * "the app can't remember my downloads."
+     *
      * Only the "hi", "gu", "kn", "ta" sizes below were confirmed against the actual repo listing;
      * the rest are estimates for progress-bar display only — the real HTTP Content-Length
      * (see ModelDownloadManager.downloadFile) is used for the actual total whenever available.
@@ -66,15 +77,18 @@ object ModelRegistry {
      * (a literal placeholder string here would be treated as an *authoritative* expected hash
      * and make every real download fail its own integrity check).
      */
-    private fun sttInfo(pack: ModelPack, lang: String, sizeBytes: Long): ModelInfo = ModelInfo(
-        pack = pack,
-        fileName = "stt_${lang}_int8.onnx",
-        downloadUrl = "$SHERPA_BASE/$lang/model.int8.onnx",
-        sha256 = null,
-        sizeBytes = sizeBytes,
-        auxFileName = "stt_${lang}_tokens.txt",
-        auxUrl = "$SHERPA_BASE/$lang/tokens.txt"
-    )
+    private fun sttInfo(pack: ModelPack, lang: String, sizeBytes: Long): ModelInfo {
+        val tokensUrl = if (lang == "en") "$SHERPA_BASE/en/tokens.txt" else "$SHERPA_BASE/tokens.txt"
+        return ModelInfo(
+            pack = pack,
+            fileName = "stt_${lang}_int8.onnx",
+            downloadUrl = "$SHERPA_BASE/$lang/model.int8.onnx",
+            sha256 = null,
+            sizeBytes = sizeBytes,
+            auxFileName = "stt_${lang}_tokens.txt",
+            auxUrl = tokensUrl
+        )
+    }
 
     /** A sherpa-onnx `tts-models` release TTS voice bundle: real espeak-ng phonemization included. */
     private fun sherpaTtsInfo(

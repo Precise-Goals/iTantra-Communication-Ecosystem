@@ -16,8 +16,14 @@ object ArchiveExtractor {
      * Extracts [archiveFile] (a .tar.bz2) into [destDir], flattening the archive's own top-level
      * directory (sherpa-onnx bundles wrap everything in one folder named after the release asset;
      * we don't want that extra nesting under our own per-pack directory).
+     *
+     * @param excludePrefixes Skip any entry whose stripped relative path starts with one of these
+     *   (after stripping the archive's own top-level folder). Used to drop each Piper voice
+     *   bundle's own embedded `espeak-ng-data/` copy — confirmed present by inspecting a real
+     *   bundle's contents — since [ModelPack.ESPEAK_NG_DATA] downloads one shared copy already;
+     *   keeping both would waste ~7MB per language for no benefit.
      */
-    fun extractTarBz2(archiveFile: File, destDir: File) {
+    fun extractTarBz2(archiveFile: File, destDir: File, excludePrefixes: List<String> = emptyList()) {
         destDir.mkdirs()
         BZip2CompressorInputStream(archiveFile.inputStream().buffered()).use { bz2 ->
             TarArchiveInputStream(bz2).use { tar ->
@@ -28,7 +34,7 @@ object ArchiveExtractor {
                         continue
                     }
                     val relativePath = stripTopLevelDir(entry.name)
-                    if (relativePath.isNotBlank()) {
+                    if (relativePath.isNotBlank() && excludePrefixes.none { relativePath.startsWith(it) }) {
                         val outFile = File(destDir, relativePath)
                         if (entry.isDirectory) {
                             outFile.mkdirs()
