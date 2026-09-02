@@ -24,6 +24,7 @@ kotlinxSerializationJson = "1.7.1"
 kotlinPlugin = "2.0.20"
 ksp = "2.0.20-1.0.25"
 commonsCompress = "1.26.2"
+llamacppKotlin = "0.4.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -60,6 +61,9 @@ okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhtt
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinxSerializationJson" }
 # Pure-JVM tar+bzip2 extraction for downloaded sherpa-onnx TTS voice bundles (no native code)
 commons-compress = { group = "org.apache.commons", name = "commons-compress", version.ref = "commonsCompress" }
+# Real on-device Phi-3/GGUF inference (llama.cpp Kotlin bindings) for the AI Assistant.
+# Published AAR, arm64-v8a + x86_64 only (verified) — no armeabi-v7a build.
+llamacpp-kotlin = { group = "io.github.ljcamargo", name = "llamacpp-kotlin", version.ref = "llamacppKotlin" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

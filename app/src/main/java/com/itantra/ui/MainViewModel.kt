@@ -5,6 +5,7 @@ import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.itantra.core.ai.LanguageDetector
+import com.itantra.core.ai.LlmModule
 import com.itantra.core.ai.TacticalAiEngine
 import com.itantra.core.audio.AudioCaptureModule
 import com.itantra.core.audio.AudioPlaybackManager
@@ -123,6 +124,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val vadModule = VADModule(application, audioCallbacks)
     private val sttModule = STTModule(application, audioCallbacks)
     private val ttsModule = TTSModule(application, audioCallbacks)
+    private val llmModule = LlmModule(application)
     private val audioPlayback = AudioPlaybackManager(application, audioCallbacks)
     private val audioCapture = AudioCaptureModule(
         vadModule = vadModule,
@@ -220,6 +222,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _isAiThinking = MutableStateFlow(false)
     val isAiThinking: StateFlow<Boolean> = _isAiThinking.asStateFlow()
 
+    /**
+     * True when the most recent AI reply came from real Phi-3 inference ([LlmModule]); false
+     * when it came from [TacticalAiEngine]'s hardcoded (but still real, correct) safety
+     * responses — e.g. because the model isn't downloaded, the device's ABI isn't supported,
+     * or generation failed. The UI should show which one actually answered rather than silently
+     * implying generated text when it's a lookup table.
+     */
+    private val _isUsingRealLlm = MutableStateFlow(false)
+    val isUsingRealLlm: StateFlow<Boolean> = _isUsingRealLlm.asStateFlow()
+
+    /** Phi-3-mini-4k-instruct's documented chat template — improves generation quality over a plain prefix. */
+    private fun buildLlmPrompt(userText: String): String =
+        "<|user|>\nYou are iTantra, an offline disaster-response and mesh-radio assistant. Answer briefly and practically.\n$userText<|end|>\n<|assistant|>\n"
+
+    private suspend fun generateRealLlmReply(prompt: String): String? {
+        val modelPath = downloadManager.modelPath(ModelPack.AI_ASSISTANT) ?: return null
+        if (!llmModule.isDeviceSupported()) return null
+        if (!llmModule.ensureLoaded(modelPath)) return null
+        val reply = llmModule.generate(buildLlmPrompt(prompt))
+        return reply?.trim()?.takeIf { it.isNotBlank() }
+    }
+
     fun sendAiMessage(text: String) {
         if (text.isBlank()) return
         val userMsg = AiMessage(text = text.trim(), isUser = true)
@@ -233,8 +257,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         _isAiThinking.value = true
         viewModelScope.launch {
-            kotlinx.coroutines.delay(180)
-            val fullReply = TacticalAiEngine.generateResponse(text.trim())
+            val prompt = text.trim()
+            val realReply = generateRealLlmReply(prompt)
+            val fullReply: String
+            if (realReply != null) {
+                fullReply = realReply
+                _isUsingRealLlm.value = true
+            } else {
+                kotlinx.coroutines.delay(180) // mimic thinking latency for the instant lookup-table fallback
+                fullReply = TacticalAiEngine.generateResponse(prompt)
+                _isUsingRealLlm.value = false
+            }
             _isAiThinking.value = false
 
             val assistantMsgId = UUID.randomUUID().toString()
@@ -277,6 +310,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         super.onCleared()
         meshHardwareManager.release()
         ttsModule.release()
+        llmModule.release()
         audioCapture.stopCapture()
         downloadManager.refreshStates()
     }

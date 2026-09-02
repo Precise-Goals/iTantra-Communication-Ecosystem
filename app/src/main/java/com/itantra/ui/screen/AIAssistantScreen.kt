@@ -93,6 +93,7 @@ fun AIAssistantScreen(
     val isSpeaking by viewModel.isSpeaking.collectAsState()
     val isVoiceMuted by viewModel.isVoiceMuted.collectAsState()
     val isRecordingVoice by viewModel.isRecordingVoice.collectAsState()
+    val isUsingRealLlm by viewModel.isUsingRealLlm.collectAsState()
     val listState = rememberLazyListState()
     var textInput by remember { mutableStateOf("") }
 
@@ -134,7 +135,12 @@ fun AIAssistantScreen(
                     color = iTantraBlack
                 )
                 Text(
-                    text = if (isSpeaking) "Vocalizing via local neural TTS…" else if (isRecordingVoice) "Listening (Local IndicConformer STT)…" else "100% Offline · Direct Conversational NLP",
+                    text = when {
+                        isSpeaking -> "Vocalizing via local neural TTS…"
+                        isRecordingVoice -> "Listening (Local IndicConformer STT)…"
+                        isUsingRealLlm -> "100% Offline · On-device Phi-3 (real generation)"
+                        else -> "100% Offline · Quick-reference assistant (Phi-3 not loaded)"
+                    },
                     style = MaterialTheme.typography.labelSmall,
                     color = if (isRecordingVoice) Color(0xFFDC2626) else if (isSpeaking) Color(0xFF2563EB) else iTantraSuccess
                 )

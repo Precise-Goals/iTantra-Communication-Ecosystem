@@ -132,6 +132,11 @@ dependencies {
     // Pure-JVM tar+bzip2 extraction for downloaded sherpa-onnx TTS voice bundles
     implementation(libs.commons.compress)
 
+    // Real on-device Phi-3/GGUF inference for the AI Assistant (replaces keyword-matching
+    // fallback text). Native libs cover arm64-v8a + x86_64 only (verified by inspecting the
+    // AAR) — no armeabi-v7a build; LlmModule.isDeviceSupported() gates this gracefully.
+    implementation(libs.llamacpp.kotlin)
+
     // Protocol Buffers (Java Lite)
     implementation(libs.protobuf.javalite)
 
