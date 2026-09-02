@@ -21,6 +21,11 @@ import java.util.concurrent.TimeUnit
  *
  * - Supports HTTP downloads only — a failed download is reported as [DownloadState.Failed],
  *   never masked with a synthetic placeholder file.
+ * - Verifies real SHA-256 after every download: against [ModelRegistry.ModelInfo.sha256] when
+ *   known (HuggingFace LFS hashes are also captured live from the `X-Linked-ETag`/`ETag` response
+ *   header), or against [ModelHashStore]'s trust-on-first-download record otherwise.
+ * - `.tar.bz2` bundle packs (the sherpa-onnx TTS voices + shared espeak-ng-data) are extracted
+ *   via [ArchiveExtractor] and the archive is deleted, leaving only the extracted directory.
  * - Persists downloaded status on disk in context.filesDir/models
  * - Emits StateFlow<Map<ModelPack, DownloadState>> for reactive UI observation
  */
@@ -32,6 +37,7 @@ class ModelDownloadManager(private val context: Context) {
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .build()
+    private val hashStore = ModelHashStore(context)
 
     private val _downloadStates = MutableStateFlow<Map<ModelPack, DownloadState>>(
         ModelPack.entries.associateWith { pack ->
@@ -45,9 +51,16 @@ class ModelDownloadManager(private val context: Context) {
     val modelsDir: File
         get() = File(context.filesDir, "models").also { it.mkdirs() }
 
-    /** Check if a model file (and its companion aux file, if any) exists on disk and is non-empty */
+    /** Check if a model (or, for bundle packs, its extracted directory) is present on disk. */
     fun isModelPresent(pack: ModelPack): Boolean {
         val info = ModelRegistry.getInfo(pack) ?: return false
+        if (info.downloadUrl.isBlank()) return false // unsupported pack, see ModelRegistry doc
+
+        if (info.extractDirName != null) {
+            val dir = File(modelsDir, info.extractDirName)
+            return dir.exists() && dir.listFiles()?.isNotEmpty() == true
+        }
+
         val file = File(modelsDir, info.fileName)
         if (!file.exists() || file.length() <= 0) return false
         val auxName = info.auxFileName ?: return true
@@ -64,37 +77,69 @@ class ModelDownloadManager(private val context: Context) {
             Log.e(TAG, "No registry entry for $pack")
             return
         }
+        if (info.downloadUrl.isBlank()) {
+            Log.w(TAG, "$pack has no known download source — not attempting")
+            updateState(pack, DownloadState.Failed("No offline TTS source available for this language"))
+            return
+        }
 
         scope.launch {
             updateState(pack, DownloadState.Queued)
 
-            val mainOk = downloadFile(pack, info.downloadUrl, info.fileName, info.sizeBytes)
+            val mainOk = downloadFile(pack, info.downloadUrl, info.fileName, info.sizeBytes, info.sha256)
             if (!mainOk) return@launch
 
             if (info.auxUrl != null && info.auxFileName != null) {
-                val auxOk = downloadFile(pack, info.auxUrl, info.auxFileName, sizeBytes = 0L, isAux = true)
+                val auxOk = downloadFile(pack, info.auxUrl, info.auxFileName, sizeBytes = 0L, expectedSha256 = null, isAux = true)
                 if (!auxOk) return@launch
             }
 
+            if (info.extractDirName != null) {
+                val archiveFile = File(modelsDir, info.fileName)
+                val destDir = File(modelsDir, info.extractDirName)
+                try {
+                    ArchiveExtractor.extractTarBz2(archiveFile, destDir)
+                    archiveFile.delete()
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to extract $pack: ${e.message}", e)
+                    destDir.deleteRecursively()
+                    archiveFile.delete()
+                    updateState(pack, DownloadState.Failed("Archive extraction failed: ${e.message}"))
+                    return@launch
+                }
+            }
+
             updateState(pack, DownloadState.Downloaded)
-            Log.i(TAG, "$pack downloaded successfully to ${File(modelsDir, info.fileName).path}")
+            Log.i(TAG, "$pack downloaded and verified successfully")
         }
     }
 
     /**
-     * Downloads a single file for [pack] via real HTTP. Returns true on success.
-     * On any failure, marks the pack [DownloadState.Failed] with the real reason and returns false —
-     * it never writes a placeholder file in place of the real download.
+     * Downloads a single file for [pack] via real HTTP, verifies its SHA-256, and returns true on
+     * success. On any failure (network, HTTP status, integrity mismatch), marks the pack
+     * [DownloadState.Failed] with the real reason and returns false — never writes a placeholder
+     * file in place of the real download.
+     *
+     * Integrity check order:
+     *  1. [expectedSha256] from the registry, when the source is known upfront (e.g. GitHub's
+     *     published release-asset digest).
+     *  2. The `X-Linked-ETag`/`ETag` response header, when the host is HuggingFace (LFS files
+     *     serve their real SHA-256 this way).
+     *  3. [ModelHashStore] trust-on-first-download: no authoritative hash exists for this source,
+     *     so the first successful download's hash becomes the baseline; a later re-download that
+     *     doesn't match it is treated as corruption/tampering and rejected.
      */
     private suspend fun downloadFile(
         pack: ModelPack,
         url: String,
         fileName: String,
         sizeBytes: Long,
+        expectedSha256: String?,
         isAux: Boolean = false
     ): Boolean {
         val destFile = File(modelsDir, fileName)
         val partFile = File(modelsDir, "$fileName.part")
+        var remoteHash: String? = null
 
         try {
             val request = Request.Builder()
@@ -106,6 +151,9 @@ class ModelDownloadManager(private val context: Context) {
                 if (!response.isSuccessful) {
                     throw java.io.IOException("HTTP ${response.code}")
                 }
+                remoteHash = HashUtils.normalizeHashHeader(
+                    response.header("x-linked-etag") ?: response.header("etag")
+                )
                 val body = response.body ?: throw java.io.IOException("Empty response body")
                 val contentLength = body.contentLength().takeIf { it > 0 } ?: sizeBytes
 
@@ -142,6 +190,27 @@ class ModelDownloadManager(private val context: Context) {
                 }
             }
 
+            // Integrity check, in priority order: registry-known hash, then HF header, then TOFU.
+            val computedHash = HashUtils.computeSha256(partFile)
+            val authoritative = expectedSha256 ?: remoteHash
+            if (authoritative != null) {
+                if (!HashUtils.hashesMatch(computedHash, authoritative)) {
+                    partFile.delete()
+                    Log.e(TAG, "Integrity check FAILED for $pack ($fileName): expected $authoritative, got $computedHash")
+                    updateState(pack, DownloadState.Failed("Integrity check failed"))
+                    return false
+                }
+            } else {
+                val previouslyStored = hashStore.get(fileName)
+                if (previouslyStored != null && !HashUtils.hashesMatch(computedHash, previouslyStored)) {
+                    partFile.delete()
+                    Log.e(TAG, "Integrity check FAILED for $pack ($fileName): differs from previously-downloaded copy")
+                    updateState(pack, DownloadState.Failed("Integrity check failed (differs from last verified download)"))
+                    return false
+                }
+            }
+            hashStore.set(fileName, computedHash)
+
             if (destFile.exists()) destFile.delete()
             val renamed = partFile.renameTo(destFile)
             if (!renamed) {
@@ -164,15 +233,20 @@ class ModelDownloadManager(private val context: Context) {
         updateState(pack, DownloadState.NotDownloaded)
     }
 
-    /** Delete a downloaded model (and its aux file, if any) to free storage */
+    /** Delete a downloaded model (files or extracted bundle directory) to free storage */
     fun delete(pack: ModelPack) {
         val info = ModelRegistry.getInfo(pack) ?: return
+        if (info.extractDirName != null) {
+            File(modelsDir, info.extractDirName).deleteRecursively()
+        }
         File(modelsDir, info.fileName).delete()
         File(modelsDir, "${info.fileName}.part").delete()
         info.auxFileName?.let { auxName ->
             File(modelsDir, auxName).delete()
             File(modelsDir, "$auxName.part").delete()
+            hashStore.clear(auxName)
         }
+        hashStore.clear(info.fileName)
         updateState(pack, DownloadState.NotDownloaded)
     }
 
@@ -199,9 +273,16 @@ class ModelDownloadManager(private val context: Context) {
         _downloadStates.value = current
     }
 
-    /** Returns path to a downloaded model file, or null if not present */
+    /**
+     * Returns the path to a downloaded model, or null if not present. For bundle packs
+     * (`extractDirName != null`) this is the extracted directory, not the (deleted) archive file.
+     */
     fun modelPath(pack: ModelPack): String? {
         val info = ModelRegistry.getInfo(pack) ?: return null
+        if (info.extractDirName != null) {
+            val dir = File(modelsDir, info.extractDirName)
+            return if (dir.exists()) dir.absolutePath else null
+        }
         val file = File(modelsDir, info.fileName)
         return if (file.exists()) file.absolutePath else null
     }

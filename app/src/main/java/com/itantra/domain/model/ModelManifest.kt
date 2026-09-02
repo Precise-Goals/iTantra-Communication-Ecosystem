@@ -93,73 +93,80 @@ enum class ModelPack(
         isRequired = false,
         requiredFor = "Transceiver"
     ),
+    ESPEAK_NG_DATA(
+        "Speech Phonemizer Data",
+        "Shared espeak-ng phoneme data — required by every voice pack below for real speech synthesis",
+        sizeMb = 7,
+        isRequired = true,
+        requiredFor = "Transceiver"
+    ),
     TTS_HINDI(
         "Hindi Voice Pack",
-        "AI4Bharat IndicTTS VITS — Hindi natural voice",
-        sizeMb = 15,
+        "sherpa-onnx (Piper, real espeak-ng phonemization) — Hindi natural voice",
+        sizeMb = 64,
         isRequired = false,
         requiredFor = "Transceiver"
     ),
     TTS_GUJARATI(
         "Gujarati Voice Pack",
-        "AI4Bharat IndicTTS VITS — Gujarati natural voice",
-        sizeMb = 14,
+        "sherpa-onnx (Mimic3/CMU-Indic, real phonemization) — Gujarati voice, lower quality tier (only source found)",
+        sizeMb = 76,
         isRequired = false,
         requiredFor = "Transceiver"
     ),
     TTS_MARATHI(
         "Marathi Voice Pack",
-        "AI4Bharat IndicTTS VITS — Marathi natural voice",
-        sizeMb = 14,
+        "Unsupported — no free offline TTS source found (checked Piper/Coqui/Mimic3/MMS)",
+        sizeMb = 0,
         isRequired = false,
         requiredFor = "Transceiver"
     ),
     TTS_KANNADA(
         "Kannada Voice Pack",
-        "AI4Bharat IndicTTS VITS — Kannada natural voice",
-        sizeMb = 14,
+        "Unsupported — no free offline TTS source found (checked Piper/Coqui/Mimic3/MMS)",
+        sizeMb = 0,
         isRequired = false,
         requiredFor = "Transceiver"
     ),
     TTS_MALAYALAM(
         "Malayalam Voice Pack",
-        "AI4Bharat IndicTTS VITS — Malayalam natural voice",
-        sizeMb = 14,
+        "sherpa-onnx (Piper, real espeak-ng phonemization) — Malayalam natural voice",
+        sizeMb = 64,
         isRequired = false,
         requiredFor = "Transceiver"
     ),
     TTS_TAMIL(
         "Tamil Voice Pack",
-        "AI4Bharat IndicTTS VITS — Tamil natural voice",
-        sizeMb = 15,
+        "Unsupported — no free offline TTS source found (checked Piper/Coqui/Mimic3/MMS)",
+        sizeMb = 0,
         isRequired = false,
         requiredFor = "Transceiver"
     ),
     TTS_TELUGU(
         "Telugu Voice Pack",
-        "AI4Bharat IndicTTS VITS — Telugu natural voice",
-        sizeMb = 15,
+        "Unsupported — no free offline TTS source found (checked Piper/Coqui/Mimic3/MMS)",
+        sizeMb = 0,
         isRequired = false,
         requiredFor = "Transceiver"
     ),
     TTS_ODIA(
         "Odia Voice Pack",
-        "AI4Bharat IndicTTS VITS — Odia natural voice",
-        sizeMb = 13,
+        "Unsupported — no free offline TTS source found (checked Piper/Coqui/Mimic3/MMS)",
+        sizeMb = 0,
         isRequired = false,
         requiredFor = "Transceiver"
     ),
     TTS_BENGALI(
         "Bengali Voice Pack",
-        "AI4Bharat IndicTTS VITS — Bengali natural voice",
-        sizeMb = 14,
+        "sherpa-onnx (Coqui, real phonemization) — Bengali natural voice",
+        sizeMb = 103,
         isRequired = false,
         requiredFor = "Transceiver"
     ),
     TTS_ENGLISH(
         "English Voice Pack",
-        "Piper TTS — English natural voice",
-        sizeMb = 12,
+        "sherpa-onnx (Piper, real espeak-ng phonemization) — English natural voice",
+        sizeMb = 64,
         isRequired = false,
         requiredFor = "Transceiver"
     ),
@@ -172,7 +179,14 @@ enum class ModelPack(
     );
 
     companion object {
-        /** Returns compulsory packs needed for full multilingual Transceiver & auto-LID */
+        /**
+         * Returns compulsory packs needed for full multilingual Transceiver & auto-LID.
+         *
+         * Only the languages with a real, verified TTS source are included — Kannada, Tamil,
+         * Telugu, Marathi and Odia are deliberately absent: no free offline TTS source exists
+         * for them (see [com.itantra.core.download.ModelRegistry]'s class doc). Their `ModelPack`
+         * entries stay in the enum (so nothing else dangles) but aren't offered as downloadable.
+         */
         fun coreTransceiverPacks(): List<ModelPack> = listOf(
             VAD_MODEL,
             STT_HINDI,
@@ -185,14 +199,10 @@ enum class ModelPack(
             STT_BENGALI,
             STT_ENGLISH,
             LANG_DETECTION,
+            ESPEAK_NG_DATA,
             TTS_HINDI,
             TTS_GUJARATI,
-            TTS_MARATHI,
-            TTS_KANNADA,
             TTS_MALAYALAM,
-            TTS_TAMIL,
-            TTS_TELUGU,
-            TTS_ODIA,
             TTS_BENGALI,
             TTS_ENGLISH
         )

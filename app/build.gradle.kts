@@ -121,6 +121,17 @@ dependencies {
     // ONNX Runtime Mobile
     implementation(libs.onnxruntime.android)
 
+    // sherpa-onnx: real espeak-ng-based TTS phonemization (Piper/Coqui/Mimic3 VITS voices).
+    // Uses the "static-link-onnxruntime" AAR variant — ONNX Runtime is statically linked into
+    // libsherpa-onnx-jni.so instead of shipping its own libonnxruntime.so, so it doesn't collide
+    // with the onnxruntime-android dependency above (verified: no libonnxruntime.so present for
+    // arm64-v8a/armeabi-v7a/x86_64 inside this AAR — only an unrelated x86 variant has one, and
+    // x86 isn't in our abiFilters).
+    implementation(files("libs/sherpa-onnx-static-link-onnxruntime-1.13.7.aar"))
+
+    // Pure-JVM tar+bzip2 extraction for downloaded sherpa-onnx TTS voice bundles
+    implementation(libs.commons.compress)
+
     // Protocol Buffers (Java Lite)
     implementation(libs.protobuf.javalite)
 

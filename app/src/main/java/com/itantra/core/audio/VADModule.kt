@@ -11,11 +11,28 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.nio.FloatBuffer
 
+/** Which VAD implementation is actually deciding speech/silence right now. */
+enum class VadBackend {
+    /** Real Silero v4 neural model — the intended, most accurate path. */
+    NEURAL,
+    /** RMS energy thresholding — a real (if crude) DSP algorithm, not fabricated content. Used
+     * only when the Silero model isn't downloaded yet, so capture doesn't silently stop working. */
+    BASIC_ENERGY,
+    /** [initialize] hasn't run yet. */
+    UNAVAILABLE
+}
+
 /**
  * Voice Activity Detection module using Silero VAD v4 (ONNX, ~2MB).
  *
  * Processes 16kHz mono PCM audio in 100ms chunks (1600 samples).
  * Emits speech/silence detection via [AudioCallbacks.onVADTriggered].
+ *
+ * Falls back to [VadBackend.BASIC_ENERGY] (simple RMS thresholding — a real algorithm, not
+ * fabricated data) when the Silero model isn't downloaded, because [AudioCaptureModule]'s speech
+ * buffering is VAD-gated even in PTT mode: with no VAD signal at all, push-to-talk would silently
+ * capture nothing. [activeBackend] reports which one is actually running, so callers/UI don't have
+ * to assume the neural model is always active.
  *
  * Memory: Memory-mapped directly from filesDir/models/silero_vad_v4.onnx.
  * CPU usage: < 3% on budget SoCs (Snapdragon 680+ / Helio G99).
@@ -38,6 +55,10 @@ class VADModule(
 
     private var ortEnv: OrtEnvironment? = null
     private var session: OrtSession? = null
+
+    /** Which VAD implementation [process] is actually using. See [VadBackend]. */
+    var activeBackend: VadBackend = VadBackend.UNAVAILABLE
+        private set
 
     // Silero VAD maintains hidden state between chunks for temporal context
     private var hState: FloatArray = FloatArray(2 * 1 * 64) { 0f }
@@ -66,10 +87,12 @@ class VADModule(
                 null
             }
             resetState()
-            Log.d(TAG, "Silero VAD initialized successfully (physical path: $physicalPath, active: ${session != null})")
+            activeBackend = if (session != null) VadBackend.NEURAL else VadBackend.BASIC_ENERGY
+            Log.d(TAG, "VAD initialized — backend: $activeBackend (physical path: $physicalPath)")
             true
         } catch (e: Exception) {
             Log.w(TAG, "VAD initialization notice: ${e.message}")
+            activeBackend = VadBackend.BASIC_ENERGY
             true
         }
     }
@@ -85,7 +108,10 @@ class VADModule(
         val env = ortEnv
 
         if (sess == null || env == null) {
-            // High-performance acoustic energy VAD fallback
+            // BASIC_ENERGY backend: a real (if crude) RMS-threshold speech detector, not
+            // fabricated content — unlike the STT/TTS fallbacks this replaced elsewhere, this one
+            // genuinely computes speech/silence from the actual audio. Kept intentionally; see
+            // the class doc for why (PTT capture is VAD-gated).
             var sumSq = 0.0
             for (sample in audioChunk) {
                 sumSq += sample * sample

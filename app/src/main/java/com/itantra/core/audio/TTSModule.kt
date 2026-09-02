@@ -1,39 +1,29 @@
 package com.itantra.core.audio
 
-import ai.onnxruntime.OnnxTensor
-import ai.onnxruntime.OrtEnvironment
-import ai.onnxruntime.OrtSession
 import android.content.Context
 import android.util.Log
+import com.itantra.core.download.ModelRegistry
 import com.itantra.domain.contracts.AudioCallbacks
 import com.itantra.domain.model.AppResult
 import com.itantra.domain.model.ErrorCode
+import com.itantra.domain.model.ModelPack
+import com.k2fsa.sherpa.onnx.OfflineTts
+import com.k2fsa.sherpa.onnx.OfflineTtsConfig
+import com.k2fsa.sherpa.onnx.OfflineTtsModelConfig
+import com.k2fsa.sherpa.onnx.OfflineTtsVitsModelConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.nio.FloatBuffer
-import java.nio.LongBuffer
 
 /**
- * Text-to-Speech synthesis using AI4Bharat IndicTTS VITS (ONNX INT8).
+ * Text-to-Speech synthesis using sherpa-onnx's [OfflineTts] — real espeak-ng-based phonemization
+ * over Piper/Coqui/Mimic3 VITS voices (see `ModelRegistry`'s class doc for exactly which
+ * languages have a verified free voice source; the rest report a real error, never fabricated
+ * audio).
  *
- * 100% OFFLINE — Strictly zero Google Speech / Cloud services.
- * Converts incoming text strings to waveform audio for playback via AudioPlaybackManager.
- * Per-language models (~12–15MB each INT8) are lazy-loaded on demand from filesDir/models/.
- *
- * Supported language models:
- * - hi_vits_int8.onnx  (Hindi)
- * - gu_vits_int8.onnx  (Gujarati)
- * - mr_vits_int8.onnx  (Marathi)
- * - kn_vits_int8.onnx  (Kannada)
- * - ml_vits_int8.onnx  (Malayalam)
- * - ta_vits_int8.onnx  (Tamil)
- * - te_vits_int8.onnx  (Telugu)
- * - or_vits_int8.onnx  (Odia)
- * - bn_vits_int8.onnx  (Bengali)
- * - en_piper_int8.onnx (English)
- *
- * Output: 22050Hz float PCM waveform (resampled to 16kHz for AudioPlaybackManager)
+ * 100% offline — zero cloud/Google Speech services. Every voice shares one downloaded
+ * `espeak-ng-data` directory (ModelPack.ESPEAK_NG_DATA); per-language voice bundles are
+ * downloaded+extracted by ModelDownloadManager into `filesDir/models/tts/{lang}/`.
  */
 class TTSModule(
     private val context: Context,
@@ -41,88 +31,60 @@ class TTSModule(
 ) {
     companion object {
         private const val TAG = "TTSModule"
-        private const val TTS_ASSET_DIR = "models/tts"
-        const val OUTPUT_SAMPLE_RATE = 22050
         const val PLAYBACK_SAMPLE_RATE = 16000
 
-        private val BASIC_PHONEMES = " !\"'(),-.:;?abcdefghijklmnopqrstuvwxyz".toList()
+        /** Only languages with a real, verified sherpa-onnx voice source — see ModelRegistry. */
+        private val LANGUAGE_TO_PACK: Map<String, ModelPack> = mapOf(
+            "hi" to ModelPack.TTS_HINDI,
+            "gu" to ModelPack.TTS_GUJARATI,
+            "ml" to ModelPack.TTS_MALAYALAM,
+            "bn" to ModelPack.TTS_BENGALI,
+            "en" to ModelPack.TTS_ENGLISH
+        )
     }
 
-    private val ortEnv: OrtEnvironment by lazy { OrtEnvironment.getEnvironment() }
-    private val sessionCache = mutableMapOf<String, OrtSession>()
-    private var currentLanguage: String? = null
+    private val ttsCache = mutableMapOf<String, OfflineTts>()
 
     /**
-     * Synthesize text to audio waveform for the specified language.
+     * Synthesize text to a 16kHz PCM waveform for the specified language.
      *
      * @param text Input text string (UTF-8, supports all Indic scripts).
-     * @param languageCode BCP-47 language code (e.g., "hi", "ta", "mr").
-     * @return FloatArray PCM waveform at [PLAYBACK_SAMPLE_RATE] (16kHz), ready for AudioTrack playback.
+     * @param languageCode BCP-47 language code (e.g., "hi", "en"). Only [LANGUAGE_TO_PACK]'s
+     *   languages have a real voice; anything else — or a supported language whose voice pack
+     *   isn't downloaded yet — returns null and reports a real [ErrorCode.MODEL_LOAD_FAILED].
+     * @return FloatArray PCM waveform at [PLAYBACK_SAMPLE_RATE] (16kHz), ready for AudioTrack
+     *   playback, or null on failure. Never returns fabricated audio.
      */
     suspend fun synthesize(text: String, languageCode: String): FloatArray? =
         withContext(Dispatchers.Default) {
-            val session = getOrLoadSession(languageCode)
-            if (session == null) {
-                // High-fidelity offline phonetic harmonic synthesizer (Zero Google APIs)
-                val durationMs = (text.length * 55L).coerceIn(800L, 4500L)
-                val numSamples = (PLAYBACK_SAMPLE_RATE * durationMs / 1000L).toInt()
-                val waveform = FloatArray(numSamples) { idx ->
-                    val t = idx.toFloat() / PLAYBACK_SAMPLE_RATE
-                    val f0 = 140.0 + (text.hashCode() % 30) // Fundamental voice pitch
-                    val harmonic1 = kotlin.math.sin(2.0 * Math.PI * f0 * t) * 0.18f
-                    val harmonic2 = kotlin.math.sin(4.0 * Math.PI * f0 * t) * 0.08f
-                    val envelope = kotlin.math.sin((idx.toFloat() / numSamples) * Math.PI).toFloat()
-                    ((harmonic1 + harmonic2) * envelope).toFloat()
-                }
-                callbacks.onTTSSynthesisComplete(durationMs)
-                return@withContext waveform
+            val tts = getOrLoadTts(languageCode)
+            if (tts == null) {
+                callbacks.onAudioError(
+                    AppResult.Error(
+                        ErrorCode.MODEL_LOAD_FAILED,
+                        "TTS not available for '$languageCode' (unsupported language or voice pack not downloaded)"
+                    )
+                )
+                return@withContext null
             }
 
-            val startMs = System.currentTimeMillis()
             try {
-                val phonemeIds = encodeText(text, languageCode)
-                if (phonemeIds.isEmpty()) return@withContext null
-
-                val longArray = LongArray(phonemeIds.size) { phonemeIds[it].toLong() }
-                val inputIds = OnnxTensor.createTensor(
-                    ortEnv,
-                    LongBuffer.wrap(longArray),
-                    longArrayOf(1, phonemeIds.size.toLong())
-                )
-                val inputLengths = OnnxTensor.createTensor(
-                    ortEnv,
-                    LongBuffer.wrap(longArrayOf(phonemeIds.size.toLong())),
-                    longArrayOf(1)
-                )
-                val speakerIds = OnnxTensor.createTensor(
-                    ortEnv,
-                    LongBuffer.wrap(longArrayOf(0L)),
-                    longArrayOf(1)
-                )
-
-                val inputs = mapOf(
-                    "input" to inputIds,
-                    "input_lengths" to inputLengths,
-                    "scales" to createScalesTensor(0.667f, 1.0f, 0.8f),
-                    "sid" to speakerIds
-                )
-
-                val outputs = session.run(inputs)
-                @Suppress("UNCHECKED_CAST")
-                val rawWaveform = (outputs[0].value as Array<Array<FloatArray>>)[0][0]
-
+                val startMs = System.currentTimeMillis()
+                val audio = tts.generate(text = text)
                 val synthesisMs = System.currentTimeMillis() - startMs
-                val durationMs = (rawWaveform.size.toLong() * 1000L / OUTPUT_SAMPLE_RATE)
-                Log.d(TAG, "ONNX TTS synthesized ${rawWaveform.size} samples in ${synthesisMs}ms [${languageCode}]")
+                val durationMs = audio.samples.size.toLong() * 1000L / audio.sampleRate
 
-                inputIds.close(); inputLengths.close(); speakerIds.close()
-                outputs.close()
+                Log.d(
+                    TAG,
+                    "sherpa-onnx TTS synthesized ${audio.samples.size} samples @ ${audio.sampleRate}Hz " +
+                        "in ${synthesisMs}ms [$languageCode]"
+                )
 
-                val resampled = resampleTo16k(rawWaveform)
+                val resampled = resampleTo16k(audio.samples, audio.sampleRate)
                 callbacks.onTTSSynthesisComplete(durationMs)
                 resampled
             } catch (e: Exception) {
-                Log.e(TAG, "TTS ONNX synthesis error: ${e.message}")
+                Log.e(TAG, "TTS synthesis error for '$languageCode': ${e.message}", e)
                 callbacks.onAudioError(
                     AppResult.Error(ErrorCode.TTS_SYNTHESIS_FAILED, "TTS failed: ${e.message}")
                 )
@@ -130,8 +92,10 @@ class TTSModule(
             }
         }
 
-    fun resampleTo16k(waveform: FloatArray): FloatArray {
-        val ratio = PLAYBACK_SAMPLE_RATE.toDouble() / OUTPUT_SAMPLE_RATE
+    /** Resample a waveform from [sourceSampleRate] down to [PLAYBACK_SAMPLE_RATE] via linear interpolation. */
+    fun resampleTo16k(waveform: FloatArray, sourceSampleRate: Int): FloatArray {
+        if (sourceSampleRate == PLAYBACK_SAMPLE_RATE) return waveform
+        val ratio = PLAYBACK_SAMPLE_RATE.toDouble() / sourceSampleRate
         val outputLength = (waveform.size * ratio).toInt()
         val resampled = FloatArray(outputLength)
 
@@ -149,60 +113,57 @@ class TTSModule(
         return resampled
     }
 
-    private fun getOrLoadSession(languageCode: String): OrtSession? {
-        sessionCache[languageCode]?.let { return it }
+    /**
+     * Loads (or returns the cached) [OfflineTts] instance for [languageCode]. Returns null when
+     * the language has no known voice source, or its bundle / the shared espeak-ng-data hasn't
+     * been downloaded yet — callers must treat null as "genuinely unavailable," not retry-forever.
+     */
+    private fun getOrLoadTts(languageCode: String): OfflineTts? {
+        ttsCache[languageCode]?.let { return it }
 
-        val diskFile = File(context.filesDir, "models/${languageCode}_vits_int8.onnx")
-        val altDiskFile = File(context.filesDir, "models/${languageCode}_piper_int8.onnx")
-        val chosenFile = if (diskFile.exists() && diskFile.length() > 0) diskFile else altDiskFile
+        val pack = LANGUAGE_TO_PACK[languageCode] ?: return null
+        val voiceDirName = ModelRegistry.getInfo(pack)?.extractDirName ?: return null
+        val espeakDirName = ModelRegistry.getInfo(ModelPack.ESPEAK_NG_DATA)?.extractDirName ?: return null
+
+        val voiceDir = File(context.filesDir, "models/$voiceDirName")
+        val espeakDataDir = File(context.filesDir, "models/$espeakDirName")
+        if (!voiceDir.isDirectory || !espeakDataDir.isDirectory) return null
+
+        val onnxFile = voiceDir.listFiles { f -> f.extension == "onnx" }?.firstOrNull() ?: return null
+        val tokensFile = File(voiceDir, "tokens.txt")
+        if (!tokensFile.exists()) return null
 
         return try {
-            val sessionOptions = OrtSession.SessionOptions().apply {
-                setIntraOpNumThreads(2)
-                setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
-            }
-            if (chosenFile.exists() && chosenFile.length() > 0) {
-                val session = ortEnv.createSession(chosenFile.absolutePath, sessionOptions)
-                sessionCache[languageCode] = session
-                currentLanguage = languageCode
-                Log.d(TAG, "ONNX TTS model loaded for '$languageCode' from ${chosenFile.name}")
-                session
-            } else {
-                null
-            }
+            val config = OfflineTtsConfig(
+                model = OfflineTtsModelConfig(
+                    vits = OfflineTtsVitsModelConfig(
+                        model = onnxFile.absolutePath,
+                        tokens = tokensFile.absolutePath,
+                        dataDir = espeakDataDir.absolutePath
+                    ),
+                    numThreads = 2,
+                    debug = false,
+                    provider = "cpu"
+                )
+            )
+            val tts = OfflineTts(assetManager = null, config = config)
+            ttsCache[languageCode] = tts
+            Log.d(TAG, "sherpa-onnx TTS loaded for '$languageCode' from ${onnxFile.name}")
+            tts
         } catch (e: Exception) {
-            Log.w(TAG, "TTS model session notice for '$languageCode': ${e.message}")
+            Log.w(TAG, "sherpa-onnx TTS load failed for '$languageCode': ${e.message}")
             null
         }
     }
 
-    private fun encodeText(text: String, languageCode: String): List<Int> {
-        val normalized = text.lowercase().trim()
-        return normalized.mapNotNull { char ->
-            val idx = BASIC_PHONEMES.indexOf(char)
-            if (idx >= 0) idx + 1 else null
-        }
-    }
-
-    private fun createScalesTensor(noiseScale: Float, lengthScale: Float, noiseScaleW: Float): OnnxTensor {
-        return OnnxTensor.createTensor(
-            ortEnv,
-            FloatBuffer.wrap(floatArrayOf(noiseScale, lengthScale, noiseScaleW)),
-            longArrayOf(3)
-        )
-    }
-
-    fun getLoadedLanguages(): Set<String> = sessionCache.keys.toSet()
+    fun getLoadedLanguages(): Set<String> = ttsCache.keys.toSet()
 
     fun unloadLanguage(languageCode: String) {
-        sessionCache[languageCode]?.close()
-        sessionCache.remove(languageCode)
-        if (currentLanguage == languageCode) currentLanguage = null
+        ttsCache.remove(languageCode)?.release()
     }
 
     fun release() {
-        sessionCache.values.forEach { it.close() }
-        sessionCache.clear()
-        currentLanguage = null
+        ttsCache.values.forEach { runCatching { it.release() } }
+        ttsCache.clear()
     }
 }
