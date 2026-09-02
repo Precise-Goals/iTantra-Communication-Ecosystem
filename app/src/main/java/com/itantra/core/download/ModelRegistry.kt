@@ -25,7 +25,27 @@ object ModelRegistry {
         val downloadUrl: String,
         val sha256: String,
         val sizeBytes: Long,
-        val version: String = "2.0.0"
+        val version: String = "2.0.0",
+        /** Optional companion file (e.g. a tokenizer vocab) required alongside the main model. */
+        val auxFileName: String? = null,
+        val auxUrl: String? = null
+    )
+
+    /**
+     * sherpa-onnx per-language IndicConformer STT model + its tokens.txt vocab
+     * (no shared "multilingual" file exists — each language is a separate ONNX graph).
+     * Only the "hi", "gu", "kn", "ta" sizes below were confirmed against the actual repo listing;
+     * the rest are estimates for progress-bar display only — the real HTTP Content-Length
+     * (see ModelDownloadManager.downloadFile) is used for the actual total whenever available.
+     */
+    private fun sttInfo(pack: ModelPack, lang: String, sizeBytes: Long): ModelInfo = ModelInfo(
+        pack = pack,
+        fileName = "stt_${lang}_int8.onnx",
+        downloadUrl = "$SHERPA_BASE/$lang/model.int8.onnx",
+        sha256 = "placeholder_sha256_stt_$lang",
+        sizeBytes = sizeBytes,
+        auxFileName = "stt_${lang}_tokens.txt",
+        auxUrl = "$SHERPA_BASE/$lang/tokens.txt"
     )
 
     val registry: Map<ModelPack, ModelInfo> = mapOf(
@@ -36,13 +56,17 @@ object ModelRegistry {
             sha256 = "placeholder_sha256_vad",
             sizeBytes = 2_327_524L // 2.22 MB
         ),
-        ModelPack.STT_INDIC_CONFORMER to ModelInfo(
-            pack = ModelPack.STT_INDIC_CONFORMER,
-            fileName = "indicconformer_multilingual_int8.onnx",
-            downloadUrl = "$SHERPA_BASE/hi/model.int8.onnx",
-            sha256 = "placeholder_sha256_stt",
-            sizeBytes = 197_595_593L // 188.44 MB
-        ),
+        // No Odia entry: the parismitaglobalsolutions/indicconformer-sherpa-onnx repo has no "or/" model —
+        // it only has "as/" (Assamese). Reusing that mislabeled as Odia would just be a second fabrication.
+        ModelPack.STT_HINDI to sttInfo(ModelPack.STT_HINDI, "hi", 197_595_593L),
+        ModelPack.STT_GUJARATI to sttInfo(ModelPack.STT_GUJARATI, "gu", 197_595_461L),
+        ModelPack.STT_MARATHI to sttInfo(ModelPack.STT_MARATHI, "mr", 197_595_500L),
+        ModelPack.STT_KANNADA to sttInfo(ModelPack.STT_KANNADA, "kn", 197_595_728L),
+        ModelPack.STT_MALAYALAM to sttInfo(ModelPack.STT_MALAYALAM, "ml", 197_595_500L),
+        ModelPack.STT_TAMIL to sttInfo(ModelPack.STT_TAMIL, "ta", 197_595_513L),
+        ModelPack.STT_TELUGU to sttInfo(ModelPack.STT_TELUGU, "te", 197_595_500L),
+        ModelPack.STT_BENGALI to sttInfo(ModelPack.STT_BENGALI, "bn", 197_595_500L),
+        ModelPack.STT_ENGLISH to sttInfo(ModelPack.STT_ENGLISH, "en", 197_595_500L),
         ModelPack.LANG_DETECTION to ModelInfo(
             pack = ModelPack.LANG_DETECTION,
             fileName = "lid.176.ftz",

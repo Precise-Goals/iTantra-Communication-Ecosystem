@@ -3,8 +3,10 @@ package com.itantra.core.audio
 import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
+import ai.onnxruntime.TensorInfo
 import android.content.Context
 import android.util.Log
+import com.itantra.core.download.ModelAssetExtractor
 import com.itantra.domain.contracts.AudioCallbacks
 import com.itantra.domain.model.AppResult
 import com.itantra.domain.model.ErrorCode
@@ -15,22 +17,18 @@ import kotlin.math.cos
 import kotlin.math.ln
 import kotlin.math.PI
 import kotlin.math.sin
-import kotlin.math.sqrt
 
 /**
- * Speech-to-Text module using AI4Bharat IndicConformer Multilingual (ONNX INT8).
+ * Speech-to-Text module using AI4Bharat IndicConformer (sherpa-onnx export, ONNX INT8).
  *
- * This is the primary STT engine for all 10 supported Indic languages.
- * A single multilingual model handles all languages via language-prefix tokens.
+ * There is no single "multilingual" model — sherpa-onnx ships one ONNX graph per language,
+ * each with its own tokens.txt vocabulary alongside it. Sessions and vocabularies are
+ * lazy-loaded and cached per language code.
  *
- * Model path: assets/models/indicconformer_int8.onnx (~150MB INT8 quantized)
+ * Model files: filesDir/models/stt_{lang}_int8.onnx + stt_{lang}_tokens.txt
  *
- * Performance targets:
- * - Hindi WER: < 8%
- * - Average Indic WER: < 18%
- * - Inference time: < 800ms on mid-range, < 1500ms on low-end (2GB RAM)
- *
- * Memory: Lazy-loaded. Released after [IDLE_TIMEOUT_MS] of inactivity.
+ * If a language's model/vocab isn't downloaded, [transcribe] returns
+ * [AppResult.Error] with [ErrorCode.MODEL_LOAD_FAILED] — it never fabricates text.
  */
 class STTModule(
     private val context: Context,
@@ -38,130 +36,174 @@ class STTModule(
 ) {
     companion object {
         private const val TAG = "STTModule"
-        private const val MODEL_ASSET = "models/indicconformer_int8.onnx"
         const val SAMPLE_RATE = 16000
         private const val N_MELS = 80
         private const val FRAME_LENGTH = 400   // 25ms window at 16kHz
         private const val HOP_LENGTH = 160     // 10ms hop at 16kHz
-        const val IDLE_TIMEOUT_MS = 30_000L
+
+        /** Candidate input names for the acoustic feature tensor, in priority order. */
+        private val FEATURE_INPUT_ALIASES = listOf("audio_signal", "x", "features", "input", "waveform")
+        /** Candidate input names for the sequence-length tensor, in priority order. */
+        private val LENGTH_INPUT_ALIASES = listOf("length", "x_lens", "input_length", "x_length")
     }
 
-    private var ortEnv: OrtEnvironment? = null
-    private var session: OrtSession? = null
-    private var isLoaded = false
+    private val ortEnv: OrtEnvironment by lazy { OrtEnvironment.getEnvironment() }
+    private val sessionCache = mutableMapOf<String, OrtSession>()
+    private val vocabCache = mutableMapOf<String, Array<String>>()
+    private val ioNamesCache = mutableMapOf<String, IoNames>()
+
+    private data class IoNames(val featureInput: String, val lengthInput: String?, val outputName: String)
 
     /**
-     * Lazy-load the IndicConformer ONNX model.
-     * Configures NNAPI → GPU → XNNPACK delegate priority.
+     * Ensure the session + tokenizer for [languageCode] are loaded (downloading is handled
+     * separately by ModelDownloadManager — this only loads what's already on disk).
+     * @return true if the language is ready to transcribe, false if the model/vocab is missing.
      */
-    suspend fun ensureLoaded(): Boolean = withContext(Dispatchers.Default) {
-        if (isLoaded && session != null) return@withContext true
+    suspend fun ensureLoaded(languageCode: String): Boolean = withContext(Dispatchers.Default) {
+        if (sessionCache.containsKey(languageCode) && vocabCache.containsKey(languageCode)) {
+            return@withContext true
+        }
 
         try {
-            Log.d(TAG, "Loading IndicConformer STT model...")
             val startMs = System.currentTimeMillis()
 
-            ortEnv = OrtEnvironment.getEnvironment()
+            val modelPath = ModelAssetExtractor.getPhysicalModelPath(
+                context, "stt_${languageCode}_int8.onnx", "models/stt/${languageCode}_model.int8.onnx"
+            )
+            val vocabPath = ModelAssetExtractor.getPhysicalModelPath(
+                context, "stt_${languageCode}_tokens.txt", "models/stt/${languageCode}_tokens.txt"
+            )
+
+            if (modelPath == null || vocabPath == null) {
+                Log.w(TAG, "STT model or tokenizer not available on disk for '$languageCode' (model=$modelPath, vocab=$vocabPath)")
+                return@withContext false
+            }
+
+            val vocab = parseTokensFile(vocabPath)
+            if (vocab.isEmpty()) {
+                Log.w(TAG, "STT tokenizer for '$languageCode' parsed to an empty vocabulary")
+                return@withContext false
+            }
+
             val sessionOptions = OrtSession.SessionOptions().apply {
                 setIntraOpNumThreads(2)
                 setInterOpNumThreads(1)
                 setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
                 try {
                     addNnapi()
-                    Log.d(TAG, "STT: NNAPI delegate enabled")
+                    Log.d(TAG, "STT('$languageCode'): NNAPI delegate enabled")
                 } catch (e: Exception) {
-                    Log.d(TAG, "STT: NNAPI unavailable, falling back to CPU XNNPACK")
+                    Log.d(TAG, "STT('$languageCode'): NNAPI unavailable, falling back to CPU XNNPACK")
                 }
             }
 
-            val physicalPath = com.itantra.core.download.ModelAssetExtractor.getPhysicalModelPath(
-                context, "indicconformer_multilingual_int8.onnx", MODEL_ASSET
-            )
-            session = if (physicalPath != null) {
-                ortEnv!!.createSession(physicalPath, sessionOptions)
-            } else {
-                null
+            val session = ortEnv.createSession(modelPath, sessionOptions)
+            val ioNames = resolveIoNames(session) ?: run {
+                Log.e(TAG, "STT('$languageCode'): could not resolve input/output tensor names, closing session")
+                session.close()
+                return@withContext false
             }
-            isLoaded = session != null
+
+            sessionCache[languageCode] = session
+            vocabCache[languageCode] = vocab
+            ioNamesCache[languageCode] = ioNames
 
             val loadMs = System.currentTimeMillis() - startMs
-            Log.d(TAG, "IndicConformer initialized in ${loadMs}ms (loaded: $isLoaded)")
+            Log.d(TAG, "STT('$languageCode') loaded in ${loadMs}ms — vocab size ${vocab.size}, inputs=${ioNames}")
             true
         } catch (e: Exception) {
-            Log.w(TAG, "STT model initialization note: ${e.message}")
-            isLoaded = false
-            true
+            Log.e(TAG, "STT('$languageCode') load failed: ${e.message}", e)
+            false
         }
     }
+
+    /**
+     * Inspect the session's real input/output tensor names instead of assuming fixed ones —
+     * the exact sherpa-onnx export convention can't be verified without the actual model file.
+     * Picks the length input (rank <= 1) and feature input (everything else) by shape when the
+     * alias lists don't match, and fails explicitly rather than guessing wrong.
+     */
+    private fun resolveIoNames(session: OrtSession): IoNames? {
+        val inputNames = session.inputNames
+        val outputNames = session.outputNames
+        val outputName = outputNames.firstOrNull() ?: return null
+
+        FEATURE_INPUT_ALIASES.firstOrNull { it in inputNames }?.let { feature ->
+            val length = LENGTH_INPUT_ALIASES.firstOrNull { it in inputNames }
+            return IoNames(feature, length, outputName)
+        }
+
+        // No known alias matched — fall back to shape-based inference.
+        val inputInfo = session.inputInfo
+        val lengthCandidates = inputInfo.filter { (_, info) ->
+            ((info.info as? TensorInfo)?.shape?.size ?: -1) <= 1
+        }.keys
+        val featureCandidates = inputNames - lengthCandidates
+
+        val feature = featureCandidates.firstOrNull() ?: return null
+        val length = lengthCandidates.firstOrNull()
+        return IoNames(feature, length, outputName)
+    }
+
+    /** Reads a sherpa-onnx `tokens.txt` file from disk and parses it via [CtcDecoder.parseTokens]. */
+    private fun parseTokensFile(path: String): Array<String> =
+        CtcDecoder.parseTokens(java.io.File(path).readText())
 
     /**
      * Transcribe a speech audio buffer to text.
      *
      * @param audioBuffer PCM float samples [-1.0, 1.0] at 16kHz.
      * @param languageCode BCP-47 language code (e.g., "hi", "ta", "en").
-     * @return Transcribed text string or error.
+     * @return Transcribed text string, or [AppResult.Error] if the model isn't downloaded
+     *   or inference fails. Never returns fabricated placeholder text.
      */
     suspend fun transcribe(
         audioBuffer: FloatArray,
         languageCode: String = "hi"
     ): AppResult<String> = withContext(Dispatchers.Default) {
-        val sess = session
-        val env = ortEnv
+        val sess = sessionCache[languageCode]
+        val vocab = vocabCache[languageCode]
+        val ioNames = ioNamesCache[languageCode]
 
-        if (sess == null || env == null) {
-            // High-reliability field fallback: voice duration estimation with Indic speech transcription
-            val durationSec = audioBuffer.size / SAMPLE_RATE.toFloat()
-            val text = when (languageCode) {
-                "hi" -> if (durationSec > 2.0f) "मदद की जरूरत है, आपातकालीन स्थिति" else "आवाज संदेश प्राप्त हुआ"
-                "mr" -> if (durationSec > 2.0f) "मदतीची आवश्यकता आहे, आणीबाणी" else "व्हॉईस संदेश प्राप्त झाला"
-                "te" -> if (durationSec > 2.0f) "సహాయం అవసరం, అత్యవసర పరిస్థితి" else "వాయిస్ సందేశం అందుకుంది"
-                "ta" -> if (durationSec > 2.0f) "உதவி தேவை, அவசர நிலை" else "குரல் செய்தி பெறப்பட்டது"
-                "kn" -> if (durationSec > 2.0f) "ಸಹಾಯ ಬೇಕಾಗಿದೆ, ತುರ್ತು ಪರಿಸ್ಥಿತಿ" else "ಧ್ವನಿ ಸಂದೇಶ ಸ್ವೀಕರಿಸಲಾಗಿದೆ"
-                "gu" -> if (durationSec > 2.0f) "મદદની જરૂર છે, કટોકટી" else "વૉઇસ સંદેશ મળ્યો"
-                "bn" -> if (durationSec > 2.0f) "সাহায্য প্রয়োজন, জরুরি অবস্থা" else "ভয়েস বার্তা গৃহীত হয়েছে"
-                else -> if (durationSec > 2.0f) "Emergency assistance requested, distress beacon" else "Voice transmission received"
-            }
-            return@withContext AppResult.Success(text)
+        if (sess == null || vocab == null || ioNames == null) {
+            val error = AppResult.Error(
+                ErrorCode.MODEL_LOAD_FAILED,
+                "STT model not downloaded for language '$languageCode'"
+            )
+            callbacks.onAudioError(error)
+            return@withContext error
         }
 
         val inferenceStart = System.currentTimeMillis()
         try {
-            // Step 1: Extract log-mel spectrogram features
             val features = extractLogMelSpectrogram(audioBuffer)
             val numFrames = features.size / N_MELS
+            if (numFrames <= 0) {
+                return@withContext AppResult.Error(ErrorCode.STT_INFERENCE_FAILED, "Audio buffer too short to transcribe")
+            }
 
-            // Step 2: Create input tensor [1, N_MELS, T]
             val featureTensor = OnnxTensor.createTensor(
-                env,
+                ortEnv,
                 FloatBuffer.wrap(features),
                 longArrayOf(1, N_MELS.toLong(), numFrames.toLong())
             )
 
-            // Step 3: Language token — IndicConformer uses language prefix
-            val langTensor = OnnxTensor.createTensor(
-                env,
-                arrayOf(languageCode)
-            )
+            val inputs = mutableMapOf(ioNames.featureInput to featureTensor)
+            val lengthTensor = if (ioNames.lengthInput != null) {
+                OnnxTensor.createTensor(ortEnv, intArrayOf(numFrames)).also { inputs[ioNames.lengthInput] = it }
+            } else null
 
-            val inputs = mapOf(
-                "audio_signal" to featureTensor,
-                "length" to OnnxTensor.createTensor(env, intArrayOf(numFrames)),
-                "language" to langTensor
-            )
-
-            // Step 4: Run inference
             val outputs = sess.run(inputs)
 
-            // Step 5: Decode token ids to text (CTC greedy decode)
             @Suppress("UNCHECKED_CAST")
             val logits = outputs[0].value as Array<Array<FloatArray>>
-            val text = greedyCTCDecode(logits[0])
+            val text = CtcDecoder.greedyDecode(logits[0], vocab)
 
             val inferenceMs = System.currentTimeMillis() - inferenceStart
             Log.d(TAG, "STT inference: '${text.take(50)}' in ${inferenceMs}ms [${languageCode}]")
 
             featureTensor.close()
-            langTensor.close()
+            lengthTensor?.close()
             outputs.close()
 
             if (text.isBlank()) {
@@ -273,31 +315,6 @@ class STTModule(
     private fun hzToMel(hz: Double) = 2595.0 * Math.log10(1.0 + hz / 700.0)
     private fun melToHz(mel: Double) = 700.0 * (Math.pow(10.0, mel / 2595.0) - 1.0)
 
-    /** Greedy CTC decode: argmax per time step, merge repeated, remove blank. */
-    private fun greedyCTCDecode(logits: Array<FloatArray>): String {
-        val BLANK_TOKEN = 0
-        val sb = StringBuilder()
-        var prevToken = -1
-
-        for (frame in logits) {
-            val token = frame.indices.maxByOrNull { frame[it] } ?: BLANK_TOKEN
-            if (token != BLANK_TOKEN && token != prevToken) {
-                // In real IndicConformer, tokens are BPE subwords decoded via tokenizer
-                // Here we use a placeholder; actual tokenizer must be loaded separately
-                sb.append(decodeToken(token))
-            }
-            prevToken = token
-        }
-        return sb.toString().trim()
-    }
-
-    /** Placeholder token decoder — replace with actual IndicConformer SentencePiece tokenizer. */
-    private fun decodeToken(token: Int): String {
-        // Real implementation: load sentencepiece model from assets and decode
-        // For now, return empty to avoid garbage output
-        return ""
-    }
-
     private fun estimateConfidence(logits: Array<FloatArray>): Float {
         if (logits.isEmpty()) return 0f
         var sumMax = 0f
@@ -309,13 +326,13 @@ class STTModule(
     }
 
     fun release() {
-        runCatching { session?.close() }
-        runCatching { ortEnv?.close() }
-        session = null
-        ortEnv = null
-        isLoaded = false
+        sessionCache.values.forEach { runCatching { it.close() } }
+        sessionCache.clear()
+        vocabCache.clear()
+        ioNamesCache.clear()
         Log.d(TAG, "STTModule released")
     }
 
-    val isModelLoaded: Boolean get() = isLoaded
+    fun isLanguageLoaded(languageCode: String): Boolean =
+        sessionCache.containsKey(languageCode) && vocabCache.containsKey(languageCode)
 }
