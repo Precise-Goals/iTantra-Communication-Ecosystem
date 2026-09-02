@@ -98,20 +98,27 @@ class ModelDownloadManager(private val context: Context) {
                                     val now = System.currentTimeMillis()
                                     if (now - lastUpdate > 100 || downloadedBytes >= contentLength) {
                                         lastUpdate = now
-                                        val progress = (downloadedBytes.toFloat() / contentLength * 100f).coerceIn(0f, 99f)
+                                        val totalTarget = if (contentLength > 0) maxOf(contentLength, downloadedBytes) else info.sizeBytes
+                                        val progress = ((downloadedBytes.toDouble() / totalTarget.toDouble()) * 100.0).toFloat().coerceIn(0f, 99f)
                                         updateState(
                                             pack,
                                             DownloadState.Downloading(
                                                 progressPercent = progress,
                                                 downloadedBytes = downloadedBytes,
-                                                totalBytes = contentLength
+                                                totalBytes = totalTarget
                                             )
                                         )
                                     }
                                 }
+                                outputStream.flush()
                             }
                         }
-                        partFile.renameTo(destFile)
+                        if (destFile.exists()) destFile.delete()
+                        val renamed = partFile.renameTo(destFile)
+                        if (!renamed) {
+                            partFile.copyTo(destFile, overwrite = true)
+                            partFile.delete()
+                        }
                         remoteSuccess = true
                         updateState(pack, DownloadState.Downloaded)
                         Log.i(TAG, "$pack downloaded successfully from remote to ${destFile.path}")
@@ -129,16 +136,14 @@ class ModelDownloadManager(private val context: Context) {
                     val chunkSize = totalBytes / simulatedSteps
 
                     partFile.outputStream().use { out ->
-                        // Write valid binary header
                         val header = "ITANTRA_ONNX_v2_INT8_${pack.name}".toByteArray()
                         out.write(header)
 
                         for (step in 1..simulatedSteps) {
-                            delay(120) // Smooth visual progress feedback
+                            delay(100)
                             val currentDownloaded = (chunkSize * step).coerceAtMost(totalBytes)
-                            val progress = (currentDownloaded.toFloat() / totalBytes * 100f).coerceIn(0f, 99f)
+                            val progress = ((step.toFloat() / simulatedSteps) * 100f).coerceIn(0f, 99f)
 
-                            // Write dummy bytes to simulate file size allocation
                             out.write(ByteArray(1024) { 0 })
 
                             updateState(
@@ -150,15 +155,21 @@ class ModelDownloadManager(private val context: Context) {
                                 )
                             )
                         }
+                        out.flush()
                     }
 
                     if (destFile.exists()) destFile.delete()
-                    partFile.renameTo(destFile)
+                    val renamed = partFile.renameTo(destFile)
+                    if (!renamed) {
+                        partFile.copyTo(destFile, overwrite = true)
+                        partFile.delete()
+                    }
                     updateState(pack, DownloadState.Downloaded)
                     Log.i(TAG, "$pack successfully initialized and ready on disk at ${destFile.path}")
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to initialize model package for $pack: ${e.message}")
-                    updateState(pack, DownloadState.Failed(e.message ?: "Storage write failed"))
+                    if (partFile.exists()) partFile.delete()
+                    updateState(pack, DownloadState.Failed(e.message ?: "Download failed"))
                 }
             }
         }

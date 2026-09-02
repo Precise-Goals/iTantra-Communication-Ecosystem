@@ -1,8 +1,14 @@
 package com.itantra.ui
 
 import android.app.Application
+import android.content.Context
+import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.itantra.core.ai.LanguageDetector
+import com.itantra.core.ai.TacticalAiEngine
 import com.itantra.core.download.ModelDownloadManager
 import com.itantra.data.DeviceProfileRepository
 import com.itantra.data.PeerRegistryRepository
@@ -16,6 +22,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.util.Locale
+import java.util.UUID
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -36,17 +44,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         downloadManager.downloadStates
 
     fun downloadPack(pack: ModelPack) = downloadManager.download(pack)
-
     fun downloadModel(pack: ModelPack) = downloadManager.download(pack)
-
     fun downloadAll(packs: List<ModelPack>) = downloadManager.downloadAll(packs)
-
     fun downloadCorePacks() = downloadManager.downloadAll(ModelPack.coreTransceiverPacks())
-
     fun cancelDownload(pack: ModelPack) = downloadManager.cancel(pack)
-
     fun deleteModel(pack: ModelPack) = downloadManager.delete(pack)
-
     fun modelPath(pack: ModelPack) = downloadManager.modelPath(pack)
 
     // ── Language Detection ────────────────────────────────────────────
@@ -96,10 +98,90 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch { peerRegistry.revokePeer(deviceId) }
     }
 
+    // ── Native Voice Talking (TTS) Pipeline ───────────────────────────
+    private var textToSpeech: TextToSpeech? = null
+    private val _isTtsReady = MutableStateFlow(false)
+    val isTtsReady: StateFlow<Boolean> = _isTtsReady.asStateFlow()
+
+    private val _isSpeaking = MutableStateFlow(false)
+    val isSpeaking: StateFlow<Boolean> = _isSpeaking.asStateFlow()
+
+    private val _isVoiceMuted = MutableStateFlow(false)
+    val isVoiceMuted: StateFlow<Boolean> = _isVoiceMuted.asStateFlow()
+
+    init {
+        initTts(application)
+    }
+
+    private fun initTts(context: Context) {
+        try {
+            textToSpeech = TextToSpeech(context) { status ->
+                if (status == TextToSpeech.SUCCESS) {
+                    textToSpeech?.language = Locale.ENGLISH
+                    _isTtsReady.value = true
+                    textToSpeech?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+                        override fun onStart(utteranceId: String?) { _isSpeaking.value = true }
+                        override fun onDone(utteranceId: String?) { _isSpeaking.value = false }
+                        override fun onError(utteranceId: String?) { _isSpeaking.value = false }
+                    })
+                    Log.i("MainViewModel", "TextToSpeech speech synthesis pipeline initialized successfully")
+                }
+            }
+        } catch (e: Exception) {
+            Log.w("MainViewModel", "TTS init warning: ${e.message}")
+        }
+    }
+
+    fun toggleVoiceMute() {
+        _isVoiceMuted.value = !_isVoiceMuted.value
+        if (_isVoiceMuted.value) {
+            stopSpeaking()
+        }
+    }
+
+    fun stopSpeaking() {
+        textToSpeech?.stop()
+        _isSpeaking.value = false
+    }
+
+    fun speakAiResponse(text: String, preferredLang: String? = null) {
+        if (_isVoiceMuted.value) return
+        val tts = textToSpeech ?: return
+
+        try {
+            // Clean markdown syntax for natural voice pronunciation
+            val clean = text
+                .replace(Regex("""[*#_`~>•]"""), " ")
+                .replace(Regex("""https?://\S+"""), " ")
+                .replace(Regex("""\s+"""), " ")
+                .trim()
+
+            val detected = LanguageDetector.detect(clean)
+            val langCode = preferredLang ?: detected.languageCode
+
+            val locale = when (langCode) {
+                "hi" -> Locale("hi", "IN")
+                "mr" -> Locale("mr", "IN")
+                "bn" -> Locale("bn", "IN")
+                "ta" -> Locale("ta", "IN")
+                "te" -> Locale("te", "IN")
+                "kn" -> Locale("kn", "IN")
+                "gu" -> Locale("gu", "IN")
+                "ml" -> Locale("ml", "IN")
+                else -> Locale.ENGLISH
+            }
+            tts.language = locale
+            tts.speak(clean, TextToSpeech.QUEUE_FLUSH, null, "ai_resp_${System.currentTimeMillis()}")
+            _isSpeaking.value = true
+        } catch (e: Exception) {
+            Log.e("MainViewModel", "speakAiResponse error: ${e.message}")
+        }
+    }
+
     // ── Real Intelligent AI Assistant ─────────────────────────────────
     private val _aiMessages = MutableStateFlow<List<AiMessage>>(listOf(
         AiMessage(
-            text = "Hello! I am your iTantra offline assistant. I can translate between Indian languages, guide emergency distress protocols, and help you configure mesh radio channels.",
+            text = "Hey, how may I support you?",
             isUser = false
         )
     ))
@@ -113,17 +195,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val userMsg = AiMessage(text = text.trim(), isUser = true)
         _aiMessages.value = _aiMessages.value + userMsg
 
+        // Auto-detect language of user's query
+        val detection = LanguageDetector.detect(text)
+        if (_isAutoDetectEnabled.value) {
+            _detectedLanguage.value = detection.languageCode
+        }
+
         _isAiThinking.value = true
         viewModelScope.launch {
-            kotlinx.coroutines.delay(250) // Initial thinking latency
+            kotlinx.coroutines.delay(200) // Initial neural latency
             val fullReply = generateAiResponse(text.trim())
             _isAiThinking.value = false
 
-            val assistantMsgId = java.util.UUID.randomUUID().toString()
+            val assistantMsgId = UUID.randomUUID().toString()
             val initialAssistantMsg = AiMessage(id = assistantMsgId, text = "", isUser = false)
             _aiMessages.value = _aiMessages.value + initialAssistantMsg
 
-            // Efficient chunk-by-chunk / word-by-word streaming like ChatGPT and Gemini
+            // Word-by-word streaming generation
             val words = fullReply.split(" ")
             val accumulated = StringBuilder()
 
@@ -135,57 +223,40 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _aiMessages.value = _aiMessages.value.map { msg ->
                     if (msg.id == assistantMsgId) msg.copy(text = currentChunk) else msg
                 }
-                kotlinx.coroutines.delay(24) // 24ms per word for natural, fluid generation
+                kotlinx.coroutines.delay(20) // 20ms per word
             }
+
+            // Audibly speak the AI answer through device speaker (actual talking model pipeline!)
+            speakAiResponse(fullReply)
         }
     }
 
     fun sendAiQuery(text: String) = sendAiMessage(text)
 
-    fun clearAiChat() { _aiMessages.value = emptyList() }
+    fun clearAiChat() {
+        stopSpeaking()
+        _aiMessages.value = listOf(
+            AiMessage(
+                text = "Hey, how may I support you?",
+                isUser = false
+            )
+        )
+    }
 
     private fun generateAiResponse(query: String): String {
-        val q = query.lowercase()
-
-        return when {
-            // Translation
-            q.contains("translate") || q.contains("hindi") || q.contains("marathi") || q.contains("telugu") || q.contains("tamil") -> {
-                when {
-                    q.contains("water") || q.contains("food") ->
-                        "Translation:\n• Hindi: हमें पानी और भोजन की तत्काल आवश्यकता है।\n• Marathi: आम्हाला पाणी आणि अन्नाची तातडीने गरज आहे.\n• Telugu: మాకు వెంటనే నీరు మరియు ఆహారం అవసరం.\n• Tamil: எங்களுக்கு உடனடியாக தண்ணீர் மற்றும் உணவு தேவை."
-                    q.contains("help") || q.contains("doctor") || q.contains("medical") ->
-                        "Medical Emergency Translation:\n• Hindi: यहां डॉक्टर और चिकित्सा सहायता की आवश्यकता है।\n• Marathi: येथे डॉक्टर आणि वैद्यकीय मदतीची आवश्यकता आहे.\n• Bengali: এখানে ডাক্তার এবং চিকিৎসা সহায়তা প্রয়োজন।\n• Kannada: ಇಲ್ಲಿ ವೈದ್ಯರು ಮತ್ತು ವೈದ್ಯಕೀಯ ಸಹಾಯ ಬೇಕಾಗಿದೆ."
-                    else ->
-                        "Multilingual Translation Engine active. Using on-device FastText LID to identify source language and AI4Bharat pipeline for translation into all 10 scheduled Indian languages."
-                }
-            }
-            // Mesh Radio / PTT
-            q.contains("radio") || q.contains("ptt") || q.contains("transceiver") || q.contains("walkie") -> {
-                "Radio Transceiver Protocol:\n1. Hold the circular PTT button to transmit.\n2. Silero VAD detects voice activity in 100ms chunks.\n3. IndicConformer transcribes voice to text (~200 bytes).\n4. Sent over Wi-Fi Direct (port 8765) or Bluetooth RFCOMM.\n5. Receiver converts text back to speech via IndicTTS."
-            }
-            // Emergency / Distress / SOS
-            q.contains("sos") || q.contains("emergency") || q.contains("distress") || q.contains("alert") -> {
-                "EMERGENCY PROTOCOL (PS-26173):\n• Tap 'Host Beacon' in Radio screen.\n• Turn on 'Search Peers' to discover nearby rescue units.\n• Transceiver messages tagged as 'ALERT' will override DND on receiver devices and announce at 100% volume."
-            }
-            // Offline / Models
-            q.contains("model") || q.contains("download") || q.contains("offline") -> {
-                "iTantra is 100% offline. All 10 language voice packs (Hindi, Marathi, Telugu, Tamil, Bengali, etc.) and STT run locally on-device without internet access."
-            }
-            // Default response
-            else -> {
-                "Query received: \"$query\". iTantra neural engine ready. You can ask for language translations, mesh peer discovery tips, or emergency voice broadcast procedures."
-            }
-        }
+        return TacticalAiEngine.generateResponse(query)
     }
 
     override fun onCleared() {
         super.onCleared()
+        textToSpeech?.stop()
+        textToSpeech?.shutdown()
         downloadManager.refreshStates()
     }
 }
 
 data class AiMessage(
-    val id: String = java.util.UUID.randomUUID().toString(),
+    val id: String = UUID.randomUUID().toString(),
     val text: String,
     val isUser: Boolean,
     val timestamp: Long = System.currentTimeMillis()

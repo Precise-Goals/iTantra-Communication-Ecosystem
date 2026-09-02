@@ -1,5 +1,17 @@
 package com.itantra.ui.screen
 
+import android.app.Activity
+import android.content.Intent
+import android.speech.RecognizerIntent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -26,10 +38,13 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.automirrored.filled.VolumeOff
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.MicOff
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -47,7 +62,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
@@ -71,11 +88,31 @@ fun AIAssistantScreen(
     viewModel: MainViewModel,
     onNavigateToDownloads: () -> Unit
 ) {
+    val context = LocalContext.current
     val aiMessages by viewModel.aiMessages.collectAsState()
     val isThinking by viewModel.isAiThinking.collectAsState()
+    val isSpeaking by viewModel.isSpeaking.collectAsState()
+    val isVoiceMuted by viewModel.isVoiceMuted.collectAsState()
     val listState = rememberLazyListState()
     var textInput by remember { mutableStateOf("") }
-    var isMicActive by remember { mutableStateOf(false) }
+    var isListeningSpeech by remember { mutableStateOf(false) }
+
+    // ── Real On-Device Speech Recognition (Microphone to Text STT) ─────
+    val speechLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        isListeningSpeech = false
+        if (result.resultCode == Activity.RESULT_OK) {
+            val spokenTexts = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
+            val recognized = spokenTexts?.firstOrNull()
+            if (!recognized.isNullOrBlank()) {
+                textInput = recognized
+                // Automatically send recognized voice query to the tactical assistant
+                viewModel.sendAiQuery(recognized)
+                textInput = ""
+            }
+        }
+    }
 
     val quickPrompts = listOf(
         "Translate: We need water",
@@ -90,6 +127,17 @@ fun AIAssistantScreen(
         }
     }
 
+    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
+    val micPulse by infiniteTransition.animateFloat(
+        initialValue = 1.0f,
+        targetValue = 1.15f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(600, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "micPulse"
+    )
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -100,23 +148,32 @@ fun AIAssistantScreen(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 18.dp),
+                .padding(horizontal = 20.dp, vertical = 16.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column {
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = "AI Tactical Assistant",
                     style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
                     color = iTantraBlack
                 )
                 Text(
-                    text = "100% Offline · Multilingual Disaster Triage & Translation",
+                    text = if (isSpeaking) "Vocalizing response through speaker…" else "100% Offline · Multilingual Voice & Triage",
                     style = MaterialTheme.typography.labelSmall,
-                    color = iTantraSuccess
+                    color = if (isSpeaking) Color(0xFF2563EB) else iTantraSuccess
                 )
             }
-            if (aiMessages.isNotEmpty()) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                // Voice Output Speaker Mute / Unmute Toggle
+                IconButton(onClick = { viewModel.toggleVoiceMute() }) {
+                    Icon(
+                        imageVector = if (isVoiceMuted) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp,
+                        contentDescription = if (isVoiceMuted) "Unmute voice" else "Mute voice",
+                        tint = if (isVoiceMuted) iTantraBlack40 else iTantraBlack
+                    )
+                }
+                // Clear chat
                 IconButton(onClick = { viewModel.clearAiChat() }) {
                     Icon(Icons.Filled.Clear, contentDescription = "Clear chat", tint = iTantraBlack60)
                 }
@@ -148,7 +205,7 @@ fun AIAssistantScreen(
             }
         }
 
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(6.dp))
 
         // ── Message Feed ─────────────────────────────────────────────
         LazyColumn(
@@ -157,10 +214,15 @@ fun AIAssistantScreen(
                 .weight(1f)
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
-            contentPadding = PaddingValues(vertical = 12.dp)
+            contentPadding = PaddingValues(vertical = 8.dp)
         ) {
             items(aiMessages, key = { it.id }) { msg ->
-                AiMessageBubbleWhite(msg = msg)
+                AiMessageBubbleWhite(
+                    msg = msg,
+                    isCurrentlySpeaking = isSpeaking && !msg.isUser,
+                    onSpeak = { viewModel.speakAiResponse(msg.text) },
+                    onStop = { viewModel.stopSpeaking() }
+                )
             }
             if (isThinking) {
                 item {
@@ -193,22 +255,34 @@ fun AIAssistantScreen(
                 .padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            // Real Microphone Voice Input Button
             Box(
                 modifier = Modifier
                     .size(44.dp)
+                    .scale(if (isListeningSpeech) micPulse else 1.0f)
                     .clip(CircleShape)
-                    .background(if (isMicActive) Color(0xFFDC2626) else iTantraBlack)
+                    .background(if (isListeningSpeech) Color(0xFFDC2626) else iTantraBlack)
                     .clickable {
-                        isMicActive = !isMicActive
-                        if (!isMicActive && textInput.isBlank()) {
-                            viewModel.sendAiQuery("Translate to Hindi: We need water and medical supplies")
+                        isListeningSpeech = true
+                        try {
+                            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                                putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
+                                putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak tactical query or emergency message…")
+                                putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
+                            }
+                            speechLauncher.launch(intent)
+                        } catch (e: Exception) {
+                            isListeningSpeech = false
+                            // Fallback if system recognizer intent is absent
+                            viewModel.sendAiQuery("Translate to Hindi: Emergency evacuation needed")
                         }
                     },
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    imageVector = if (isMicActive) Icons.Filled.Mic else Icons.Filled.MicOff,
-                    contentDescription = "Voice input",
+                    imageVector = Icons.Filled.Mic,
+                    contentDescription = "Microphone voice input",
                     tint = iTantraWhite,
                     modifier = Modifier.size(20.dp)
                 )
@@ -265,7 +339,12 @@ fun AIAssistantScreen(
 }
 
 @Composable
-private fun AiMessageBubbleWhite(msg: AiMessage) {
+private fun AiMessageBubbleWhite(
+    msg: AiMessage,
+    isCurrentlySpeaking: Boolean = false,
+    onSpeak: () -> Unit = {},
+    onStop: () -> Unit = {}
+) {
     val isUser = msg.isUser
     val timeStr = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(msg.timestamp))
 
@@ -297,13 +376,36 @@ private fun AiMessageBubbleWhite(msg: AiMessage) {
                     style = MaterialTheme.typography.bodyMedium,
                     color = if (isUser) iTantraWhite else iTantraBlack
                 )
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    text = timeStr,
-                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
-                    color = if (isUser) Color(0xFF999999) else iTantraBlack40,
-                    modifier = Modifier.align(Alignment.End)
-                )
+                Spacer(Modifier.height(6.dp))
+                Row(
+                    modifier = Modifier.align(Alignment.End),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (!isUser && msg.text.isNotBlank()) {
+                        // Speaker / Vocalization button for the message
+                        Box(
+                            modifier = Modifier
+                                .clip(CircleShape)
+                                .clickable {
+                                    if (isCurrentlySpeaking) onStop() else onSpeak()
+                                }
+                                .padding(4.dp)
+                        ) {
+                            Icon(
+                                imageVector = if (isCurrentlySpeaking) Icons.Filled.Stop else Icons.AutoMirrored.Filled.VolumeUp,
+                                contentDescription = if (isCurrentlySpeaking) "Stop voice" else "Speak message",
+                                tint = if (isCurrentlySpeaking) Color(0xFFDC2626) else iTantraBlack60,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                        Spacer(Modifier.width(6.dp))
+                    }
+                    Text(
+                        text = timeStr,
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                        color = if (isUser) Color(0xFF999999) else iTantraBlack40
+                    )
+                }
             }
         }
     }

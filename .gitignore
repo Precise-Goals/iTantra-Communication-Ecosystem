@@ -13,6 +13,7 @@ build/
 app/build/
 *.apk
 *.aab
+.device_id
 /captures
 .externalNativeBuild
 .cxx
