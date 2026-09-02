@@ -1,28 +1,34 @@
 package com.itantra.ui
 
 import android.app.Application
-import android.content.Context
-import android.speech.tts.TextToSpeech
-import android.speech.tts.UtteranceProgressListener
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.itantra.core.ai.LanguageDetector
 import com.itantra.core.ai.TacticalAiEngine
+import com.itantra.core.audio.AudioCaptureModule
+import com.itantra.core.audio.AudioPlaybackManager
+import com.itantra.core.audio.STTModule
+import com.itantra.core.audio.TTSModule
+import com.itantra.core.audio.VADModule
 import com.itantra.core.download.ModelDownloadManager
+import com.itantra.core.network.MeshHardwareManager
 import com.itantra.data.DeviceProfileRepository
 import com.itantra.data.PeerRegistryRepository
+import com.itantra.domain.contracts.AudioCallbacks
+import com.itantra.domain.model.AppResult
 import com.itantra.domain.model.DeviceProfile
 import com.itantra.domain.model.DownloadState
 import com.itantra.domain.model.ModelPack
 import com.itantra.domain.model.PeerDevice
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import java.util.Locale
 import java.util.UUID
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
@@ -30,6 +36,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val profileRepo = DeviceProfileRepository(application)
     private val peerRegistry = PeerRegistryRepository(application)
     val downloadManager = ModelDownloadManager(application)
+    private val meshHardwareManager = MeshHardwareManager(application)
 
     // ── Device Profile State ──────────────────────────────────────────
     val deviceProfile: StateFlow<DeviceProfile?> = profileRepo.profileFlow
@@ -70,25 +77,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun onLanguageDetected(bcp47Code: String, confidence: Float) {
-        if (_isAutoDetectEnabled.value && confidence >= 0.6f) {
-            _detectedLanguage.value = bcp47Code
-            _selectedLanguage.value = bcp47Code
-        }
+    // ── Hardware Mesh Networking (Wi-Fi Direct & BLE) ────────────────
+    val isHosting: StateFlow<Boolean> = meshHardwareManager.isHosting
+    val isDiscovering: StateFlow<Boolean> = meshHardwareManager.isDiscovering
+
+    // Known peers combined with live hardware broadcast receiver discovered nodes
+    val knownPeers: StateFlow<List<PeerDevice>> = combine(
+        meshHardwareManager.liveDiscoveredPeers,
+        peerRegistry.peers
+    ) { live, saved ->
+        val merged = (live + saved).distinctBy { it.deviceId }
+        merged
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    fun setHosting(enabled: Boolean) {
+        if (enabled) meshHardwareManager.startHostBeacon()
+        else meshHardwareManager.stopHostBeacon()
     }
 
-    // ── Transceiver / P2P State ───────────────────────────────────────
-    private val _isHosting = MutableStateFlow(false)
-    val isHosting: StateFlow<Boolean> = _isHosting.asStateFlow()
-
-    private val _isDiscovering = MutableStateFlow(false)
-    val isDiscovering: StateFlow<Boolean> = _isDiscovering.asStateFlow()
-
-    val knownPeers: StateFlow<List<PeerDevice>> = peerRegistry.peers
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-    fun setHosting(enabled: Boolean) { _isHosting.value = enabled }
-    fun setDiscovering(enabled: Boolean) { _isDiscovering.value = enabled }
+    fun setDiscovering(enabled: Boolean) {
+        if (enabled) meshHardwareManager.startPeerDiscovery()
+        else meshHardwareManager.stopPeerDiscovery()
+    }
 
     fun authorizePeer(deviceId: String) {
         viewModelScope.launch { peerRegistry.authorizePeer(deviceId) }
@@ -98,10 +108,35 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch { peerRegistry.revokePeer(deviceId) }
     }
 
-    // ── Native Voice Talking (TTS) Pipeline ───────────────────────────
-    private var textToSpeech: TextToSpeech? = null
-    private val _isTtsReady = MutableStateFlow(false)
-    val isTtsReady: StateFlow<Boolean> = _isTtsReady.asStateFlow()
+    // ── 100% OFFLINE STT & TTS PIPELINE (Zero Google APIs) ───────────
+    private val audioCallbacks = object : AudioCallbacks {
+        override fun onVADTriggered(isSpeech: Boolean, probability: Float) {}
+        override fun onSTTResult(result: AppResult<String>, confidence: Float, inferenceMs: Long) {}
+        override fun onTTSSynthesisComplete(durationMs: Long) { _isSpeaking.value = false }
+        override fun onAudioError(error: AppResult.Error) {
+            Log.w("MainViewModel", "Audio module notice: ${error.message}")
+            _isSpeaking.value = false
+        }
+        override fun onAudioFocusChanged(gained: Boolean) {}
+    }
+
+    private val vadModule = VADModule(application, audioCallbacks)
+    private val sttModule = STTModule(application, audioCallbacks)
+    private val ttsModule = TTSModule(application, audioCallbacks)
+    private val audioPlayback = AudioPlaybackManager(application, audioCallbacks)
+    private val audioCapture = AudioCaptureModule(
+        vadModule = vadModule,
+        sttModule = sttModule,
+        callbacks = audioCallbacks,
+        onSpeechReady = { pcm, lang ->
+            val result = sttModule.transcribe(pcm, lang)
+            if (result is AppResult.Success && result.data.isNotBlank()) {
+                viewModelScope.launch(Dispatchers.Main) {
+                    sendAiMessage(result.data)
+                }
+            }
+        }
+    )
 
     private val _isSpeaking = MutableStateFlow(false)
     val isSpeaking: StateFlow<Boolean> = _isSpeaking.asStateFlow()
@@ -109,72 +144,66 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _isVoiceMuted = MutableStateFlow(false)
     val isVoiceMuted: StateFlow<Boolean> = _isVoiceMuted.asStateFlow()
 
-    init {
-        initTts(application)
-    }
-
-    private fun initTts(context: Context) {
-        try {
-            textToSpeech = TextToSpeech(context) { status ->
-                if (status == TextToSpeech.SUCCESS) {
-                    textToSpeech?.language = Locale.ENGLISH
-                    _isTtsReady.value = true
-                    textToSpeech?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-                        override fun onStart(utteranceId: String?) { _isSpeaking.value = true }
-                        override fun onDone(utteranceId: String?) { _isSpeaking.value = false }
-                        override fun onError(utteranceId: String?) { _isSpeaking.value = false }
-                    })
-                    Log.i("MainViewModel", "TextToSpeech speech synthesis pipeline initialized successfully")
-                }
-            }
-        } catch (e: Exception) {
-            Log.w("MainViewModel", "TTS init warning: ${e.message}")
-        }
-    }
+    private val _isRecordingVoice = MutableStateFlow(false)
+    val isRecordingVoice: StateFlow<Boolean> = _isRecordingVoice.asStateFlow()
 
     fun toggleVoiceMute() {
         _isVoiceMuted.value = !_isVoiceMuted.value
-        if (_isVoiceMuted.value) {
-            stopSpeaking()
-        }
     }
 
     fun stopSpeaking() {
-        textToSpeech?.stop()
         _isSpeaking.value = false
     }
 
+    /**
+     * Synthesizes and plays speech using the on-device IndicTTS/Piper ONNX model + AudioTrack.
+     * Strictly 100% offline — zero Google Speech / Cloud services.
+     */
     fun speakAiResponse(text: String, preferredLang: String? = null) {
         if (_isVoiceMuted.value) return
-        val tts = textToSpeech ?: return
+        val detection = LanguageDetector.detect(text)
+        val lang = preferredLang ?: detection.languageCode
 
-        try {
-            // Clean markdown syntax for natural voice pronunciation
-            val clean = text
-                .replace(Regex("""[*#_`~>•]"""), " ")
-                .replace(Regex("""https?://\S+"""), " ")
-                .replace(Regex("""\s+"""), " ")
-                .trim()
-
-            val detected = LanguageDetector.detect(clean)
-            val langCode = preferredLang ?: detected.languageCode
-
-            val locale = when (langCode) {
-                "hi" -> Locale("hi", "IN")
-                "mr" -> Locale("mr", "IN")
-                "bn" -> Locale("bn", "IN")
-                "ta" -> Locale("ta", "IN")
-                "te" -> Locale("te", "IN")
-                "kn" -> Locale("kn", "IN")
-                "gu" -> Locale("gu", "IN")
-                "ml" -> Locale("ml", "IN")
-                else -> Locale.ENGLISH
-            }
-            tts.language = locale
-            tts.speak(clean, TextToSpeech.QUEUE_FLUSH, null, "ai_resp_${System.currentTimeMillis()}")
+        viewModelScope.launch(Dispatchers.Default) {
             _isSpeaking.value = true
-        } catch (e: Exception) {
-            Log.e("MainViewModel", "speakAiResponse error: ${e.message}")
+            val waveform = ttsModule.synthesize(text, lang)
+            if (waveform != null && waveform.isNotEmpty()) {
+                audioPlayback.play(waveform)
+            } else {
+                _isSpeaking.value = false
+            }
+        }
+    }
+
+    /**
+     * Offline Microphone Recording -> VAD -> IndicConformer STT.
+     * Tapping mic starts capture; releasing flushes buffer to STT and feeds AI.
+     */
+    fun startAssistantRecording() {
+        if (!audioCapture.isRunning) {
+            _isRecordingVoice.value = true
+            audioCapture.startCapture()
+        }
+    }
+
+    fun stopAssistantRecording() {
+        if (audioCapture.isRunning) {
+            _isRecordingVoice.value = false
+            viewModelScope.launch(Dispatchers.Default) {
+                val pcm = audioCapture.flushAndTranscribe()
+                audioCapture.stopCapture()
+
+                if (pcm != null && pcm.isNotEmpty()) {
+                    sttModule.ensureLoaded()
+                    val result = sttModule.transcribe(pcm, _selectedLanguage.value)
+                    val transcribed = if (result is AppResult.Success) result.data else ""
+                    if (transcribed.isNotBlank()) {
+                        launch(Dispatchers.Main) {
+                            sendAiMessage(transcribed)
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -195,7 +224,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val userMsg = AiMessage(text = text.trim(), isUser = true)
         _aiMessages.value = _aiMessages.value + userMsg
 
-        // Auto-detect language of user's query
+        // Auto-detect language & dialect (including Hinglish)
         val detection = LanguageDetector.detect(text)
         if (_isAutoDetectEnabled.value) {
             _detectedLanguage.value = detection.languageCode
@@ -203,15 +232,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         _isAiThinking.value = true
         viewModelScope.launch {
-            kotlinx.coroutines.delay(200) // Initial neural latency
-            val fullReply = generateAiResponse(text.trim())
+            kotlinx.coroutines.delay(180)
+            val fullReply = TacticalAiEngine.generateResponse(text.trim())
             _isAiThinking.value = false
 
             val assistantMsgId = UUID.randomUUID().toString()
             val initialAssistantMsg = AiMessage(id = assistantMsgId, text = "", isUser = false)
             _aiMessages.value = _aiMessages.value + initialAssistantMsg
 
-            // Word-by-word streaming generation
+            // Fluid word-by-word streaming
             val words = fullReply.split(" ")
             val accumulated = StringBuilder()
 
@@ -223,11 +252,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 _aiMessages.value = _aiMessages.value.map { msg ->
                     if (msg.id == assistantMsgId) msg.copy(text = currentChunk) else msg
                 }
-                kotlinx.coroutines.delay(20) // 20ms per word
+                kotlinx.coroutines.delay(18)
             }
 
-            // Audibly speak the AI answer through device speaker (actual talking model pipeline!)
-            speakAiResponse(fullReply)
+            // Immediately pipe generation output into local ONNX TTS engine
+            speakAiResponse(fullReply, detection.languageCode)
         }
     }
 
@@ -243,14 +272,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         )
     }
 
-    private fun generateAiResponse(query: String): String {
-        return TacticalAiEngine.generateResponse(query)
-    }
-
     override fun onCleared() {
         super.onCleared()
-        textToSpeech?.stop()
-        textToSpeech?.shutdown()
+        meshHardwareManager.release()
+        ttsModule.release()
+        audioCapture.stopCapture()
         downloadManager.refreshStates()
     }
 }

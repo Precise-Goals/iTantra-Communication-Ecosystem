@@ -1,5 +1,6 @@
 package com.itantra.ui.screen
 
+import android.os.Build
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -27,6 +28,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Radar
+import androidx.compose.material.icons.filled.WifiTethering
 import androidx.compose.material.icons.outlined.PersonAdd
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -57,9 +59,7 @@ import com.itantra.ui.theme.iTantraBackground
 import com.itantra.ui.theme.iTantraBlack
 import com.itantra.ui.theme.iTantraBlack40
 import com.itantra.ui.theme.iTantraBlack60
-import com.itantra.ui.theme.iTantraBlack80
 import com.itantra.ui.theme.iTantraBorder
-import com.itantra.ui.theme.iTantraCard
 import com.itantra.ui.theme.iTantraCardAlt
 import com.itantra.ui.theme.iTantraSuccess
 import com.itantra.ui.theme.iTantraWhite
@@ -70,15 +70,19 @@ import kotlin.math.sin
 @Composable
 fun RadarScreen(viewModel: MainViewModel) {
     val peers by viewModel.knownPeers.collectAsState()
+    val isDiscovering by viewModel.isDiscovering.collectAsState()
+    val isHosting by viewModel.isHosting.collectAsState()
     var selectedPeer by remember { mutableStateOf<PeerDevice?>(null) }
 
+    // Live Node Plotting: Radar sweep animation only triggers when active hardware discovery is running
     val infiniteTransition = rememberInfiniteTransition(label = "radar_sweep")
-    val sweepAngle by infiniteTransition.animateFloat(
+    val animatedAngle by infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = 360f,
-        animationSpec = infiniteRepeatable(tween(3500, easing = LinearEasing), RepeatMode.Restart),
+        animationSpec = infiniteRepeatable(tween(3000, easing = LinearEasing), RepeatMode.Restart),
         label = "sweep_angle"
     )
+    val sweepAngle = if (isDiscovering) animatedAngle else 0f
 
     Column(
         modifier = Modifier
@@ -100,31 +104,91 @@ fun RadarScreen(viewModel: MainViewModel) {
                     color = iTantraBlack
                 )
                 Text(
-                    text = "${peers.size} nodes mapped by RSSI signal strength",
-                    style = MaterialTheme.typography.bodySmall,
+                    text = "Device ID: ${Build.MODEL}_${Build.ID.takeLast(6)}",
+                    style = MaterialTheme.typography.labelSmall,
                     color = iTantraBlack60
                 )
             }
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(20.dp))
-                    .background(iTantraCardAlt)
+                    .background(if (isDiscovering) Color(0xFFDC2626) else iTantraCardAlt)
                     .border(1.dp, iTantraBorder, RoundedCornerShape(20.dp))
                     .padding(horizontal = 12.dp, vertical = 6.dp)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Filled.Radar, contentDescription = null, tint = iTantraBlack, modifier = Modifier.size(14.dp))
+                    Icon(
+                        Icons.Filled.Radar,
+                        contentDescription = null,
+                        tint = if (isDiscovering) iTantraWhite else iTantraBlack,
+                        modifier = Modifier.size(14.dp)
+                    )
                     Spacer(Modifier.width(6.dp))
                     Text(
-                        text = "360° Scan",
-                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, fontWeight = FontWeight.SemiBold),
-                        color = iTantraBlack
+                        text = if (isDiscovering) "SCANNING" else "STANDBY",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        ),
+                        color = if (isDiscovering) iTantraWhite else iTantraBlack
                     )
                 }
             }
         }
 
-        Spacer(Modifier.height(20.dp))
+        Spacer(Modifier.height(10.dp))
+
+        // ── Hardware Action Controls (Search Peers & Host Beacon) ────
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            // Search Peers Button
+            Button(
+                onClick = { viewModel.setDiscovering(!isDiscovering) },
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(16.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (isDiscovering) Color(0xFFDC2626) else iTantraBlack,
+                    contentColor = iTantraWhite
+                )
+            ) {
+                Icon(
+                    Icons.Filled.Radar,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    text = if (isDiscovering) "Stop Scan" else "Search Peers",
+                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
+                )
+            }
+
+            // Host Beacon Button
+            Button(
+                onClick = { viewModel.setHosting(!isHosting) },
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(16.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (isHosting) Color(0xFF15803D) else iTantraCardAlt,
+                    contentColor = if (isHosting) iTantraWhite else iTantraBlack
+                )
+            ) {
+                Icon(
+                    Icons.Filled.WifiTethering,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    text = if (isHosting) "Hosting Active" else "Host Beacon",
+                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
+                )
+            }
+        }
+
+        Spacer(Modifier.height(14.dp))
 
         // ── RADAR CANVAS (Monochromatic High-Contrast Sweep) ─────────
         Box(
@@ -185,14 +249,16 @@ fun RadarScreen(viewModel: MainViewModel) {
                     strokeWidth = 1.dp.toPx()
                 )
 
-                // Rotating Radar Sweep Line
-                rotate(sweepAngle, pivot = center) {
-                    drawLine(
-                        color = Color(0xFF000000),
-                        start = center,
-                        end = Offset(center.x, center.y - maxRadius),
-                        strokeWidth = 2.dp.toPx()
-                    )
+                // Rotating Radar Sweep Line (active only when discovering)
+                if (isDiscovering) {
+                    rotate(sweepAngle, pivot = center) {
+                        drawLine(
+                            color = Color(0xFF000000),
+                            start = center,
+                            end = Offset(center.x, center.y - maxRadius),
+                            strokeWidth = 2.dp.toPx()
+                        )
+                    }
                 }
 
                 // Center Node: This Device
@@ -207,7 +273,7 @@ fun RadarScreen(viewModel: MainViewModel) {
                     center = center
                 )
 
-                // Plot Peer Nodes as Radial Blips
+                // Plot Live Peer Nodes as Radial Blips
                 peers.forEach { peer ->
                     val normDist = ((peer.rssi + 100).coerceIn(0, 70) / 70f).coerceIn(0.15f, 0.95f)
                     val r = (1f - normDist) * maxRadius
@@ -232,7 +298,7 @@ fun RadarScreen(viewModel: MainViewModel) {
             }
         }
 
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(14.dp))
 
         // ── Selected Node Detail Card ──────────────────────────────
         selectedPeer?.let { peer ->
@@ -242,7 +308,7 @@ fun RadarScreen(viewModel: MainViewModel) {
                     .clip(RoundedCornerShape(22.dp))
                     .background(iTantraCardAlt)
                     .border(1.dp, iTantraBorder, RoundedCornerShape(22.dp))
-                    .padding(18.dp)
+                    .padding(16.dp)
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(
@@ -257,7 +323,7 @@ fun RadarScreen(viewModel: MainViewModel) {
                                 color = iTantraBlack
                             )
                             Text(
-                                text = "Build ID: ${peer.deviceId} · RSSI: ${peer.rssi} dBm",
+                                text = "Build ID: ${Build.ID} · MAC: ${peer.deviceId.takeLast(8)} · RSSI: ${peer.rssi} dBm",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = iTantraBlack60
                             )
@@ -316,11 +382,11 @@ fun RadarScreen(viewModel: MainViewModel) {
                     .clip(RoundedCornerShape(20.dp))
                     .background(iTantraCardAlt)
                     .border(1.dp, iTantraBorder, RoundedCornerShape(20.dp))
-                    .padding(16.dp),
+                    .padding(14.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = "Tap on any radar blip to inspect peer signal & authorize",
+                    text = "${peers.size} live hardware nodes mapped · Tap Search Peers to scan",
                     style = MaterialTheme.typography.bodySmall,
                     color = iTantraBlack60,
                     textAlign = TextAlign.Center

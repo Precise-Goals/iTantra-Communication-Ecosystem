@@ -1,11 +1,5 @@
 package com.itantra.ui.screen
 
-import android.app.Activity
-import android.content.Intent
-import android.speech.RecognizerIntent
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -15,6 +9,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -41,9 +36,7 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.Clear
-import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -64,7 +57,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
@@ -88,36 +81,19 @@ fun AIAssistantScreen(
     viewModel: MainViewModel,
     onNavigateToDownloads: () -> Unit
 ) {
-    val context = LocalContext.current
     val aiMessages by viewModel.aiMessages.collectAsState()
     val isThinking by viewModel.isAiThinking.collectAsState()
     val isSpeaking by viewModel.isSpeaking.collectAsState()
     val isVoiceMuted by viewModel.isVoiceMuted.collectAsState()
+    val isRecordingVoice by viewModel.isRecordingVoice.collectAsState()
     val listState = rememberLazyListState()
     var textInput by remember { mutableStateOf("") }
-    var isListeningSpeech by remember { mutableStateOf(false) }
-
-    // ── Real On-Device Speech Recognition (Microphone to Text STT) ─────
-    val speechLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        isListeningSpeech = false
-        if (result.resultCode == Activity.RESULT_OK) {
-            val spokenTexts = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
-            val recognized = spokenTexts?.firstOrNull()
-            if (!recognized.isNullOrBlank()) {
-                textInput = recognized
-                // Automatically send recognized voice query to the tactical assistant
-                viewModel.sendAiQuery(recognized)
-                textInput = ""
-            }
-        }
-    }
 
     val quickPrompts = listOf(
-        "Translate: We need water",
+        "bhai emergency hai, paani kahan milega?",
         "How to use Radio PTT?",
-        "Emergency SOS protocol",
+        "cpr kaise karte hai?",
+        "madat pahije lavkar",
         "Offline 10 Indic languages"
     )
 
@@ -130,9 +106,9 @@ fun AIAssistantScreen(
     val infiniteTransition = rememberInfiniteTransition(label = "pulse")
     val micPulse by infiniteTransition.animateFloat(
         initialValue = 1.0f,
-        targetValue = 1.15f,
+        targetValue = 1.18f,
         animationSpec = infiniteRepeatable(
-            animation = tween(600, easing = FastOutSlowInEasing),
+            animation = tween(500, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse
         ),
         label = "micPulse"
@@ -159,13 +135,13 @@ fun AIAssistantScreen(
                     color = iTantraBlack
                 )
                 Text(
-                    text = if (isSpeaking) "Vocalizing response through speaker…" else "100% Offline · Multilingual Voice & Triage",
+                    text = if (isSpeaking) "Vocalizing via local neural TTS…" else if (isRecordingVoice) "Listening (Local IndicConformer STT)…" else "100% Offline · Zero Cloud APIs",
                     style = MaterialTheme.typography.labelSmall,
-                    color = if (isSpeaking) Color(0xFF2563EB) else iTantraSuccess
+                    color = if (isRecordingVoice) Color(0xFFDC2626) else if (isSpeaking) Color(0xFF2563EB) else iTantraSuccess
                 )
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
-                // Voice Output Speaker Mute / Unmute Toggle
+                // Local AudioTrack TTS Mute / Unmute
                 IconButton(onClick = { viewModel.toggleVoiceMute() }) {
                     Icon(
                         imageVector = if (isVoiceMuted) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp,
@@ -180,7 +156,7 @@ fun AIAssistantScreen(
             }
         }
 
-        // ── Suggested Quick Action Chips ─────────────────────────────
+        // ── Code-Switching Prompt Chips ──────────────────────────────
         LazyRow(
             modifier = Modifier
                 .fillMaxWidth()
@@ -240,7 +216,7 @@ fun AIAssistantScreen(
                             color = iTantraBlack
                         )
                         Spacer(Modifier.width(8.dp))
-                        Text("Neural engine inferring…", style = MaterialTheme.typography.labelSmall, color = iTantraBlack60)
+                        Text("Local neural NLP inferring…", style = MaterialTheme.typography.labelSmall, color = iTantraBlack60)
                     }
                 }
             }
@@ -255,43 +231,36 @@ fun AIAssistantScreen(
                 .padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Real Microphone Voice Input Button
+            // Local Hardware Microphone STT Button (Zero Google Speech Services)
             Box(
                 modifier = Modifier
-                    .size(44.dp)
-                    .scale(if (isListeningSpeech) micPulse else 1.0f)
+                    .size(46.dp)
+                    .scale(if (isRecordingVoice) micPulse else 1.0f)
                     .clip(CircleShape)
-                    .background(if (isListeningSpeech) Color(0xFFDC2626) else iTantraBlack)
-                    .clickable {
-                        isListeningSpeech = true
-                        try {
-                            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                                putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
-                                putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak tactical query or emergency message…")
-                                putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
+                    .background(if (isRecordingVoice) Color(0xFFDC2626) else iTantraBlack)
+                    .pointerInput(Unit) {
+                        detectTapGestures(
+                            onPress = {
+                                viewModel.startAssistantRecording()
+                                tryAwaitRelease()
+                                viewModel.stopAssistantRecording()
                             }
-                            speechLauncher.launch(intent)
-                        } catch (e: Exception) {
-                            isListeningSpeech = false
-                            // Fallback if system recognizer intent is absent
-                            viewModel.sendAiQuery("Translate to Hindi: Emergency evacuation needed")
-                        }
+                        )
                     },
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     imageVector = Icons.Filled.Mic,
-                    contentDescription = "Microphone voice input",
+                    contentDescription = "Hold to speak into offline STT",
                     tint = iTantraWhite,
-                    modifier = Modifier.size(20.dp)
+                    modifier = Modifier.size(22.dp)
                 )
             }
             Spacer(Modifier.width(8.dp))
             OutlinedTextField(
                 value = textInput,
                 onValueChange = { textInput = it },
-                placeholder = { Text("Ask tactical query or translate…", color = iTantraBlack40, fontSize = 13.sp) },
+                placeholder = { Text("Type query or Hinglish message…", color = iTantraBlack40, fontSize = 13.sp) },
                 singleLine = true,
                 shape = RoundedCornerShape(22.dp),
                 modifier = Modifier.weight(1f),
@@ -382,7 +351,6 @@ private fun AiMessageBubbleWhite(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     if (!isUser && msg.text.isNotBlank()) {
-                        // Speaker / Vocalization button for the message
                         Box(
                             modifier = Modifier
                                 .clip(CircleShape)
