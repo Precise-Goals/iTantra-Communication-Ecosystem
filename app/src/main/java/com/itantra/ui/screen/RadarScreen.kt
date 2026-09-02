@@ -1,6 +1,13 @@
 package com.itantra.ui.screen
 
+import android.Manifest
+import android.content.Context
+import android.content.pm.PackageManager
+import android.location.LocationManager
 import android.os.Build
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -10,7 +17,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -49,15 +55,16 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import com.itantra.domain.model.PeerDevice
 import com.itantra.ui.MainViewModel
 import com.itantra.ui.theme.iTantraBackground
 import com.itantra.ui.theme.iTantraBlack
-import com.itantra.ui.theme.iTantraBlack40
 import com.itantra.ui.theme.iTantraBlack60
 import com.itantra.ui.theme.iTantraBorder
 import com.itantra.ui.theme.iTantraCardAlt
@@ -69,10 +76,63 @@ import kotlin.math.sin
 
 @Composable
 fun RadarScreen(viewModel: MainViewModel) {
+    val context = LocalContext.current
     val peers by viewModel.knownPeers.collectAsState()
     val isDiscovering by viewModel.isDiscovering.collectAsState()
     val isHosting by viewModel.isHosting.collectAsState()
     var selectedPeer by remember { mutableStateOf<PeerDevice?>(null) }
+
+    // Runtime Permission Request Launcher for Wi-Fi Direct and BLE Scanning
+    val networkPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        val fineLocationGranted = permissions[Manifest.permission.ACCESS_FINE_LOCATION] ?: (
+            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        )
+        val nearbyGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            permissions[Manifest.permission.NEARBY_WIFI_DEVICES] ?: (
+                ContextCompat.checkSelfPermission(context, Manifest.permission.NEARBY_WIFI_DEVICES) == PackageManager.PERMISSION_GRANTED
+            )
+        } else true
+
+        if (fineLocationGranted && nearbyGranted) {
+            viewModel.setDiscovering(true)
+        } else {
+            Toast.makeText(context, "Location & Nearby Devices permission required for Wi-Fi Direct", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    fun startDiscoveryWithPermissionCheck() {
+        val permissionsToVerify = mutableListOf(
+            Manifest.permission.ACCESS_FINE_LOCATION,
+            Manifest.permission.ACCESS_COARSE_LOCATION
+        )
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            permissionsToVerify.add(Manifest.permission.NEARBY_WIFI_DEVICES)
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            permissionsToVerify.add(Manifest.permission.BLUETOOTH_SCAN)
+            permissionsToVerify.add(Manifest.permission.BLUETOOTH_CONNECT)
+        }
+
+        val missing = permissionsToVerify.filter {
+            ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
+        }
+
+        if (missing.isNotEmpty()) {
+            networkPermissionLauncher.launch(missing.toTypedArray())
+        } else {
+            // Verify device location service is enabled (required by Android discoverPeers)
+            val lm = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
+            val isGpsEnabled = lm?.isProviderEnabled(LocationManager.GPS_PROVIDER) == true ||
+                    lm?.isProviderEnabled(LocationManager.NETWORK_PROVIDER) == true
+
+            if (!isGpsEnabled) {
+                Toast.makeText(context, "Please enable Location Services for Wi-Fi Direct discovery", Toast.LENGTH_SHORT).show()
+            }
+            viewModel.setDiscovering(true)
+        }
+    }
 
     // Live Node Plotting: Radar sweep animation only triggers when active hardware discovery is running
     val infiniteTransition = rememberInfiniteTransition(label = "radar_sweep")
@@ -143,9 +203,15 @@ fun RadarScreen(viewModel: MainViewModel) {
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            // Search Peers Button
+            // Search Peers Button — directly invokes discoverPeers on WifiP2pManager
             Button(
-                onClick = { viewModel.setDiscovering(!isDiscovering) },
+                onClick = {
+                    if (isDiscovering) {
+                        viewModel.setDiscovering(false)
+                    } else {
+                        startDiscoveryWithPermissionCheck()
+                    }
+                },
                 modifier = Modifier.weight(1f),
                 shape = RoundedCornerShape(16.dp),
                 colors = ButtonDefaults.buttonColors(
@@ -165,7 +231,7 @@ fun RadarScreen(viewModel: MainViewModel) {
                 )
             }
 
-            // Host Beacon Button
+            // Host Beacon Button — directly invokes createGroup on WifiP2pManager
             Button(
                 onClick = { viewModel.setHosting(!isHosting) },
                 modifier = Modifier.weight(1f),

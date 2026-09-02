@@ -70,6 +70,11 @@ android {
         }
     }
 
+    @Suppress("DEPRECATION")
+    aaptOptions {
+        noCompress += listOf("onnx", "ort", "tflite", "bin", "pb", "ftz")
+    }
+
     androidResources {
         noCompress += listOf("onnx", "ort", "tflite", "bin", "pb", "ftz")
     }

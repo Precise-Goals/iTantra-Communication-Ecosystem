@@ -74,19 +74,13 @@ class STTModule(
                 }
             }
 
-            val diskFile = java.io.File(context.filesDir, "models/indicconformer_multilingual_int8.onnx")
-            session = when {
-                diskFile.exists() && diskFile.length() > 0 -> {
-                    ortEnv!!.createSession(diskFile.absolutePath, sessionOptions)
-                }
-                else -> {
-                    try {
-                        val modelBytes = context.assets.open(MODEL_ASSET).readBytes()
-                        ortEnv!!.createSession(modelBytes, sessionOptions)
-                    } catch (e: Exception) {
-                        null
-                    }
-                }
+            val physicalPath = com.itantra.core.download.ModelAssetExtractor.getPhysicalModelPath(
+                context, "indicconformer_multilingual_int8.onnx", MODEL_ASSET
+            )
+            session = if (physicalPath != null) {
+                ortEnv!!.createSession(physicalPath, sessionOptions)
+            } else {
+                null
             }
             isLoaded = session != null
 

@@ -24,7 +24,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
@@ -76,6 +75,14 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+/**
+ * 100% Offline AI Assistant Conversational Interface.
+ *
+ * Requirements:
+ * 1. Zero predefined buttons, chips, fallback UI menus, or generic error states.
+ * 2. Transcribed STT strings go directly into local NLP generation.
+ * 3. NLP output is piped immediately into local neural TTS and AudioTrack.
+ */
 @Composable
 fun AIAssistantScreen(
     viewModel: MainViewModel,
@@ -88,14 +95,6 @@ fun AIAssistantScreen(
     val isRecordingVoice by viewModel.isRecordingVoice.collectAsState()
     val listState = rememberLazyListState()
     var textInput by remember { mutableStateOf("") }
-
-    val quickPrompts = listOf(
-        "bhai emergency hai, paani kahan milega?",
-        "How to use Radio PTT?",
-        "cpr kaise karte hai?",
-        "madat pahije lavkar",
-        "Offline 10 Indic languages"
-    )
 
     LaunchedEffect(aiMessages.size, aiMessages.lastOrNull()?.text) {
         if (aiMessages.isNotEmpty()) {
@@ -135,7 +134,7 @@ fun AIAssistantScreen(
                     color = iTantraBlack
                 )
                 Text(
-                    text = if (isSpeaking) "Vocalizing via local neural TTS…" else if (isRecordingVoice) "Listening (Local IndicConformer STT)…" else "100% Offline · Zero Cloud APIs",
+                    text = if (isSpeaking) "Vocalizing via local neural TTS…" else if (isRecordingVoice) "Listening (Local IndicConformer STT)…" else "100% Offline · Direct Conversational NLP",
                     style = MaterialTheme.typography.labelSmall,
                     color = if (isRecordingVoice) Color(0xFFDC2626) else if (isSpeaking) Color(0xFF2563EB) else iTantraSuccess
                 )
@@ -156,34 +155,7 @@ fun AIAssistantScreen(
             }
         }
 
-        // ── Code-Switching Prompt Chips ──────────────────────────────
-        LazyRow(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            items(quickPrompts) { prompt ->
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(iTantraCardAlt)
-                        .border(1.dp, iTantraBorder, RoundedCornerShape(16.dp))
-                        .clickable { viewModel.sendAiQuery(prompt) }
-                        .padding(horizontal = 12.dp, vertical = 6.dp)
-                ) {
-                    Text(
-                        text = prompt,
-                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
-                        color = iTantraBlack
-                    )
-                }
-            }
-        }
-
-        Spacer(Modifier.height(6.dp))
-
-        // ── Message Feed ─────────────────────────────────────────────
+        // ── Pure Conversational Message Feed (No Predefined Buttons) ──
         LazyColumn(
             state = listState,
             modifier = Modifier
@@ -222,7 +194,7 @@ fun AIAssistantScreen(
             }
         }
 
-        // ── Input Bar ────────────────────────────────────────────────
+        // ── Direct Conversational Input Bar ──────────────────────────
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -231,7 +203,7 @@ fun AIAssistantScreen(
                 .padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Local Hardware Microphone STT Button (Zero Google Speech Services)
+            // Local Hardware Microphone STT Button (Hold to talk)
             Box(
                 modifier = Modifier
                     .size(46.dp)
@@ -260,7 +232,7 @@ fun AIAssistantScreen(
             OutlinedTextField(
                 value = textInput,
                 onValueChange = { textInput = it },
-                placeholder = { Text("Type query or Hinglish message…", color = iTantraBlack40, fontSize = 13.sp) },
+                placeholder = { Text("Speak or type any emergency query…", color = iTantraBlack40, fontSize = 13.sp) },
                 singleLine = true,
                 shape = RoundedCornerShape(22.dp),
                 modifier = Modifier.weight(1f),

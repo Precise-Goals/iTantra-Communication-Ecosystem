@@ -57,21 +57,16 @@ class VADModule(
                 setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
             }
 
-            session = when {
-                diskFile.exists() && diskFile.length() > 0 -> {
-                    ortEnv!!.createSession(diskFile.absolutePath, sessionOptions)
-                }
-                else -> {
-                    try {
-                        val modelBytes = context.assets.open(MODEL_ASSET).readBytes()
-                        ortEnv!!.createSession(modelBytes, sessionOptions)
-                    } catch (e: Exception) {
-                        null
-                    }
-                }
+            val physicalPath = com.itantra.core.download.ModelAssetExtractor.getPhysicalModelPath(
+                context, "silero_vad_v4.onnx", MODEL_ASSET
+            )
+            session = if (physicalPath != null) {
+                ortEnv!!.createSession(physicalPath, sessionOptions)
+            } else {
+                null
             }
             resetState()
-            Log.d(TAG, "Silero VAD initialized successfully (session active: ${session != null})")
+            Log.d(TAG, "Silero VAD initialized successfully (physical path: $physicalPath, active: ${session != null})")
             true
         } catch (e: Exception) {
             Log.w(TAG, "VAD initialization notice: ${e.message}")
