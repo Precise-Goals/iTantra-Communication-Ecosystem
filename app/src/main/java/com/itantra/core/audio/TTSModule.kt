@@ -11,6 +11,7 @@ import com.itantra.domain.model.ErrorCode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.nio.FloatBuffer
+import java.nio.LongBuffer
 
 /**
  * Text-to-Speech synthesis using AI4Bharat IndicTTS VITS (ONNX INT8).
@@ -71,18 +72,18 @@ class TTSModule(
                 // Step 2: Create input tensors for VITS
                 val inputIds = OnnxTensor.createTensor(
                     ortEnv,
-                    longArrayOf(*phonemeIds.toLongArray()),
+                    LongBuffer.wrap(phonemeIds.toLongArray()),
                     longArrayOf(1, phonemeIds.size.toLong())
                 )
                 val inputLengths = OnnxTensor.createTensor(
                     ortEnv,
-                    longArrayOf(phonemeIds.size.toLong()),
+                    LongBuffer.wrap(longArrayOf(phonemeIds.size.toLong())),
                     longArrayOf(1)
                 )
                 // Speaker embedding (speaker 0 for single-speaker models)
                 val speakerIds = OnnxTensor.createTensor(
                     ortEnv,
-                    longArrayOf(0L),
+                    LongBuffer.wrap(longArrayOf(0L)),
                     longArrayOf(1)
                 )
 

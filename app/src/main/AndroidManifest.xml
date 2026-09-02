@@ -28,7 +28,7 @@
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
-    <!-- ==================== ALERT MODE ==================== -->
+    <!-- ==================== NOTIFICATIONS / WAKE ==================== -->
     <uses-permission android:name="android.permission.MANAGE_NOTIFICATION_POLICY" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.VIBRATE" />
@@ -38,10 +38,13 @@
     <uses-feature android:name="android.hardware.wifi" android:required="false" />
     <uses-feature android:name="android.hardware.bluetooth" android:required="false" />
 
-    <!-- NOTE: No android.permission.INTERNET — all communication is local P2P only -->
+    <!-- INTERNET: Only used for one-time model downloads from HuggingFace Hub.
+         All P2P communication is local Wi-Fi Direct / Bluetooth — no internet required post-download. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <application
-        android:name=".ITantraApp"
+        android:name=".ITantraApplication"
         android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
@@ -51,11 +54,26 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.iTantra"
         android:networkSecurityConfig="@xml/network_security_config"
+        android:requestLegacyExternalStorage="false"
         tools:targetApi="31">
+
+        <!-- ==================== APP METADATA ==================== -->
+        <meta-data android:name="com.itantra.problem_statement.id" android:value="26173" />
+        <meta-data android:name="com.itantra.problem_statement.title" android:value="iTantra - Indian Multilingual TTS &amp; STT Aided Neural Transceiver Radio Access for low bitrate links" />
+        <meta-data android:name="com.itantra.event" android:value="Smart India Hackathon 2026" />
+        <meta-data android:name="com.itantra.version" android:value="2.0.0" />
+        <meta-data android:name="com.itantra.architecture.stt" android:value="AI4Bharat IndicConformer ONNX INT8" />
+        <meta-data android:name="com.itantra.architecture.tts" android:value="AI4Bharat IndicTTS VITS ONNX" />
+        <meta-data android:name="com.itantra.architecture.vad" android:value="Silero VAD v4" />
+        <meta-data android:name="com.itantra.architecture.lid" android:value="FastText Language ID lid.176" />
+        <meta-data android:name="com.itantra.architecture.ai" android:value="Phi-3 Mini 3.8B Q4 Quantized" />
+        <meta-data android:name="com.itantra.network.primary" android:value="Wi-Fi Direct P2P (High-Throughput Mesh)" />
+        <meta-data android:name="com.itantra.network.fallback" android:value="Bluetooth RFCOMM (Ultra-Low-Power)" />
+        <meta-data android:name="com.itantra.target.ram" android:value="4GB+ RAM (Low/Mid-range smartphones)" />
 
         <!-- Main Activity -->
         <activity
-            android:name=".ui.MainActivity"
+            android:name=".MainActivity"
             android:exported="true"
             android:theme="@style/Theme.iTantra"
             android:windowSoftInputMode="adjustResize">

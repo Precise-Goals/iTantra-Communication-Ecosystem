@@ -33,7 +33,7 @@ import com.itantra.domain.model.ErrorCode
 import com.itantra.domain.model.MessageType
 import com.itantra.domain.model.PeerDevice
 import com.itantra.domain.model.TransceiverMessage
-import com.itantra.ui.MainActivity
+import com.itantra.MainActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -106,6 +106,7 @@ class ITantraForegroundService : Service() {
 
     // ==================== CONFIGURATION STATE ====================
     var connectionMode: ConnectionMode = ConnectionMode.PUSH_TO_TALK
+        private set
     var sttLanguage: String = "hi"
     var ttsLanguage: String = "hi"
     private var sequenceCounter = 0

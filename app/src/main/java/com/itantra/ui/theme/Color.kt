@@ -2,47 +2,58 @@ package com.itantra.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// ==================== iTantra Color Palette ====================
-// Primary: Deep Space Blue — the foundation of the iTantra dark theme
-val SpaceBlue900 = Color(0xFF0D1B2A)
-val SpaceBlue800 = Color(0xFF1B2A3D)
-val SpaceBlue700 = Color(0xFF243447)
-val SpaceBlue600 = Color(0xFF2E4060)
+// =========================================================
+// iTantra v2 — Monochromatic White Theme
+// Crisp White Surfaces · Deep Pitch-Black Typography & Accents
+// High contrast, architectural, ultra-minimalist.
+// =========================================================
 
-// Accent: Signal Orange — action items, active indicators, PTT button
-val SignalOrange500 = Color(0xFFFF6B35)
-val SignalOrange400 = Color(0xFFFF8C5A)
-val SignalOrange300 = Color(0xFFFFAD80)
-val SignalOrangeGlow = Color(0x40FF6B35) // 25% opacity for glow effects
+// ── Pure White Backgrounds ───────────────────────────────
+val iTantraWhite          = Color(0xFFFFFFFF)   // Primary canvas
+val iTantraBackground     = Color(0xFFFFFFFF)   // Screen background
+val iTantraSurface        = Color(0xFFF9FAFB)   // Lifted surface
+val iTantraSurfaceHover   = Color(0xFFF3F4F6)   // Subtle hover/tap surface
+val iTantraCard           = Color(0xFFFFFFFF)   // Card background
+val iTantraCardAlt        = Color(0xFFF6F7F9)   // Bento secondary card
+val iTantraCardDark       = Color(0xFF111111)   // Inverted black card for contrast
 
-// Alert: Distress Red — SOS triggers, alert overlays, emergency states
-val DistressRed600 = Color(0xFFD62828)
-val DistressRed500 = Color(0xFFE53E3E)
-val DistressRed400 = Color(0xFFFC5C5C)
-val DistressRedGlow = Color(0x40D62828) // 25% opacity for pulsing effect
+// ── Monochromatic Black & Greys ──────────────────────────
+val iTantraBlack          = Color(0xFF0A0A0A)   // Primary text & dark pills
+val iTantraBlack80        = Color(0xFF262626)   // Body text
+val iTantraBlack60        = Color(0xFF525252)   // Secondary text
+val iTantraBlack40        = Color(0xFF888888)   // Muted captions
+val iTantraBlack20        = Color(0xFFCCCCCC)   // Light divider
+val iTantraBlack10        = Color(0xFFEBEBEB)   // Card border / subtle stroke
 
-// Success: Active Green — connected nodes, successful transcription
-val ActiveGreen500 = Color(0xFF06A77D)
-val ActiveGreen400 = Color(0xFF12C99B)
-val ActiveGreen300 = Color(0xFF4DDBB4)
-val ActiveGreenGlow = Color(0x3006A77D)
+// ── Semantic Monochromatic Shades ────────────────────────
+val iTantraBorder         = Color(0xFFE5E7EB)   // Crisp light-grey border
+val iTantraBorderDark     = Color(0xFF1F2937)   // High-contrast dark border
+val iTantraDivider        = Color(0xFFF0F0F0)   // Subtle hairline
+val iTantraPill           = Color(0xFF000000)   // Black pill CTA
+val iTantraPillText       = Color(0xFFFFFFFF)   // White text on pill
 
-// Neutral / Surface
-val Surface900 = Color(0xFF0A1520)
-val Surface800 = Color(0xFF111E2D)
-val Surface700 = Color(0xFF18273A)
-val SurfaceVariant = Color(0xFF1E3047)
-val OnSurface = Color(0xFFE8EDF2)
-val OnSurfaceDim = Color(0xFF8FA3B8)
-val OnSurfaceDimmer = Color(0xFF4A6078)
+// ── Status Accents (Refined & subtle) ────────────────────
+val iTantraSuccess        = Color(0xFF15803D)   // Subtle forest green for connected state
+val iTantraSuccessLight   = Color(0xFF16A34A)   // Active pulse
+val iTantraError          = Color(0xFFDC2626)   // Alert / Recording red
+val iTantraWarning        = Color(0xFFD97706)   // Warning amber
 
-// Specific UI colors
-val PeerDotWifi = Color(0xFF4AAFFF)      // Wi-Fi Direct node dot
-val PeerDotBluetooth = Color(0xFFFFD166) // Bluetooth node dot
-val RadarSweep = Color(0x5006A77D)       // Semi-transparent radar sweep
-val RadarGrid = Color(0x2006A77D)        // Very subtle radar grid
+// ── Compatibility aliases for existing screens ───────────
+val iTantraBlue           = Color(0xFF0A0A0A)   // Primary accent is now black in mono white theme
+val iTantraBlueDark       = Color(0xFF000000)
+val iTantraBlueLight      = Color(0xFF262626)
+val iTantraBlueGlow       = Color(0x15000000)   // Black ambient shadow
+val iTantraBlueSubtle     = Color(0xFFF3F4F6)   // Light grey pill container
+val iTantraBlueMid        = Color(0xFFE5E7EB)
+val iTantraBorderBlue     = Color(0xFFD1D5DB)
 
-// Confidence bar gradient
-val ConfidenceHigh = ActiveGreen400
-val ConfidenceMid = Color(0xFFFFD166)
-val ConfidenceLow = DistressRed500
+// ── White variants ───────────────────────────────────────
+val iTantraWhite80        = Color(0xFF404040)
+val iTantraWhite60        = Color(0xFF737373)
+val iTantraWhite40        = Color(0xFFA3A3A3)
+val iTantraWhite20        = Color(0xFFD4D4D4)
+
+// ── Radar Canvas ─────────────────────────────────────────
+val iTantraRadarGreen     = Color(0xFF0A0A0A)
+val iTantraRadarGreenGlow = Color(0x1A000000)
+val iTantraPulse          = Color(0x33000000)

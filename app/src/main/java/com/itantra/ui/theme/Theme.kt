@@ -1,44 +1,41 @@
 package com.itantra.ui.theme
 
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.graphics.Color
 
-private val iTantraDarkColorScheme = darkColorScheme(
-    primary = SignalOrange500,
-    onPrimary = SpaceBlue900,
-    primaryContainer = SignalOrange300.copy(alpha = 0.15f),
-    onPrimaryContainer = SignalOrange300,
-    secondary = ActiveGreen500,
-    onSecondary = Surface900,
-    secondaryContainer = ActiveGreen300.copy(alpha = 0.15f),
-    onSecondaryContainer = ActiveGreen300,
-    tertiary = PeerDotWifi,
-    onTertiary = Surface900,
-    error = DistressRed500,
-    onError = Color.White,
-    errorContainer = DistressRed600.copy(alpha = 0.2f),
-    onErrorContainer = DistressRed400,
-    background = Surface900,
-    onBackground = OnSurface,
-    surface = Surface800,
-    onSurface = OnSurface,
-    surfaceVariant = SurfaceVariant,
-    onSurfaceVariant = OnSurfaceDim,
-    outline = OnSurfaceDimmer,
-    outlineVariant = SpaceBlue600,
-    inverseSurface = OnSurface,
-    inverseOnSurface = Surface900,
-    inversePrimary = SpaceBlue700
+// =========================================================
+// iTantra Theme — Pure White Monochromatic Theme
+// =========================================================
+
+private val iTantraLightColorScheme = lightColorScheme(
+    primary = iTantraBlack,
+    onPrimary = iTantraWhite,
+    primaryContainer = iTantraCardAlt,
+    onPrimaryContainer = iTantraBlack,
+    secondary = iTantraBlack80,
+    onSecondary = iTantraWhite,
+    secondaryContainer = iTantraSurfaceHover,
+    onSecondaryContainer = iTantraBlack80,
+    tertiary = iTantraBlack60,
+    onTertiary = iTantraWhite,
+    background = iTantraBackground,
+    onBackground = iTantraBlack,
+    surface = iTantraSurface,
+    onSurface = iTantraBlack,
+    surfaceVariant = iTantraCard,
+    onSurfaceVariant = iTantraBlack60,
+    outline = iTantraBorder,
+    outlineVariant = iTantraDivider,
+    error = iTantraError,
+    onError = iTantraWhite
 )
 
 @Composable
 fun ITantraTheme(content: @Composable () -> Unit) {
     MaterialTheme(
-        colorScheme = iTantraDarkColorScheme,
+        colorScheme = iTantraLightColorScheme,
         typography = ITantraTypography,
-        shapes = ITantraShapes,
         content = content
     )
 }

@@ -18,16 +18,16 @@ Instead of streaming heavy audio (16kB/s+), iTantra converts speech to text loca
 
 ### Key Capabilities
 
-| Feature | Details |
-|---|---|
+| Feature                   | Details                                                                             |
+| ------------------------- | ----------------------------------------------------------------------------------- |
 | 🗣️ **10 Indic Languages** | Hindi, Gujarati, Marathi, Kannada, Malayalam, Tamil, Telugu, Odia, Bengali, English |
-| 🧠 **On-Device STT** | AI4Bharat IndicConformer (multilingual, ONNX INT8, ~150MB) |
-| 🔊 **On-Device TTS** | AI4Bharat IndicTTS VITS (ONNX INT8, ~12–15MB per language) |
-| 🎙️ **Smart VAD** | Silero VAD (ONNX, ~2MB) — real-time pause detection |
-| 📡 **Ad-Hoc Networking** | Wi-Fi Direct (primary) + Bluetooth Classic RFCOMM (fallback) |
-| 🚨 **Emergency Alerts** | Non-interruptible SOS broadcast with DND override |
-| 🔋 **Low Power Design** | < 5% CPU idle; < 80MB RAM when idle |
-| 🔒 **100% Offline** | No `INTERNET` permission. No cloud APIs. No proprietary SDKs. |
+| 🧠 **On-Device STT**      | AI4Bharat IndicConformer (multilingual, ONNX INT8, ~150MB)                          |
+| 🔊 **On-Device TTS**      | AI4Bharat IndicTTS VITS (ONNX INT8, ~12–15MB per language)                          |
+| 🎙️ **Smart VAD**          | Silero VAD (ONNX, ~2MB) — real-time pause detection                                 |
+| 📡 **Ad-Hoc Networking**  | Wi-Fi Direct (primary) + Bluetooth Classic RFCOMM (fallback)                        |
+| 🚨 **Emergency Alerts**   | Non-interruptible SOS broadcast with DND override                                   |
+| 🔋 **Low Power Design**   | < 5% CPU idle; < 80MB RAM when idle                                                 |
+| 🔒 **100% Offline**       | No `INTERNET` permission. No cloud APIs. No proprietary SDKs.                       |
 
 ---
 
@@ -56,19 +56,19 @@ Instead of streaming heavy audio (16kB/s+), iTantra converts speech to text loca
 
 ### Technology Stack
 
-| Layer | Technology | Justification |
-|---|---|---|
-| **Language** | Kotlin 100% | Modern, coroutines-native, Compose-compatible |
-| **UI** | Jetpack Compose + XML Canvas | Declarative UI + custom radar visualization |
-| **Architecture** | MVVM + Clean Architecture | Domain A/B separation per team structure |
-| **ML Runtime** | ONNX Runtime Mobile | Single runtime for all models; NNAPI/GPU delegates |
-| **STT Model** | AI4Bharat IndicConformer (multilingual ONNX INT8) | Best Indic WER, one model for all 10 languages |
-| **TTS Model** | AI4Bharat IndicTTS VITS (ONNX INT8) | Natural Indic voice, ONNX-exportable |
-| **VAD** | Silero VAD v4 (ONNX FP16) | ~2MB, real-time, accurate in noisy environments |
-| **Network** | WifiP2pManager + BluetoothRFCOMM | Ad-hoc, no router, aligns with ISRO spec |
-| **Wire Format** | Protocol Buffers v3 (protobuf-javalite) | ~3× smaller than JSON, efficient on BT links |
-| **Async** | Kotlin Coroutines + StateFlow/SharedFlow | Reactive, Compose-native, Domain A↔B contract |
-| **Background** | Android Foreground Service | OS-resistant persistent audio capture |
+| Layer            | Technology                                        | Justification                                      |
+| ---------------- | ------------------------------------------------- | -------------------------------------------------- |
+| **Language**     | Kotlin 100%                                       | Modern, coroutines-native, Compose-compatible      |
+| **UI**           | Jetpack Compose + XML Canvas                      | Declarative UI + custom radar visualization        |
+| **Architecture** | MVVM + Clean Architecture                         | Domain A/B separation per team structure           |
+| **ML Runtime**   | ONNX Runtime Mobile                               | Single runtime for all models; NNAPI/GPU delegates |
+| **STT Model**    | AI4Bharat IndicConformer (multilingual ONNX INT8) | Best Indic WER, one model for all 10 languages     |
+| **TTS Model**    | AI4Bharat IndicTTS VITS (ONNX INT8)               | Natural Indic voice, ONNX-exportable               |
+| **VAD**          | Silero VAD v4 (ONNX FP16)                         | ~2MB, real-time, accurate in noisy environments    |
+| **Network**      | WifiP2pManager + BluetoothRFCOMM                  | Ad-hoc, no router, aligns with ISRO spec           |
+| **Wire Format**  | Protocol Buffers v3 (protobuf-javalite)           | ~3× smaller than JSON, efficient on BT links       |
+| **Async**        | Kotlin Coroutines + StateFlow/SharedFlow          | Reactive, Compose-native, Domain A↔B contract      |
+| **Background**   | Android Foreground Service                        | OS-resistant persistent audio capture              |
 
 ---
 
@@ -144,15 +144,15 @@ iTantra/
 
 ### Prerequisites
 
-| Requirement | Version |
-|---|---|
-| Android Studio | Hedgehog 2023.1.1+ |
-| Android SDK | API 35 (compile), API 26 (min) |
-| Kotlin | 1.9.x |
-| Gradle | 8.x |
-| Python (for model export) | 3.10+ |
-| PyTorch | 2.1+ |
-| ONNX Runtime | 1.17+ |
+| Requirement               | Version                        |
+| ------------------------- | ------------------------------ |
+| Android Studio            | Hedgehog 2023.1.1+             |
+| Android SDK               | API 35 (compile), API 26 (min) |
+| Kotlin                    | 1.9.x                          |
+| Gradle                    | 8.x                            |
+| Python (for model export) | 3.10+                          |
+| PyTorch                   | 2.1+                           |
+| ONNX Runtime              | 1.17+                          |
 
 ### 1. Clone the Repository
 
@@ -220,12 +220,12 @@ Repository: https://github.com/AI4Bharat/IndicConformer
 **Performance Benchmarks (INT8 quantized):**
 
 | Language | WER (target) | Inference Time (Snapdragon 778G) |
-|---|---|---|
-| Hindi | < 8% | ~600ms/sentence |
-| Bengali | < 10% | ~650ms/sentence |
-| Tamil | < 12% | ~700ms/sentence |
-| Gujarati | < 15% | ~700ms/sentence |
-| Others | < 20% | ~800ms/sentence |
+| -------- | ------------ | -------------------------------- |
+| Hindi    | < 8%         | ~600ms/sentence                  |
+| Bengali  | < 10%        | ~650ms/sentence                  |
+| Tamil    | < 12%        | ~700ms/sentence                  |
+| Gujarati | < 15%        | ~700ms/sentence                  |
+| Others   | < 20%        | ~800ms/sentence                  |
 
 ### TTS: AI4Bharat IndicTTS (VITS-based)
 
@@ -256,11 +256,13 @@ Repository: https://github.com/snakers4/silero-vad
 ## 📡 Network Protocol
 
 ### Wi-Fi Direct (Primary)
+
 - Group Owner: TCP Server on port **8765**
 - Discovery: `WifiP2pManager.discoverPeers()` with broadcast receiver
 - Auto-reconnect: Exponential backoff (500ms → 30s), 3 retries before BT fallback
 
 ### Bluetooth RFCOMM (Fallback)
+
 - UUID: `6E400001-B5A3-F393-E0A9-E50E24DCCA9E`
 - Auto-promoted after 3 failed Wi-Fi Direct attempts
 
@@ -284,17 +286,17 @@ message TransceiverMessage {
 
 ## ⚡ Performance Targets
 
-| Metric | Target | ISRO Weight |
-|---|---|---|
-| App APK Size | < 250 MB | Efficiency (20%) |
-| RAM (idle) | < 80 MB | Efficiency (20%) |
-| RAM (peak inference) | < 400 MB | Efficiency (20%) |
-| CPU (idle VAD) | < 5% | Efficiency (20%) |
-| STT WER (Hindi) | < 8% | Accuracy (40%) |
-| STT WER (all 10 languages avg) | < 18% | Accuracy (40%) |
-| TTS MOS Score | > 3.8 / 5.0 | Accuracy (40%) |
-| End-to-End RTF | < 2.5 seconds | Latency (20%) |
-| VAD detection | < 100 ms | Latency (20%) |
+| Metric                         | Target        | ISRO Weight      |
+| ------------------------------ | ------------- | ---------------- |
+| App APK Size                   | < 250 MB      | Efficiency (20%) |
+| RAM (idle)                     | < 80 MB       | Efficiency (20%) |
+| RAM (peak inference)           | < 400 MB      | Efficiency (20%) |
+| CPU (idle VAD)                 | < 5%          | Efficiency (20%) |
+| STT WER (Hindi)                | < 8%          | Accuracy (40%)   |
+| STT WER (all 10 languages avg) | < 18%         | Accuracy (40%)   |
+| TTS MOS Score                  | > 3.8 / 5.0   | Accuracy (40%)   |
+| End-to-End RTF                 | < 2.5 seconds | Latency (20%)    |
+| VAD detection                  | < 100 ms      | Latency (20%)    |
 
 ---
 
@@ -302,26 +304,27 @@ message TransceiverMessage {
 
 **All components are strictly open-source. No internet permission is declared.**
 
-| Component | License |
-|---|---|
-| AI4Bharat IndicConformer | Apache 2.0 |
-| AI4Bharat IndicTTS | MIT |
-| Silero VAD | MIT |
-| ONNX Runtime Mobile | MIT |
+| Component                   | License      |
+| --------------------------- | ------------ |
+| AI4Bharat IndicConformer    | Apache 2.0   |
+| AI4Bharat IndicTTS          | MIT          |
+| Silero VAD                  | MIT          |
+| ONNX Runtime Mobile         | MIT          |
 | Protocol Buffers (javalite) | BSD-3-Clause |
-| Jetpack Compose | Apache 2.0 |
-| Kotlin Coroutines | Apache 2.0 |
+| Jetpack Compose             | Apache 2.0   |
+| Kotlin Coroutines           | Apache 2.0   |
 
 ---
 
 ## 👥 Team Structure
 
-| Developer | Domain | Responsibility |
-|---|---|---|
-| **Gaurav** | Domain A — The Engine | Audio capture, VAD, STT/TTS inference, networking, background service |
-| **Sarthak** | Domain B — The Shell | Jetpack Compose UI, navigation, ViewModels, state management, integration |
+| Developer   | Domain                | Responsibility                                                            |
+| ----------- | --------------------- | ------------------------------------------------------------------------- |
+| **Gaurav**  | Domain A — The Engine | Audio capture, VAD, STT/TTS inference, networking, background service     |
+| **Sarthak** | Domain B — The Shell  | Jetpack Compose UI, navigation, ViewModels, state management, integration |
 
 **Integration Protocol:**
+
 - Domain A exposes only `SharedFlow<AppState>` and callback interfaces — never Android `Context`
 - Domain B consumes flows via ViewModels — never calls ONNX or socket APIs directly
 - Shared interfaces (`NetworkCallbacks`, `AudioCallbacks`, `AppResult<T>`) agreed upon in Sprint 1
@@ -330,12 +333,12 @@ message TransceiverMessage {
 
 ## 📅 Development Sprints
 
-| Sprint | Duration | Deliverable |
-|---|---|---|
-| **Sprint 1** | Week 1 | Foreground Service, Wi-Fi Direct discovery, BT RFCOMM, App skeleton, Navigation |
-| **Sprint 2** | Week 2 | Silero VAD + IndicConformer STT integration, socket text transmission, Transceiver UI |
-| **Sprint 3** | Week 3 | IndicTTS synthesis, AudioTrack playback, ALERT override, SOS UI |
-| **Sprint 4** | Week 4 | INT8 quantization, all 10 languages, RTF profiling, full integration testing |
+| Sprint       | Duration | Deliverable                                                                           |
+| ------------ | -------- | ------------------------------------------------------------------------------------- |
+| **Sprint 1** | Week 1   | Foreground Service, Wi-Fi Direct discovery, BT RFCOMM, App skeleton, Navigation       |
+| **Sprint 2** | Week 2   | Silero VAD + IndicConformer STT integration, socket text transmission, Transceiver UI |
+| **Sprint 3** | Week 3   | IndicTTS synthesis, AudioTrack playback, ALERT override, SOS UI                       |
+| **Sprint 4** | Week 4   | INT8 quantization, all 10 languages, RTF profiling, full integration testing          |
 
 See [team.md](team.md) for detailed sprint breakdown per developer.
 
@@ -405,16 +408,19 @@ dependencies {
 ## 🧪 Testing Strategy
 
 ### Unit Tests
+
 - `STTModuleTest.kt` — VAD trigger → STT output verification with known audio fixtures
 - `ProtobufSerializerTest.kt` — encode/decode round-trip verification
 - `NetworkReconnectTest.kt` — Wi-Fi Direct → BT fallback logic
 
 ### Integration Tests
+
 - Two-device walkie-talkie loop test (physical hardware, 2 Android devices)
 - RTF measurement: timestamp delta from `TransceiverMessage.timestamp` to AudioTrack play time
 - ALERT override: verify DND bypass and max volume on receiver
 
 ### Benchmarks
+
 - WER measured using standard IndicSUPERB test splits per language
 - TTS MOS scored via UTMOS automatic MOS predictor
 - CPU/RAM profiled with Android Profiler during idle VAD and active inference
@@ -428,4 +434,4 @@ Application code: **Apache 2.0**
 
 ---
 
-*Built for ISRO SIH PS-26173 | iTantra Universal Communication Ecosystem*
+_Built for ISRO SIH PS-26173 | iTantra Universal Communication Ecosystem_

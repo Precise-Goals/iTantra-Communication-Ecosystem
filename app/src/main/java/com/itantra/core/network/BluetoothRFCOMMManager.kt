@@ -19,6 +19,7 @@ import com.itantra.domain.model.TransceiverMessage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.io.IOException
@@ -146,7 +147,7 @@ class BluetoothRFCOMMManager(
         val lengthBuffer = ByteArray(4)
         try {
             val input = socket.inputStream
-            while (isActive && socket.isConnected) {
+            while (currentCoroutineContext().isActive && socket.isConnected) {
                 val read = input.read(lengthBuffer)
                 if (read < 4) break
 

@@ -5,6 +5,8 @@ plugins {
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.protobuf)
+    alias(libs.plugins.kotlin.serialization)
+    alias(libs.plugins.ksp)
 }
 
 android {
@@ -15,12 +17,11 @@ android {
         applicationId = "com.itantra"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "2.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-        // Ensure Protobuf generated sources are included
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
         }
@@ -64,22 +65,13 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
             excludes += "META-INF/DEPENDENCIES"
         }
-        // Ensure .ort and .onnx model files are not compressed (faster loading)
         jniLibs {
             useLegacyPackaging = false
         }
     }
 
     androidResources {
-        noCompress += listOf("onnx", "ort", "tflite", "bin", "pb")
-    }
-
-    sourceSets {
-        getByName("main") {
-            proto {
-                srcDir("src/main/proto")
-            }
-        }
+        noCompress += listOf("onnx", "ort", "tflite", "bin", "pb", "ftz")
     }
 }
 
@@ -121,14 +113,28 @@ dependencies {
     // Kotlin Coroutines
     implementation(libs.kotlinx.coroutines.android)
 
-    // ONNX Runtime Mobile — the single ML inference runtime for STT + TTS + VAD
+    // ONNX Runtime Mobile
     implementation(libs.onnxruntime.android)
 
-    // Protocol Buffers (Java Lite — minimal footprint)
+    // Protocol Buffers (Java Lite)
     implementation(libs.protobuf.javalite)
 
-    // DataStore (for persisting language/mode preferences)
+    // DataStore (preferences + device profile)
     implementation(libs.androidx.datastore.preferences)
+
+    // Room (peer registry database)
+    implementation(libs.androidx.room.runtime)
+    implementation(libs.androidx.room.ktx)
+    ksp(libs.androidx.room.compiler)
+
+    // WorkManager (background model downloads)
+    implementation(libs.androidx.work.runtime.ktx)
+
+    // OkHttp (resumable HTTP downloads for models)
+    implementation(libs.okhttp)
+
+    // Kotlinx Serialization (model manifest JSON)
+    implementation(libs.kotlinx.serialization.json)
 
     // Testing
     testImplementation(libs.junit)

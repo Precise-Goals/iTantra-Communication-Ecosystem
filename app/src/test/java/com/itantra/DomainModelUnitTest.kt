@@ -68,18 +68,18 @@ class DomainModelUnitTest {
     @Test
     fun testPeerDeviceState() {
         val peer = PeerDevice(
-            id = "bt-peer-01",
-            name = "Tactical-Node-2",
-            address = "AA:BB:CC:DD:EE:FF",
+            deviceId = "AA:BB:CC:DD:EE:FF",
+            deviceName = "Tactical-Node-2",
             connectionType = ConnectionType.BLUETOOTH,
             isConnected = true,
             rssi = -65,
-            batteryPercent = 88
+            latencyMs = 45L
         )
 
         assertTrue(peer.isConnected)
         assertEquals(ConnectionType.BLUETOOTH, peer.connectionType)
         assertEquals(-65, peer.rssi)
-        assertEquals(88, peer.batteryPercent)
+        assertEquals("Tactical-Node-2", peer.deviceName)
+        assertEquals(45L, peer.latencyMs)
     }
 }

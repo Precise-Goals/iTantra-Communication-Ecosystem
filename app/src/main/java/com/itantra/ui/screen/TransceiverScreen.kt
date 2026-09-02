@@ -1,20 +1,21 @@
 package com.itantra.ui.screen
 
-import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -22,19 +23,24 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bluetooth
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
-import androidx.compose.material.icons.filled.Send
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Divider
+import androidx.compose.material.icons.filled.SignalWifi4Bar
+import androidx.compose.material.icons.filled.Translate
+import androidx.compose.material.icons.outlined.PersonAdd
+import androidx.compose.material.icons.outlined.Radio
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -44,343 +50,436 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.itantra.domain.model.ConnectionMode
-import com.itantra.domain.model.Direction
-import com.itantra.domain.model.MessageType
-import com.itantra.domain.model.TransceiverMessage
+import androidx.compose.ui.unit.sp
+import com.itantra.domain.model.ConnectionType
+import com.itantra.domain.model.DownloadState
+import com.itantra.domain.model.ModelPack
+import com.itantra.domain.model.PeerDevice
 import com.itantra.ui.MainViewModel
-import com.itantra.ui.theme.ActiveGreen400
-import com.itantra.ui.theme.ActiveGreenGlow
-import com.itantra.ui.theme.DistressRed500
-import com.itantra.ui.theme.OnSurface
-import com.itantra.ui.theme.OnSurfaceDim
-import com.itantra.ui.theme.SignalOrange500
-import com.itantra.ui.theme.SignalOrangeGlow
-import com.itantra.ui.theme.SpaceBlue700
-import com.itantra.ui.theme.SpaceBlue800
-import kotlinx.coroutines.launch
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
-import kotlin.math.PI
-import kotlin.math.cos
-import kotlin.math.sin
+import com.itantra.ui.component.ModelDownloadGate
+import com.itantra.ui.theme.iTantraBackground
+import com.itantra.ui.theme.iTantraBlack
+import com.itantra.ui.theme.iTantraBlack40
+import com.itantra.ui.theme.iTantraBlack60
+import com.itantra.ui.theme.iTantraBlack80
+import com.itantra.ui.theme.iTantraBorder
+import com.itantra.ui.theme.iTantraCard
+import com.itantra.ui.theme.iTantraCardAlt
+import com.itantra.ui.theme.iTantraDivider
+import com.itantra.ui.theme.iTantraError
+import com.itantra.ui.theme.iTantraSuccess
+import com.itantra.ui.theme.iTantraSuccessLight
+import com.itantra.ui.theme.iTantraSurfaceHover
+import com.itantra.ui.theme.iTantraWhite
 
 @Composable
-fun TransceiverScreen(viewModel: MainViewModel) {
-    val messages by viewModel.messageLogFlow.collectAsState()
-    val connectionMode by viewModel.connectionMode.collectAsState()
-    val isPTTActive by viewModel.isPTTActive.collectAsState()
-    val vadProbability by viewModel.vadProbabilityFlow.collectAsState()
-    val sttLanguage by viewModel.sttLanguage.collectAsState()
-    val ttsLanguage by viewModel.ttsLanguage.collectAsState()
-    val haptic = LocalHapticFeedback.current
+fun TransceiverScreen(
+    viewModel: MainViewModel,
+    onPeerSelected: (String) -> Unit,
+    onNavigateToDownloads: () -> Unit
+) {
+    val downloadStates by viewModel.downloadStates.collectAsState()
+    val isHosting by viewModel.isHosting.collectAsState()
+    val isDiscovering by viewModel.isDiscovering.collectAsState()
+    val peers by viewModel.knownPeers.collectAsState()
+    val detectedLanguage by viewModel.detectedLanguage.collectAsState()
+    val isAutoDetect by viewModel.isAutoDetectEnabled.collectAsState()
+
+    val corePacks = ModelPack.coreTransceiverPacks()
+    val coreReady = corePacks.all { downloadStates[it] is DownloadState.Downloaded }
+
+    var isPttActive by remember { mutableStateOf(false) }
+
+    val infiniteTransition = rememberInfiniteTransition(label = "transceiver_pulse")
+    val pulseScale by infiniteTransition.animateFloat(
+        initialValue = 1f,
+        targetValue = 1.08f,
+        animationSpec = infiniteRepeatable(tween(1600, easing = LinearEasing), RepeatMode.Reverse),
+        label = "pulse"
+    )
+    val scanRotation by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(tween(3000, easing = LinearEasing), RepeatMode.Restart),
+        label = "scan"
+    )
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+            .background(iTantraBackground),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // Header row
+        // ── Header Bar ─────────────────────────────────────────────
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .statusBarsPadding()
+                .padding(horizontal = 20.dp, vertical = 14.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text("Transceiver", style = MaterialTheme.typography.headlineSmall.copy(color = OnSurface, fontWeight = FontWeight.Bold))
-            // Language chips
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                LanguageChip(label = sttLanguage.nativeName, isSTT = true)
-                Text("→", color = OnSurfaceDim)
-                LanguageChip(label = ttsLanguage.nativeName, isSTT = false)
-            }
-        }
-
-        // Mode toggle
-        Card(colors = CardDefaults.cardColors(containerColor = SpaceBlue800), shape = RoundedCornerShape(12.dp)) {
-            Row(
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp).fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+            Column {
                 Text(
-                    if (connectionMode == ConnectionMode.PUSH_TO_TALK) "Push-to-Talk" else "Phone Mode",
-                    style = MaterialTheme.typography.titleSmall.copy(color = OnSurface)
+                    text = "Radio Transceiver",
+                    style = MaterialTheme.typography.titleLarge.copy(
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 22.sp
+                    ),
+                    color = iTantraBlack
                 )
-                Switch(
-                    checked = connectionMode == ConnectionMode.PHONE_MODE,
-                    onCheckedChange = { isPhone ->
-                        viewModel.setConnectionMode(if (isPhone) ConnectionMode.PHONE_MODE else ConnectionMode.PUSH_TO_TALK)
-                    },
-                    colors = SwitchDefaults.colors(
-                        checkedThumbColor = ActiveGreen400,
-                        checkedTrackColor = ActiveGreenGlow
-                    )
-                )
-            }
-        }
-
-        // PTT Button (center)
-        Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-            if (connectionMode == ConnectionMode.PUSH_TO_TALK) {
-                PTTButton(
-                    isActive = isPTTActive,
-                    onPress = {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        viewModel.startPTT()
-                    },
-                    onRelease = { viewModel.stopPTT() }
-                )
-            } else {
-                // Phone mode: show live VAD waveform
-                LiveWaveformIndicator(vadProbability = vadProbability)
-            }
-        }
-
-        // Transcription log
-        Text("Live Transcription", style = MaterialTheme.typography.titleSmall.copy(color = OnSurfaceDim))
-        LazyColumn(
-            modifier = Modifier.weight(1f),
-            reverseLayout = false,
-            verticalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            items(messages.take(50)) { message ->
-                TranscriptionLogItem(message = message)
-            }
-        }
-    }
-}
-
-@Composable
-fun PTTButton(isActive: Boolean, onPress: () -> Unit, onRelease: () -> Unit) {
-    val infiniteTransition = rememberInfiniteTransition(label = "ptt_pulse")
-    val scale by infiniteTransition.animateFloat(
-        initialValue = 1f, targetValue = if (isActive) 1.08f else 1f,
-        animationSpec = infiniteRepeatable(
-            tween(600, easing = FastOutSlowInEasing), RepeatMode.Reverse
-        ),
-        label = "ptt_scale"
-    )
-
-    val buttonColor by animateColorAsState(
-        targetValue = if (isActive) SignalOrange500 else SpaceBlue700,
-        animationSpec = tween(200),
-        label = "ptt_color"
-    )
-    val glowColor by animateColorAsState(
-        targetValue = if (isActive) SignalOrangeGlow else Color.Transparent,
-        animationSpec = tween(200),
-        label = "ptt_glow"
-    )
-    val borderColor by animateColorAsState(
-        targetValue = if (isActive) SignalOrange500 else OnSurfaceDim,
-        label = "ptt_border"
-    )
-
-    Box(contentAlignment = Alignment.Center) {
-        // Outer glow ring
-        Box(
-            modifier = Modifier
-                .size(160.dp)
-                .scale(scale)
-                .background(glowColor, CircleShape)
-        )
-        // Main button
-        Box(
-            modifier = Modifier
-                .size(140.dp)
-                .scale(if (isActive) scale else 1f)
-                .background(buttonColor, CircleShape)
-                .border(2.dp, borderColor, CircleShape)
-                .pointerInput(Unit) {
-                    detectTapGestures(
-                        onPress = {
-                            onPress()
-                            tryAwaitRelease()
-                            onRelease()
-                        }
-                    )
-                },
-            contentAlignment = Alignment.Center
-        ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Icon(
-                    imageVector = if (isActive) Icons.Filled.Mic else Icons.Filled.MicOff,
-                    contentDescription = "PTT",
-                    tint = if (isActive) Color.White else OnSurfaceDim,
-                    modifier = Modifier.size(40.dp)
-                )
-                Spacer(Modifier.height(4.dp))
                 Text(
-                    if (isActive) "HOLD" else "HOLD TO TALK",
-                    style = MaterialTheme.typography.labelSmall.copy(
-                        color = if (isActive) Color.White else OnSurfaceDim,
-                        fontWeight = FontWeight.Bold
-                    )
-                )
-            }
-        }
-    }
-}
-
-@Composable
-fun LiveWaveformIndicator(vadProbability: Float) {
-    val infiniteTransition = rememberInfiniteTransition(label = "waveform")
-    val phase by infiniteTransition.animateFloat(
-        initialValue = 0f, targetValue = (2 * PI).toFloat(),
-        animationSpec = infiniteRepeatable(tween(1500)),
-        label = "phase"
-    )
-
-    Canvas(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(80.dp)
-    ) {
-        val width = size.width
-        val height = size.height
-        val centerY = height / 2
-        val amplitude = (height / 2 - 8.dp.toPx()) * vadProbability.coerceIn(0.1f, 1f)
-        val waveCount = 3
-
-        for (wave in 0 until waveCount) {
-            val offset = wave * (2 * PI / waveCount).toFloat()
-            val alpha = 1f - wave * 0.25f
-            for (x in 0 until width.toInt() step 2) {
-                val angle = (x / width.toFloat()) * 4 * PI + phase + offset
-                val y = centerY + (sin(angle) * amplitude).toFloat()
-                val nextX = (x + 2).coerceAtMost(width.toInt())
-                val nextAngle = (nextX / width.toFloat()) * 4 * PI + phase + offset
-                val nextY = centerY + (sin(nextAngle) * amplitude).toFloat()
-                drawLine(
-                    color = ActiveGreen400.copy(alpha = alpha),
-                    start = Offset(x.toFloat(), y),
-                    end = Offset(nextX.toFloat(), nextY),
-                    strokeWidth = 2.dp.toPx(),
-                    cap = StrokeCap.Round
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun LanguageChip(label: String, isSTT: Boolean) {
-    Box(
-        modifier = Modifier
-            .background(
-                if (isSTT) SignalOrange500.copy(alpha = 0.15f) else ActiveGreen400.copy(alpha = 0.15f),
-                RoundedCornerShape(20.dp)
-            )
-            .border(
-                1.dp,
-                if (isSTT) SignalOrange500.copy(alpha = 0.5f) else ActiveGreen400.copy(alpha = 0.5f),
-                RoundedCornerShape(20.dp)
-            )
-            .padding(horizontal = 10.dp, vertical = 4.dp)
-    ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelSmall.copy(
-                color = if (isSTT) SignalOrange500 else ActiveGreen400,
-                fontWeight = FontWeight.SemiBold
-            )
-        )
-    }
-}
-
-@Composable
-private fun TranscriptionLogItem(message: TransceiverMessage) {
-    val isSent = message.direction == Direction.SENT
-    val isAlert = message.type == MessageType.ALERT
-
-    val bgColor = when {
-        isAlert -> DistressRed500.copy(alpha = 0.15f)
-        isSent -> SignalOrange500.copy(alpha = 0.1f)
-        else -> ActiveGreen400.copy(alpha = 0.08f)
-    }
-    val borderColor = when {
-        isAlert -> DistressRed500.copy(alpha = 0.5f)
-        isSent -> SignalOrange500.copy(alpha = 0.4f)
-        else -> ActiveGreen400.copy(alpha = 0.4f)
-    }
-    val labelColor = when {
-        isAlert -> DistressRed500
-        isSent -> SignalOrange500
-        else -> ActiveGreen400
-    }
-    val label = when {
-        isAlert -> "⚠️ ALERT"
-        isSent -> "▲ SENT"
-        else -> "▼ RECV"
-    }
-
-    Card(
-        colors = CardDefaults.cardColors(containerColor = bgColor),
-        modifier = Modifier.fillMaxWidth().border(1.dp, borderColor, RoundedCornerShape(8.dp)),
-        shape = RoundedCornerShape(8.dp)
-    ) {
-        Column(modifier = Modifier.padding(10.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(label, style = MaterialTheme.typography.labelSmall.copy(color = labelColor, fontWeight = FontWeight.Bold))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (message.confidence > 0f) {
-                        ConfidenceDot(message.confidence)
-                        Spacer(Modifier.width(6.dp))
+                    text = when {
+                        isPttActive -> "Transmitting Voice…"
+                        isHosting && isDiscovering -> "Mesh Beacon · Scanning Active"
+                        isHosting -> "Beacon Active (Broadcasting)"
+                        isDiscovering -> "Scanning for nearby peers…"
+                        else -> "Radio Standby"
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = when {
+                        isPttActive -> iTantraError
+                        isHosting || isDiscovering -> iTantraSuccessLight
+                        else -> iTantraBlack60
                     }
+                )
+            }
+
+            // Language auto-detect pill
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(iTantraCardAlt)
+                    .border(1.dp, iTantraBorder, RoundedCornerShape(20.dp))
+                    .clickable { viewModel.setAutoDetect(!isAutoDetect) }
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(Icons.Filled.Translate, contentDescription = null, tint = iTantraBlack, modifier = Modifier.size(13.dp))
+                Spacer(Modifier.width(5.dp))
+                Text(
+                    text = if (isAutoDetect) "Auto · ${detectedLanguage?.uppercase() ?: "?"}" else "Manual",
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, fontWeight = FontWeight.SemiBold),
+                    color = iTantraBlack
+                )
+            }
+        }
+
+        if (!coreReady) {
+            // Model Gate
+            ModelDownloadGate(
+                requiredPacks = corePacks,
+                downloadStates = downloadStates,
+                onDownloadAll = onNavigateToDownloads,
+                modifier = Modifier.padding(horizontal = 20.dp)
+            )
+        } else {
+            // Divider
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(1.dp)
+                    .background(iTantraDivider)
+            )
+
+            // ── Host & Search Compact Control Row ───────────────────
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                TransceiverToggleCard(
+                    label = "Host Beacon",
+                    sublabel = "Discoverable to peers",
+                    checked = isHosting,
+                    onCheckedChange = { viewModel.setHosting(it) },
+                    modifier = Modifier.weight(1f)
+                )
+                TransceiverToggleCard(
+                    label = "Search Peers",
+                    sublabel = "Scan for nodes",
+                    checked = isDiscovering,
+                    onCheckedChange = { viewModel.setDiscovering(it) },
+                    modifier = Modifier.weight(1f)
+                )
+            }
+
+            // ── MAIN HERO: Giant Centered PTT Button ────────────────
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    // Outer ambient ring
+                    Box(
+                        modifier = Modifier
+                            .size(230.dp)
+                            .scale(if (isPttActive) 1.05f else pulseScale)
+                            .clip(CircleShape)
+                            .background(if (isPttActive) Color(0x1FDC2626) else Color(0xFFF3F4F6)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        // Middle ring
+                        Box(
+                            modifier = Modifier
+                                .size(185.dp)
+                                .clip(CircleShape)
+                                .background(if (isPttActive) Color(0x33DC2626) else iTantraWhite)
+                                .border(
+                                    2.dp,
+                                    if (isPttActive) iTantraError else iTantraBorder,
+                                    CircleShape
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            // Core tactile button
+                            Box(
+                                modifier = Modifier
+                                    .size(145.dp)
+                                    .shadow(8.dp, CircleShape)
+                                    .clip(CircleShape)
+                                    .background(if (isPttActive) iTantraError else iTantraBlack)
+                                    .border(
+                                        2.dp,
+                                        if (isPttActive) Color(0xFFF87171) else iTantraBlack,
+                                        CircleShape
+                                    )
+                                    .pointerInput(Unit) {
+                                        detectTapGestures(
+                                            onPress = {
+                                                isPttActive = true
+                                                tryAwaitRelease()
+                                                isPttActive = false
+                                            }
+                                        )
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.Center
+                                ) {
+                                    Icon(
+                                        imageVector = if (isPttActive) Icons.Filled.Mic else Icons.Filled.GraphicEq,
+                                        contentDescription = "Push to Talk",
+                                        tint = iTantraWhite,
+                                        modifier = Modifier.size(46.dp)
+                                    )
+                                    Spacer(Modifier.height(4.dp))
+                                    Text(
+                                        text = if (isPttActive) "RELEASE" else "HOLD PTT",
+                                        style = MaterialTheme.typography.labelSmall.copy(
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 11.sp,
+                                            letterSpacing = 1.5.sp
+                                        ),
+                                        color = iTantraWhite
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(Modifier.height(16.dp))
+
                     Text(
-                        formatTimestamp(message.timestamp),
-                        style = MaterialTheme.typography.labelSmall.copy(color = OnSurfaceDim)
+                        text = if (isPttActive) "Transmitting Audio Data…" else "Push to Talk (Walkie-Talkie)",
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                        color = if (isPttActive) iTantraError else iTantraBlack
+                    )
+                    Spacer(Modifier.height(3.dp))
+                    Text(
+                        text = "Silero VAD → IndicConformer STT → ~200B Protobuf Frame",
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                        color = iTantraBlack60
                     )
                 }
             }
-            Spacer(Modifier.height(4.dp))
-            Text(message.text, style = MaterialTheme.typography.bodyMedium.copy(color = OnSurface))
-            if (message.srcLang != message.dstLang) {
-                Text(
-                    "${message.srcLang} → ${message.dstLang}",
-                    style = MaterialTheme.typography.labelSmall.copy(color = OnSurfaceDim)
-                )
+
+            // ── Nearby Peer Drawer (Bottom of screen) ───────────────
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
+                    .background(iTantraCardAlt)
+                    .border(1.dp, iTantraBorder, RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
+            ) {
+                Column {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (isDiscovering) {
+                                Icon(
+                                    Icons.Outlined.Radio,
+                                    contentDescription = null,
+                                    tint = iTantraBlack,
+                                    modifier = Modifier.size(14.dp).rotate(scanRotation)
+                                )
+                                Spacer(Modifier.width(6.dp))
+                            }
+                            Text(
+                                text = if (peers.isEmpty()) "No devices found nearby" else "Nearby Devices (${peers.size})",
+                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                color = iTantraBlack
+                            )
+                        }
+                        if (peers.isNotEmpty()) {
+                            Text(
+                                text = "tap to connect",
+                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                color = iTantraBlack60
+                            )
+                        }
+                    }
+
+                    if (peers.isNotEmpty()) {
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(minOf(peers.size * 72, 216).dp),
+                            contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 8.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            items(peers, key = { it.deviceId }) { peer ->
+                                PeerRowItemWhite(
+                                    peer = peer,
+                                    onClick = { if (peer.isConnected) onPeerSelected(peer.deviceId) },
+                                    onAuthorize = { viewModel.authorizePeer(peer.deviceId) },
+                                    onRevoke = { viewModel.revokePeer(peer.deviceId) }
+                                )
+                            }
+                        }
+                    }
+                }
             }
         }
     }
 }
 
 @Composable
-private fun ConfidenceDot(confidence: Float) {
-    Box(
-        modifier = Modifier
-            .size(8.dp)
-            .background(
-                when {
-                    confidence > 0.7f -> ActiveGreen400
-                    confidence > 0.4f -> SignalOrange500
-                    else -> DistressRed500
-                },
-                CircleShape
+private fun TransceiverToggleCard(
+    label: String,
+    sublabel: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
+            .clip(RoundedCornerShape(16.dp))
+            .background(if (checked) Color(0xFFF3F4F6) else iTantraWhite)
+            .border(
+                1.dp,
+                if (checked) iTantraBlack else iTantraBorder,
+                RoundedCornerShape(16.dp)
             )
-    )
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                color = iTantraBlack
+            )
+            Text(
+                text = sublabel,
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                color = iTantraBlack60
+            )
+        }
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            modifier = Modifier.height(24.dp),
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = iTantraWhite,
+                checkedTrackColor = iTantraBlack,
+                uncheckedThumbColor = iTantraBlack60,
+                uncheckedTrackColor = iTantraBorder
+            )
+        )
+    }
 }
 
-private fun formatTimestamp(epochMs: Long): String {
-    return SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(epochMs))
+@Composable
+private fun PeerRowItemWhite(
+    peer: PeerDevice,
+    onClick: () -> Unit,
+    onAuthorize: () -> Unit,
+    onRevoke: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(iTantraWhite)
+            .border(
+                1.dp,
+                if (peer.isConnected) iTantraSuccess.copy(alpha = 0.5f) else iTantraBorder,
+                RoundedCornerShape(14.dp)
+            )
+            .clickable(enabled = peer.isConnected, onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(32.dp)
+                .clip(CircleShape)
+                .background(iTantraCardAlt),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = if (peer.connectionType == ConnectionType.WIFI_DIRECT)
+                    Icons.Filled.SignalWifi4Bar else Icons.Filled.Bluetooth,
+                contentDescription = null,
+                tint = iTantraBlack,
+                modifier = Modifier.size(16.dp)
+            )
+        }
+        Column(modifier = Modifier.weight(1f)) {
+            Text(peer.deviceName, style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold), color = iTantraBlack)
+            Text(
+                text = "${peer.connectionType.name.replace("_", " ")} · ${peer.rssi}dBm · Build: ${peer.deviceId.take(8)}",
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                color = iTantraBlack60
+            )
+        }
+        IconButton(
+            onClick = if (peer.isAuthorized) onRevoke else onAuthorize,
+            modifier = Modifier.size(32.dp)
+        ) {
+            Icon(
+                imageVector = if (peer.isAuthorized) Icons.Filled.CheckCircle else Icons.Outlined.PersonAdd,
+                contentDescription = if (peer.isAuthorized) "Authorized" else "Authorize",
+                tint = if (peer.isAuthorized) iTantraSuccess else iTantraBlack60,
+                modifier = Modifier.size(18.dp)
+            )
+        }
+    }
 }
