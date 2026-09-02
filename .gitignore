@@ -25,6 +25,12 @@ local.properties
 *.jar
 *.war
 *.ear
+# The blanket *.jar rule above accidentally excluded this one — it's the actual root cause of
+# gradlew.bat previously failing with "Could not find or load main class
+# org.gradle.wrapper.GradleWrapperMain" for anyone who freshly clones this repo. Gradle's own
+# convention is to always commit this specific jar (it's a small bootstrap stub, not a real
+# dependency) so the wrapper works with zero setup.
+!gradle/wrapper/gradle-wrapper.jar
 
 # ==================== Android ====================
 bin/

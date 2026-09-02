@@ -11,7 +11,9 @@ plugins {
 
 android {
     namespace = "com.itantra"
-    compileSdk = 35
+    // Bumped from 35: llamacpp-kotlin 0.4.0 was compiled with a Kotlin compiler whose metadata
+    // format our toolchain can only read at Kotlin 2.3.x+, which in turn needs a newer AGP/compileSdk.
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.itantra"
@@ -47,14 +49,6 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = "17"
-        freeCompilerArgs += listOf(
-            "-opt-in=androidx.compose.material3.ExperimentalMaterial3Api",
-            "-opt-in=kotlinx.coroutines.ExperimentalCoroutinesApi"
-        )
-    }
-
     buildFeatures {
         compose = true
         buildConfig = true
@@ -67,6 +61,11 @@ android {
         }
         jniLibs {
             useLegacyPackaging = false
+            // sherpa-onnx's AAR and onnxruntime-android both ship an unrelated x86
+            // libonnxruntime.so (real conflict caught by a real build — x86 isn't in our
+            // abiFilters below, so which one wins here is moot, but the merge step still
+            // fails on the duplicate path before ABI filtering is applied).
+            pickFirsts += "lib/x86/libonnxruntime.so"
         }
     }
 
@@ -77,6 +76,16 @@ android {
 
     androidResources {
         noCompress += listOf("onnx", "ort", "tflite", "bin", "pb", "ftz")
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+        freeCompilerArgs.addAll(
+            "-opt-in=androidx.compose.material3.ExperimentalMaterial3Api",
+            "-opt-in=kotlinx.coroutines.ExperimentalCoroutinesApi"
+        )
     }
 }
 
