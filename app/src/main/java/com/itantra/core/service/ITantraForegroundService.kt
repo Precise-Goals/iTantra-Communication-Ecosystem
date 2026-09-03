@@ -84,6 +84,10 @@ class ITantraForegroundService : Service() {
         fun getService(): ITantraForegroundService = this@ITantraForegroundService
     }
 
+    /** What the STT/TTS pipeline is actually doing right now — surfaced to the UI so a
+     * background conversation isn't a black box. */
+    enum class PipelineStage { IDLE, LISTENING, TRANSCRIBING, TRANSMITTING, RECEIVING, SPEAKING }
+
     private val binder = ITantraBinder()
     private val serviceScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     private val deviceId = UUID.randomUUID().toString()
@@ -109,6 +113,12 @@ class ITantraForegroundService : Service() {
 
     private val _ramUsageMbFlow = MutableStateFlow(0f)
     val ramUsageMbFlow: StateFlow<Float> = _ramUsageMbFlow.asStateFlow()
+
+    private val _pipelineStage = MutableStateFlow(PipelineStage.IDLE)
+    val pipelineStage: StateFlow<PipelineStage> = _pipelineStage.asStateFlow()
+
+    private val _isBluetoothListening = MutableStateFlow(false)
+    val isBluetoothListening: StateFlow<Boolean> = _isBluetoothListening.asStateFlow()
 
     // ==================== CONFIGURATION STATE ====================
     var connectionMode: ConnectionMode = ConnectionMode.PUSH_TO_TALK
@@ -166,6 +176,7 @@ class ITantraForegroundService : Service() {
             // Previously silent — made visible so a future two-device test can confirm receipt
             // from logcat alone, matching the visibility already present on the send side.
             Log.d(TAG, "Received from ${message.senderId}: '${message.text.take(80)}' [${message.type}]")
+            _pipelineStage.value = PipelineStage.RECEIVING
             appendMessage(message.copy(direction = Direction.RECEIVED))
             // Handle ALERT messages specially
             if (message.type == MessageType.ALERT) {
@@ -176,11 +187,13 @@ class ITantraForegroundService : Service() {
             // Synthesize incoming text via TTS
             serviceScope.launch(Dispatchers.Default) {
                 val isAlert = message.type == MessageType.ALERT
+                _pipelineStage.value = PipelineStage.SPEAKING
                 val waveform = ttsModule.synthesize(message.text, ttsLanguage)
                 if (waveform != null) {
                     // synthesize() already returns audio resampled to PLAYBACK_SAMPLE_RATE
                     audioPlayback.play(waveform, isAlert)
                 }
+                _pipelineStage.value = PipelineStage.IDLE
             }
         }
 
@@ -191,6 +204,7 @@ class ITantraForegroundService : Service() {
                 Log.w(TAG, "Activating Bluetooth RFCOMM fallback")
                 isBluetoothFallbackActive = true
                 bluetoothManager.startServer()
+                _isBluetoothListening.value = true
                 _networkStateFlow.value = "DISCOVERING"
             }
         }
@@ -223,11 +237,13 @@ class ITantraForegroundService : Service() {
                 )
                 appendMessage(message)
                 // Transmit over network
+                _pipelineStage.value = PipelineStage.TRANSMITTING
                 if (isBluetoothFallbackActive) {
                     bluetoothManager.send(message)
                 } else {
                     socketTransport.broadcast(message)
                 }
+                _pipelineStage.value = PipelineStage.IDLE
             }
         }
 
@@ -327,6 +343,19 @@ class ITantraForegroundService : Service() {
         if (!isBluetoothFallbackActive) {
             isBluetoothFallbackActive = true
             bluetoothManager.startServer()
+            _isBluetoothListening.value = true
+        }
+    }
+
+    /** Stop listening for new Bluetooth connections (used when "Host Beacon" is turned off) —
+     * previously there was no way to turn this back off once started, so the toggle stuck "on"
+     * regardless of user action (confirmed on-device). Doesn't disconnect an already-connected
+     * peer. */
+    fun stopBluetoothServer() {
+        if (isBluetoothFallbackActive) {
+            bluetoothManager.stopListening()
+            isBluetoothFallbackActive = false
+            _isBluetoothListening.value = false
         }
     }
 
@@ -334,6 +363,7 @@ class ITantraForegroundService : Service() {
     fun startPTT() {
         if (!audioCaptureModule.isRunning) {
             audioCaptureModule.startCapture()
+            _pipelineStage.value = PipelineStage.LISTENING
         }
     }
 
@@ -342,8 +372,14 @@ class ITantraForegroundService : Service() {
         serviceScope.launch {
             val buffer = audioCaptureModule.flushAndTranscribe()
             if (buffer != null && buffer.isNotEmpty()) {
+                _pipelineStage.value = PipelineStage.TRANSCRIBING
                 sttModule.ensureLoaded(sttLanguage)
                 sttModule.transcribe(buffer, sttLanguage)
+                // onSTTResult (audioCallbacks) takes it from TRANSCRIBING through TRANSMITTING
+                // and back to IDLE; only reset here if transcription produced no result at all.
+                if (_pipelineStage.value == PipelineStage.TRANSCRIBING) _pipelineStage.value = PipelineStage.IDLE
+            } else {
+                _pipelineStage.value = PipelineStage.IDLE
             }
             audioCaptureModule.stopCapture()
         }

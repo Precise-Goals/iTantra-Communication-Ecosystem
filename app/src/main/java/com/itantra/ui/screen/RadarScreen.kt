@@ -79,7 +79,7 @@ fun RadarScreen(viewModel: MainViewModel) {
     val context = LocalContext.current
     val peers by viewModel.knownPeers.collectAsState()
     val isDiscovering by viewModel.isDiscovering.collectAsState()
-    val isHosting by viewModel.isHosting.collectAsState()
+    val isHosting by viewModel.isHostingEffective.collectAsState()
     var selectedPeer by remember { mutableStateOf<PeerDevice?>(null) }
 
     // Runtime Permission Request Launcher for Wi-Fi Direct and BLE Scanning

@@ -176,10 +176,20 @@ class BluetoothRFCOMMManager(
         }
     }
 
+    /** Stop accepting new incoming connections (closes only the listening server socket) without
+     * disconnecting any peer already connected — used when the user turns "Host Beacon" off
+     * mid-conversation; a full [stop] would also kill any live connection. */
+    fun stopListening() {
+        runCatching { serverSocket?.close() }
+        serverSocket = null
+        Log.d(TAG, "BluetoothRFCOMMManager stopped listening for new connections")
+    }
+
     fun stop() {
         connectedSockets.values.forEach { runCatching { it.close() } }
         connectedSockets.clear()
         runCatching { serverSocket?.close() }
+        serverSocket = null
         Log.d(TAG, "BluetoothRFCOMMManager stopped")
     }
 }
