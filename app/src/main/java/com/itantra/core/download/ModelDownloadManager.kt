@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import okhttp3.Dispatcher
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
@@ -36,6 +37,16 @@ class ModelDownloadManager(private val context: Context) {
     private val client = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
+        // OkHttp's default Dispatcher caps concurrent requests to the SAME host at 5 — with up to
+        // 17 core packs downloaded in parallel and most STT files hosted on huggingface.co, the
+        // 6th+ request to that host just sits queued with zero visible progress (confirmed
+        // on-device: several packs stuck at 0% indefinitely while 5 others succeeded). This app
+        // deliberately fires all packs in parallel (downloadAll()), so the whole point is
+        // defeated by the default per-host cap — raise it well above the real pack count.
+        .dispatcher(Dispatcher().apply {
+            maxRequests = 40
+            maxRequestsPerHost = 40
+        })
         .build()
     private val hashStore = ModelHashStore(context)
 
