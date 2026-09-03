@@ -36,6 +36,16 @@ class LlmModule(private val context: Context) {
         private const val CONTEXT_LENGTH = 4096
         private const val LOAD_TIMEOUT_MS = 120_000L
         private const val GENERATE_TIMEOUT_MS = 90_000L
+        /** Bounds runaway generation (confirmed on-device: replies ran to 200+ tokens without
+         * stopping). LlamaHelper.predict()'s public API has no n_predict/stop hook — its native
+         * layer supports them (confirmed via javap: LlamaContext.completion()'s doCompletion(...)
+         * signature includes them), but reaching that would mean bypassing LlamaHelper's private
+         * internals via reflection, which is worse than enforcing the bound here using only its
+         * public API (stopPrediction(), already used for the timeout case below). */
+        private const val MAX_TOKENS = 250
+        /** Matches the Phi-3 chat template markers in MainViewModel.buildLlmPrompt() — stop at
+         * end-of-turn, or if the model hallucinates starting a new user turn. */
+        private val STOP_SEQUENCES = listOf("<|end|>", "<|user|>")
 
         /** Real constraint of the llamacpp-kotlin 0.4.0 AAR — verified by inspecting its jni/ dir. */
         private val SUPPORTED_ABIS = setOf("arm64-v8a", "x86_64")
@@ -117,12 +127,25 @@ class LlmModule(private val context: Context) {
         if (!isLoaded || engine == null || flow == null) return@withLock null
 
         val deferred = CompletableDeferred<String?>()
+        val accumulated = StringBuilder()
         val collectorJob = scope.launch {
             flow.collect { event ->
                 when (event) {
                     is LlamaHelper.LLMEvent.Started -> Log.d(TAG, "generation started")
                     is LlamaHelper.LLMEvent.Ongoing -> {
+                        accumulated.append(event.word)
                         if (event.tokenCount % 8 == 0) Log.d(TAG, "generating... ${event.tokenCount} tokens so far")
+
+                        val stopIndex = STOP_SEQUENCES.asSequence()
+                            .map { accumulated.indexOf(it) }
+                            .filter { it >= 0 }
+                            .minOrNull()
+                        if (!deferred.isCompleted && (stopIndex != null || event.tokenCount >= MAX_TOKENS)) {
+                            val text = if (stopIndex != null) accumulated.substring(0, stopIndex) else accumulated.toString()
+                            Log.d(TAG, "generate(): stopping early at ${event.tokenCount} tokens (${if (stopIndex != null) "stop sequence" else "max tokens"})")
+                            deferred.complete(text.trim())
+                            runCatching { engine.stopPrediction() }
+                        }
                     }
                     is LlamaHelper.LLMEvent.Done -> {
                         Log.d(TAG, "generation done: ${event.tokenCount} tokens in ${event.duration}ms")
