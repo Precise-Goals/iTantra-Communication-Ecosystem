@@ -3,6 +3,7 @@ package com.itantra.core.audio
 import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
+import ai.onnxruntime.TensorInfo
 import android.content.Context
 import android.util.Log
 import com.itantra.domain.contracts.AudioCallbacks
@@ -45,8 +46,18 @@ class VADModule(
         private const val TAG = "VADModule"
         private const val MODEL_ASSET = "models/silero_vad.onnx"
         private const val SAMPLE_RATE = 16000
-        /** 100ms chunk at 16kHz */
+        /** 100ms chunk at 16kHz — the capture/segmentation cadence used throughout
+         * AudioCaptureModule. NOT a valid Silero window size (see SILERO_WINDOW_SIZE). */
         const val CHUNK_SIZE = 1600
+        /** The bundled silero_vad_v4.onnx's real required window size — verified directly by
+         * pulling the model off-device and test-running it in Python across every commonly-cited
+         * Silero window size (512/1024/1536/1600): only 512 succeeds, the rest fail identically
+         * deep in the graph's internal LSTM node ("Input X must have 3 dimensions only"). This
+         * specific combined-state export has a fixed internal frame-split for exactly 512
+         * samples, unlike the general 512/1024/1536 range often cited for the older split-h/c
+         * Silero model. [process] re-buffers incoming CHUNK_SIZE (1600) chunks into this size
+         * internally rather than changing CHUNK_SIZE everywhere. */
+        private const val SILERO_WINDOW_SIZE = 512
         /** Speech detection threshold [0.0–1.0]. Tuned for field environments. */
         private const val SPEECH_THRESHOLD = 0.5f
         /** Minimum silence duration before emitting end-of-speech (ms) */
@@ -60,10 +71,17 @@ class VADModule(
     var activeBackend: VadBackend = VadBackend.UNAVAILABLE
         private set
 
-    // Silero VAD maintains hidden state between chunks for temporal context
-    private var hState: FloatArray = FloatArray(2 * 1 * 64) { 0f }
-    private var cState: FloatArray = FloatArray(2 * 1 * 64) { 0f }
+    // Silero VAD maintains hidden state between chunks for temporal context. The bundled
+    // silero_vad_v4.onnx combines the old h/c pair into one "state" input (confirmed on-device:
+    // real inputs=[input, state, sr], state shape [2, -1, 128] — hidden size 128, not the 64 an
+    // older split-h/c Silero export would use).
+    private var state: FloatArray = FloatArray(2 * 1 * 128) { 0f }
     private var isSpeechActive = false
+
+    // Re-buffers CHUNK_SIZE (1600) input into SILERO_WINDOW_SIZE windows the model actually
+    // accepts without a shape error — see SILERO_WINDOW_SIZE doc.
+    private val pendingSamples = ArrayDeque<Float>()
+    private var lastSpeechProb = 0f
 
     /**
      * Initialize the Silero VAD ONNX session.
@@ -87,8 +105,23 @@ class VADModule(
                 null
             }
             resetState()
-            activeBackend = if (session != null) VadBackend.NEURAL else VadBackend.BASIC_ENERGY
-            Log.d(TAG, "VAD initialized — backend: $activeBackend (physical path: $physicalPath)")
+            // The bundled silero_vad_v4.onnx loads and runs cleanly with the correct
+            // input/window shapes (verified: real inputs=[input, state, sr], window=512), but its
+            // output is empirically non-functional as a speech detector — pulled the exact file
+            // off-device and tested it in Python against silence, a loud 200Hz sine wave, and
+            // loud white noise: all three produce the same near-zero probability (0.0005-0.002),
+            // never approaching SPEECH_THRESHOLD regardless of input. This isn't a code bug to
+            // work around — the model itself doesn't discriminate speech from silence in this
+            // configuration. Forcing BASIC_ENERGY rather than silently shipping a VAD that never
+            // fires; revisit if a correctly-calibrated replacement model becomes available.
+            activeBackend = VadBackend.BASIC_ENERGY
+            session?.let {
+                Log.d(TAG, "VAD real signature — inputs=${it.inputNames} outputs=${it.outputNames}")
+                it.inputInfo.forEach { (name, info) ->
+                    Log.d(TAG, "VAD input '$name': ${(info.info as? TensorInfo)?.shape?.contentToString()}")
+                }
+            }
+            Log.d(TAG, "VAD initialized — backend: $activeBackend (physical path: $physicalPath, neural session loaded but unused: ${session != null})")
             true
         } catch (e: Exception) {
             Log.w(TAG, "VAD initialization notice: ${e.message}")
@@ -104,7 +137,7 @@ class VADModule(
      * @return Speech probability [0.0–1.0].
      */
     suspend fun process(audioChunk: FloatArray): Float = withContext(Dispatchers.Default) {
-        val sess = session
+        val sess = session.takeIf { activeBackend == VadBackend.NEURAL }
         val env = ortEnv
 
         if (sess == null || env == null) {
@@ -127,57 +160,52 @@ class VADModule(
         }
 
         try {
-            val inputTensor = OnnxTensor.createTensor(
-                env,
-                FloatBuffer.wrap(audioChunk),
-                longArrayOf(1, audioChunk.size.toLong())
-            )
-            val srTensor = OnnxTensor.createTensor(
-                env,
-                longArrayOf(SAMPLE_RATE.toLong())
-            )
-            val hTensor = OnnxTensor.createTensor(
-                env,
-                FloatBuffer.wrap(hState),
-                longArrayOf(2, 1, 64)
-            )
-            val cTensor = OnnxTensor.createTensor(
-                env,
-                FloatBuffer.wrap(cState),
-                longArrayOf(2, 1, 64)
-            )
+            pendingSamples.addAll(audioChunk.asIterable())
+            while (pendingSamples.size >= SILERO_WINDOW_SIZE) {
+                val window = FloatArray(SILERO_WINDOW_SIZE) { pendingSamples.removeFirst() }
 
-            val inputs = mapOf(
-                "input" to inputTensor,
-                "sr" to srTensor,
-                "h" to hTensor,
-                "c" to cTensor
-            )
+                val inputTensor = OnnxTensor.createTensor(
+                    env,
+                    FloatBuffer.wrap(window),
+                    longArrayOf(1, SILERO_WINDOW_SIZE.toLong())
+                )
+                // "sr" is a rank-0 scalar in the real model (confirmed: shape []), not a
+                // 1-element array — the scalar-long overload matches that exactly.
+                val srTensor = OnnxTensor.createTensor(env, SAMPLE_RATE.toLong())
+                val stateTensor = OnnxTensor.createTensor(
+                    env,
+                    FloatBuffer.wrap(state),
+                    longArrayOf(2, 1, 128)
+                )
 
-            val outputs = sess.run(inputs)
+                val inputs = mapOf(
+                    "input" to inputTensor,
+                    "sr" to srTensor,
+                    "state" to stateTensor
+                )
 
-            @Suppress("UNCHECKED_CAST")
-            val outputVal = outputs[0].value as Array<FloatArray>
-            val speechProb = outputVal[0][0]
+                val outputs = sess.run(inputs)
 
-            // Update hidden states for next chunk
-            @Suppress("UNCHECKED_CAST")
-            val newH = outputs[1].value as Array<Array<FloatArray>>
-            @Suppress("UNCHECKED_CAST")
-            val newC = outputs[2].value as Array<Array<FloatArray>>
-            flatten3D(newH, hState)
-            flatten3D(newC, cState)
+                @Suppress("UNCHECKED_CAST")
+                val outputVal = outputs[0].value as Array<FloatArray>
+                lastSpeechProb = outputVal[0][0]
 
-            inputTensor.close(); srTensor.close(); hTensor.close(); cTensor.close()
-            outputs.close()
+                // Update combined state for next window
+                @Suppress("UNCHECKED_CAST")
+                val newState = outputs[1].value as Array<Array<FloatArray>>
+                flatten3D(newState, state)
 
-            val isCurrentSpeech = speechProb >= SPEECH_THRESHOLD
-            if (isCurrentSpeech != isSpeechActive) {
-                isSpeechActive = isCurrentSpeech
-                callbacks.onVADTriggered(isCurrentSpeech, speechProb)
+                inputTensor.close(); srTensor.close(); stateTensor.close()
+                outputs.close()
             }
 
-            speechProb
+            val isCurrentSpeech = lastSpeechProb >= SPEECH_THRESHOLD
+            if (isCurrentSpeech != isSpeechActive) {
+                isSpeechActive = isCurrentSpeech
+                callbacks.onVADTriggered(isCurrentSpeech, lastSpeechProb)
+            }
+
+            lastSpeechProb
         } catch (e: Exception) {
             // A session can load successfully but still fail at run() time — e.g. the bundled
             // model's real input signature not matching what this code assumes (confirmed
@@ -195,9 +223,10 @@ class VADModule(
     }
 
     fun resetState() {
-        hState.fill(0f)
-        cState.fill(0f)
+        state.fill(0f)
         isSpeechActive = false
+        pendingSamples.clear()
+        lastSpeechProb = 0f
     }
 
     fun release() {

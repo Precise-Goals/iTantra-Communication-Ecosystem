@@ -68,7 +68,10 @@ class WifiDirectManager(
             @Suppress("UnspecifiedRegisterReceiverFlag")
             context.registerReceiver(receiver, intentFilter)
         }
-        startDiscovery()
+        // Deliberately NOT calling startDiscovery() here — MeshHardwareManager already runs its
+        // own discoverPeers() loop for the UI radar, and two independent channels both issuing
+        // discovery collide (confirmed on-device: "Discovery failed: reason=2"/BUSY). This
+        // channel only needs to be ready to connect() and to react to connection-state changes.
     }
 
     fun unregister() {
