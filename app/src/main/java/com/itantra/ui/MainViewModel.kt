@@ -52,9 +52,34 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // already has an Application context; peer discovery/hosting stays on meshHardwareManager
     // above (already real and working) — this only wires up the transmit half.
     private var foregroundService: ITantraForegroundService? = null
+
+    // Real service state, previously tracked internally by ITantraForegroundService but never
+    // bridged to the UI at all (confirmed: zero references to networkStateFlow anywhere in this
+    // file before this) — bridged here the same way _isSpeaking/_isRecordingVoice already are,
+    // just fed from the service's own flows instead of local logic.
+    private val _networkState = MutableStateFlow("DISCONNECTED")
+    val networkState: StateFlow<String> = _networkState.asStateFlow()
+
+    private val _pipelineStage = MutableStateFlow(ITantraForegroundService.PipelineStage.IDLE)
+    val pipelineStage: StateFlow<ITantraForegroundService.PipelineStage> = _pipelineStage.asStateFlow()
+
+    private val _isBluetoothListening = MutableStateFlow(false)
+
+    /** What "Host Beacon" should actually reflect — true if listenable over Wi-Fi Direct OR
+     * Bluetooth, not just Wi-Fi Direct's own createGroup() success (confirmed on-device: the
+     * toggle could show off while the real Bluetooth server was genuinely listening). */
+    val isHostingEffective: StateFlow<Boolean> = combine(meshHardwareManager.isHosting, _isBluetoothListening) { wifi, bt -> wifi || bt }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
-            foregroundService = (binder as? ITantraForegroundService.ITantraBinder)?.getService()
+            val service = (binder as? ITantraForegroundService.ITantraBinder)?.getService()
+            foregroundService = service
+            service?.let {
+                viewModelScope.launch { it.networkStateFlow.collect { s -> _networkState.value = s } }
+                viewModelScope.launch { it.pipelineStage.collect { s -> _pipelineStage.value = s } }
+                viewModelScope.launch { it.isBluetoothListening.collect { b -> _isBluetoothListening.value = b } }
+            }
         }
         override fun onServiceDisconnected(name: ComponentName?) {
             foregroundService = null
@@ -159,6 +184,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             foregroundService?.startBluetoothServer()
         } else {
             meshHardwareManager.stopHostBeacon()
+            foregroundService?.stopBluetoothServer()
         }
     }
 

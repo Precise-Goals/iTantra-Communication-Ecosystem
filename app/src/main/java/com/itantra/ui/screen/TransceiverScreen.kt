@@ -70,6 +70,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import com.itantra.core.service.ITantraForegroundService
 import com.itantra.domain.model.ConnectionType
 import com.itantra.domain.model.DownloadState
 import com.itantra.domain.model.ModelPack
@@ -98,11 +99,13 @@ fun TransceiverScreen(
     onNavigateToDownloads: () -> Unit
 ) {
     val downloadStates by viewModel.downloadStates.collectAsState()
-    val isHosting by viewModel.isHosting.collectAsState()
+    val isHosting by viewModel.isHostingEffective.collectAsState()
     val isDiscovering by viewModel.isDiscovering.collectAsState()
     val peers by viewModel.knownPeers.collectAsState()
     val detectedLanguage by viewModel.detectedLanguage.collectAsState()
     val isAutoDetect by viewModel.isAutoDetectEnabled.collectAsState()
+    val networkState by viewModel.networkState.collectAsState()
+    val pipelineStage by viewModel.pipelineStage.collectAsState()
 
     // ── Paired Bluetooth devices (BluetoothRFCOMMManager.connectToDevice needs a real
     // BluetoothDevice, which only bonded-device enumeration can supply without a scan) ──
@@ -166,8 +169,16 @@ fun TransceiverScreen(
                     color = iTantraBlack
                 )
                 Text(
+                    // Real pipeline stage (what the background service is actually doing right
+                    // now) takes priority when active — previously the only status shown was
+                    // isPttActive/hosting/discovering, with no visibility into listening vs
+                    // transcribing vs transmitting vs receiving vs speaking.
                     text = when {
-                        isPttActive -> "Transmitting Voice…"
+                        pipelineStage == ITantraForegroundService.PipelineStage.LISTENING -> "Listening…"
+                        pipelineStage == ITantraForegroundService.PipelineStage.TRANSCRIBING -> "Transcribing…"
+                        pipelineStage == ITantraForegroundService.PipelineStage.TRANSMITTING -> "Transmitting…"
+                        pipelineStage == ITantraForegroundService.PipelineStage.RECEIVING -> "Message received…"
+                        pipelineStage == ITantraForegroundService.PipelineStage.SPEAKING -> "Speaking…"
                         isHosting && isDiscovering -> "Mesh Beacon · Scanning Active"
                         isHosting -> "Beacon Active (Broadcasting)"
                         isDiscovering -> "Scanning for nearby peers…"
@@ -175,30 +186,49 @@ fun TransceiverScreen(
                     },
                     style = MaterialTheme.typography.labelSmall,
                     color = when {
-                        isPttActive -> iTantraError
+                        pipelineStage != ITantraForegroundService.PipelineStage.IDLE -> iTantraError
                         isHosting || isDiscovering -> iTantraSuccessLight
                         else -> iTantraBlack60
                     }
                 )
             }
 
-            // Language auto-detect pill
-            Row(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(iTantraCardAlt)
-                    .border(1.dp, iTantraBorder, RoundedCornerShape(20.dp))
-                    .clickable { viewModel.setAutoDetect(!isAutoDetect) }
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(Icons.Filled.Translate, contentDescription = null, tint = iTantraBlack, modifier = Modifier.size(13.dp))
-                Spacer(Modifier.width(5.dp))
+            Column(horizontalAlignment = Alignment.End) {
+                // Connection status pill — previously nothing in the UI showed whether a peer
+                // was actually connected, over either transport; ITantraForegroundService always
+                // tracked this precisely (networkStateFlow) but it never reached the screen.
+                val (connectionLabel, connectionColor) = when (networkState) {
+                    "CONNECTED_WIFI" -> "● Connected · Wi-Fi" to iTantraSuccess
+                    "CONNECTED_BLUETOOTH" -> "● Connected · Bluetooth" to iTantraSuccess
+                    "CONNECTING" -> "◌ Connecting…" to iTantraSuccessLight
+                    "DISCOVERING" -> "◌ Searching…" to iTantraSuccessLight
+                    else -> "○ Not connected" to iTantraBlack60
+                }
                 Text(
-                    text = if (isAutoDetect) "Auto · ${detectedLanguage?.uppercase() ?: "?"}" else "Manual",
-                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, fontWeight = FontWeight.SemiBold),
-                    color = iTantraBlack
+                    text = connectionLabel,
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, fontWeight = FontWeight.SemiBold),
+                    color = connectionColor
                 )
+                Spacer(Modifier.height(6.dp))
+
+                // Language auto-detect pill
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(iTantraCardAlt)
+                        .border(1.dp, iTantraBorder, RoundedCornerShape(20.dp))
+                        .clickable { viewModel.setAutoDetect(!isAutoDetect) }
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Filled.Translate, contentDescription = null, tint = iTantraBlack, modifier = Modifier.size(13.dp))
+                    Spacer(Modifier.width(5.dp))
+                    Text(
+                        text = if (isAutoDetect) "Auto · ${detectedLanguage?.uppercase() ?: "?"}" else "Manual",
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, fontWeight = FontWeight.SemiBold),
+                        color = iTantraBlack
+                    )
+                }
             }
         }
 
