@@ -3,6 +3,8 @@
 > **Team:** Gaurav (Domain A — Engine) + Sarthak (Domain B — Shell)
 > **Stack:** Kotlin · ONNX Runtime Mobile · IndicConformer STT · IndicTTS VITS · Silero VAD · Protobuf v3 · Jetpack Compose + XML Canvas · Wi-Fi Direct + BT RFCOMM
 
+> ⚠️ **Historical document.** This is the original sprint plan drawn up before implementation. The interface contracts below (`NetworkCallbacks`/`AudioCallbacks`) have since grown beyond what's shown here despite being marked "frozen post Sprint 1", the screen list changed, and the TTS/STT model-sourcing approach changed entirely. **See [`README.md`](README.md) for the current, accurate implementation.**
+
 ---
 
 ## Development Philosophy: Parallel Architecture

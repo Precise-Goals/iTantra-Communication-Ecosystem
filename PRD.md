@@ -4,6 +4,8 @@
 > **Category:** Software | **Theme:** Smart Automation
 > **Version:** 2.0 | **Last Updated:** 2026-09-02
 
+> ⚠️ **Historical document.** This PRD captures the *original* design/requirements drawn up before implementation began. Real on-device engineering has since diverged from it in several places — a different TTS/STT model-sourcing strategy (per-language sherpa-onnx downloads instead of a bundled multilingual IndicConformer + custom IndicTTS export), a dropped SOS screen, an added on-device AI Assistant (Phi-3/llama.cpp) not in this document, incomplete TTS language coverage, and a disabled neural VAD. **[`README.md`](README.md) is the current source of truth for what's actually implemented** — read it first. This document is kept for historical/requirements-traceability reference only.
+
 ---
 
 ## 1. Executive Summary
