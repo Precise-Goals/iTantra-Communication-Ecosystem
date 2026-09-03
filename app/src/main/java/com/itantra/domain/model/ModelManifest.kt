@@ -3,8 +3,8 @@ package com.itantra.domain.model
 import kotlinx.serialization.Serializable
 
 /**
- * Defines all downloadable model packs for iTantra.
- * Each pack is independently downloadable and tracked by DownloadState.
+ * Defines the core downloadable neural model engines for iTantra.
+ * Minimalized to the 4 essential on-device engines required for full multilingual operation.
  */
 enum class ModelPack(
     val displayName: String,
@@ -17,120 +17,48 @@ enum class ModelPack(
     val requiredFor: String
 ) {
     VAD_MODEL(
-        "Voice Activity Detector",
-        "Silero VAD — detects speech pauses in real-time",
+        displayName = "Voice Activity Detector (VAD)",
+        description = "Silero VAD v4 — ultra-low power pause and stoppage detection (~2MB)",
         sizeMb = 2,
         isRequired = true,
         requiredFor = "Transceiver"
     ),
     STT_INDIC_CONFORMER(
-        "Speech-to-Text Engine",
-        "AI4Bharat IndicConformer — all 10 Indian languages",
-        sizeMb = 150,
+        displayName = "Speech-to-Text Engine (STT)",
+        description = "AI4Bharat IndicConformer ONNX (meetsync/indic-conformer-onnx-sherpa) — 10 Indic languages + English",
+        sizeMb = 188,
         isRequired = true,
         requiredFor = "Transceiver"
     ),
-    LANG_DETECTION(
-        "Language Auto-Detector",
-        "FastText LID — identifies spoken language automatically",
-        sizeMb = 1,
-        isRequired = false,
-        requiredFor = "Transceiver"
-    ),
-    TTS_HINDI(
-        "Hindi Voice Pack",
-        "AI4Bharat IndicTTS VITS — Hindi natural voice",
-        sizeMb = 15,
-        isRequired = false,
-        requiredFor = "Transceiver"
-    ),
-    TTS_GUJARATI(
-        "Gujarati Voice Pack",
-        "AI4Bharat IndicTTS VITS — Gujarati natural voice",
-        sizeMb = 14,
-        isRequired = false,
-        requiredFor = "Transceiver"
-    ),
-    TTS_MARATHI(
-        "Marathi Voice Pack",
-        "AI4Bharat IndicTTS VITS — Marathi natural voice",
-        sizeMb = 14,
-        isRequired = false,
-        requiredFor = "Transceiver"
-    ),
-    TTS_KANNADA(
-        "Kannada Voice Pack",
-        "AI4Bharat IndicTTS VITS — Kannada natural voice",
-        sizeMb = 14,
-        isRequired = false,
-        requiredFor = "Transceiver"
-    ),
-    TTS_MALAYALAM(
-        "Malayalam Voice Pack",
-        "AI4Bharat IndicTTS VITS — Malayalam natural voice",
-        sizeMb = 14,
-        isRequired = false,
-        requiredFor = "Transceiver"
-    ),
-    TTS_TAMIL(
-        "Tamil Voice Pack",
-        "AI4Bharat IndicTTS VITS — Tamil natural voice",
-        sizeMb = 15,
-        isRequired = false,
-        requiredFor = "Transceiver"
-    ),
-    TTS_TELUGU(
-        "Telugu Voice Pack",
-        "AI4Bharat IndicTTS VITS — Telugu natural voice",
-        sizeMb = 15,
-        isRequired = false,
-        requiredFor = "Transceiver"
-    ),
-    TTS_ODIA(
-        "Odia Voice Pack",
-        "AI4Bharat IndicTTS VITS — Odia natural voice",
-        sizeMb = 13,
-        isRequired = false,
-        requiredFor = "Transceiver"
-    ),
-    TTS_BENGALI(
-        "Bengali Voice Pack",
-        "AI4Bharat IndicTTS VITS — Bengali natural voice",
-        sizeMb = 14,
-        isRequired = false,
-        requiredFor = "Transceiver"
-    ),
-    TTS_ENGLISH(
-        "English Voice Pack",
-        "Piper TTS — English natural voice",
-        sizeMb = 12,
-        isRequired = false,
+    TTS_INDIC_MODEL(
+        displayName = "Text-to-Speech Engine (TTS)",
+        description = "AI4Bharat Indic-Parler-TTS / IndicTTS — Multilingual natural acoustic voice engine",
+        sizeMb = 60,
+        isRequired = true,
         requiredFor = "Transceiver"
     ),
     AI_ASSISTANT(
-        "AI Assistant (Phi-3 Mini)",
-        "Phi-3 Mini Q4 — offline AI assistant, India-aware (MIT License)",
-        sizeMb = 2200,
+        displayName = "AI Assistant (Qwen2.5-0.5B)",
+        description = "Qwen2.5-0.5B-Instruct ONNX (INT4) — 100% offline multilingual generative intelligence for 22+ languages",
+        sizeMb = 350,
         isRequired = false,
         requiredFor = "AI Assistant"
     );
 
     companion object {
-        /** Returns compulsory packs needed for full multilingual Transceiver & auto-LID */
+        /** Returns compulsory packs needed for core Transceiver */
         fun coreTransceiverPacks(): List<ModelPack> = listOf(
             VAD_MODEL,
             STT_INDIC_CONFORMER,
-            LANG_DETECTION,
-            TTS_HINDI,
-            TTS_GUJARATI,
-            TTS_MARATHI,
-            TTS_KANNADA,
-            TTS_MALAYALAM,
-            TTS_TAMIL,
-            TTS_TELUGU,
-            TTS_ODIA,
-            TTS_BENGALI,
-            TTS_ENGLISH
+            TTS_INDIC_MODEL
+        )
+
+        /** All essential packs for full system capability */
+        fun allEssentialPacks(): List<ModelPack> = listOf(
+            VAD_MODEL,
+            STT_INDIC_CONFORMER,
+            TTS_INDIC_MODEL,
+            AI_ASSISTANT
         )
     }
 }

@@ -129,12 +129,12 @@ fun AIAssistantScreen(
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "AI Tactical Assistant",
+                    text = "Universal AI Assistant",
                     style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
                     color = iTantraBlack
                 )
                 Text(
-                    text = if (isSpeaking) "Vocalizing via local neural TTS…" else if (isRecordingVoice) "Listening (Local IndicConformer STT)…" else "100% Offline · Direct Conversational NLP",
+                    text = if (isSpeaking) "Vocalizing via local neural TTS…" else if (isRecordingVoice) "Listening (Local Neural STT)…" else "100% Offline · Universal Multilingual Intelligence",
                     style = MaterialTheme.typography.labelSmall,
                     color = if (isRecordingVoice) Color(0xFFDC2626) else if (isSpeaking) Color(0xFF2563EB) else iTantraSuccess
                 )
@@ -232,7 +232,7 @@ fun AIAssistantScreen(
             OutlinedTextField(
                 value = textInput,
                 onValueChange = { textInput = it },
-                placeholder = { Text("Speak or type any emergency query…", color = iTantraBlack40, fontSize = 13.sp) },
+                placeholder = { Text("Speak or type any message or query…", color = iTantraBlack40, fontSize = 13.sp) },
                 singleLine = true,
                 shape = RoundedCornerShape(22.dp),
                 modifier = Modifier.weight(1f),

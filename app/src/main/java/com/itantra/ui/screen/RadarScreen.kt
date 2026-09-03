@@ -134,6 +134,51 @@ fun RadarScreen(viewModel: MainViewModel) {
         }
     }
 
+    fun toggleHostingWithPermissionCheck() {
+        if (isHosting) {
+            viewModel.setHosting(false)
+            Toast.makeText(context, "Host Beacon Stopped", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val requiredPermissions = mutableListOf(
+            Manifest.permission.ACCESS_FINE_LOCATION,
+            Manifest.permission.ACCESS_COARSE_LOCATION
+        )
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            requiredPermissions.add(Manifest.permission.NEARBY_WIFI_DEVICES)
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            requiredPermissions.add(Manifest.permission.BLUETOOTH_ADVERTISE)
+            requiredPermissions.add(Manifest.permission.BLUETOOTH_CONNECT)
+            requiredPermissions.add(Manifest.permission.BLUETOOTH_SCAN)
+        }
+
+        val missing = requiredPermissions.filter {
+            ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
+        }
+
+        if (missing.isNotEmpty()) {
+            networkPermissionLauncher.launch(missing.toTypedArray())
+        } else {
+            val wifiManager = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? android.net.wifi.WifiManager
+            if (wifiManager?.isWifiEnabled != true) {
+                Toast.makeText(context, "Please turn ON Wi-Fi for Mesh Host Beacon", Toast.LENGTH_LONG).show()
+                try {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        context.startActivity(android.content.Intent(android.provider.Settings.Panel.ACTION_WIFI).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+                    } else {
+                        context.startActivity(android.content.Intent(android.provider.Settings.ACTION_WIFI_SETTINGS).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+                    }
+                } catch (e: Exception) {
+                    context.startActivity(android.content.Intent(android.provider.Settings.ACTION_WIFI_SETTINGS).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+                }
+            }
+            viewModel.setHosting(true)
+            Toast.makeText(context, "Mesh Beacon Started — Broadcasting on Wi-Fi Direct & Bluetooth", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     // Live Node Plotting: Radar sweep animation only triggers when active hardware discovery is running
     val infiniteTransition = rememberInfiniteTransition(label = "radar_sweep")
     val animatedAngle by infiniteTransition.animateFloat(
@@ -231,9 +276,9 @@ fun RadarScreen(viewModel: MainViewModel) {
                 )
             }
 
-            // Host Beacon Button — directly invokes createGroup on WifiP2pManager
+            // Host Beacon Button — wires full permissions, hardware check, and P2P group creation
             Button(
-                onClick = { viewModel.setHosting(!isHosting) },
+                onClick = { toggleHostingWithPermissionCheck() },
                 modifier = Modifier.weight(1f),
                 shape = RoundedCornerShape(16.dp),
                 colors = ButtonDefaults.buttonColors(

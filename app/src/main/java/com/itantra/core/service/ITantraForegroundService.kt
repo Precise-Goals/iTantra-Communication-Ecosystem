@@ -13,12 +13,13 @@ import android.os.PowerManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.itantra.R
-import com.itantra.core.audio.AudioCaptureModule
+import com.itantra.core.audio.AudioCaptureManager
 import com.itantra.core.audio.AudioPlaybackManager
 import com.itantra.core.audio.STTModule
 import com.itantra.core.audio.TTSModule
 import com.itantra.core.audio.VADModule
 import com.itantra.core.network.BluetoothRFCOMMManager
+import com.itantra.core.network.NetworkTransceiver
 import com.itantra.core.network.SocketTransport
 import com.itantra.core.network.WifiDirectManager
 import com.itantra.core.proto.ProtobufSerializer
@@ -116,8 +117,9 @@ class ITantraForegroundService : Service() {
     private lateinit var sttModule: STTModule
     private lateinit var ttsModule: TTSModule
     private lateinit var audioPlayback: AudioPlaybackManager
-    private lateinit var audioCaptureModule: AudioCaptureModule
+    private lateinit var audioCaptureManager: AudioCaptureManager
     private lateinit var socketTransport: SocketTransport
+    private lateinit var networkTransceiver: NetworkTransceiver
     private lateinit var wifiDirectManager: WifiDirectManager
     private lateinit var bluetoothManager: BluetoothRFCOMMManager
     private var wakeLock: PowerManager.WakeLock? = null
@@ -164,15 +166,10 @@ class ITantraForegroundService : Service() {
                     _alertFlow.emit(AlertEvent(message))
                 }
             }
-            // Synthesize incoming text via TTS
-            serviceScope.launch(Dispatchers.Default) {
-                val isAlert = message.type == MessageType.ALERT
-                val waveform = ttsModule.synthesize(message.text, ttsLanguage)
-                if (waveform != null) {
-                    val resampled = ttsModule.resampleTo16k(waveform)
-                    audioPlayback.play(resampled, isAlert)
-                }
-            }
+            // Synthesize and play incoming text via AudioPlaybackManager:
+            // Strictly trusts the sender's stamped language ID, normalizes numbers/currency,
+            // and overrides volume with AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE if ALERT
+            audioPlayback.playIncomingMessage(message, ttsModule)
         }
 
         override fun onNetworkError(error: AppResult.Error) {
@@ -264,12 +261,13 @@ class ITantraForegroundService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
-        audioCaptureModule.stopCapture()
+        audioCaptureManager.stopCapture()
         vadModule.release()
         sttModule.release()
         ttsModule.release()
         wifiDirectManager.unregister()
         socketTransport.stop()
+        networkTransceiver.stop()
         bluetoothManager.stop()
         wakeLock?.release()
         Log.d(TAG, "Service destroyed")
@@ -283,10 +281,11 @@ class ITantraForegroundService : Service() {
         ttsModule = TTSModule(this, audioCallbacks)
         audioPlayback = AudioPlaybackManager(this, audioCallbacks)
         socketTransport = SocketTransport(networkCallbacks, deviceId)
+        networkTransceiver = NetworkTransceiver(networkCallbacks, deviceId)
         wifiDirectManager = WifiDirectManager(this, networkCallbacks, socketTransport, deviceId)
         bluetoothManager = BluetoothRFCOMMManager(this, networkCallbacks, deviceId)
 
-        audioCaptureModule = AudioCaptureModule(
+        audioCaptureManager = AudioCaptureManager(
             vadModule = vadModule,
             sttModule = sttModule,
             callbacks = audioCallbacks,
@@ -294,13 +293,20 @@ class ITantraForegroundService : Service() {
                 sttModule.ensureLoaded()
                 sttModule.transcribe(audioBuffer, lang)
             }
-        )
+        ).apply {
+            currentMode = if (connectionMode == ConnectionMode.PHONE_MODE) {
+                AudioCaptureManager.Mode.PHONE_MODE
+            } else {
+                AudioCaptureManager.Mode.PUSH_TO_TALK
+            }
+            currentLanguage = sttLanguage
+        }
 
         // Initialize VAD on startup (always resident)
         serviceScope.launch {
             val vadOk = vadModule.initialize()
             if (vadOk && connectionMode == ConnectionMode.PHONE_MODE) {
-                audioCaptureModule.startCapture()
+                audioCaptureManager.startCapture()
             }
         }
     }
@@ -309,20 +315,24 @@ class ITantraForegroundService : Service() {
 
     /** Start PTT capture (hold) */
     fun startPTT() {
-        if (!audioCaptureModule.isRunning) {
-            audioCaptureModule.startCapture()
+        audioCaptureManager.currentMode = AudioCaptureManager.Mode.PUSH_TO_TALK
+        audioCaptureManager.currentLanguage = sttLanguage
+        if (!audioCaptureManager.isRunning) {
+            audioCaptureManager.startCapture()
         }
     }
 
     /** Stop PTT capture (release) — flushes buffer to STT */
     fun stopPTT() {
         serviceScope.launch {
-            val buffer = audioCaptureModule.flushAndTranscribe()
+            val buffer = audioCaptureManager.flushAndTranscribe()
             if (buffer != null && buffer.isNotEmpty()) {
                 sttModule.ensureLoaded()
                 sttModule.transcribe(buffer, sttLanguage)
             }
-            audioCaptureModule.stopCapture()
+            if (connectionMode != ConnectionMode.PHONE_MODE) {
+                audioCaptureManager.stopCapture()
+            }
         }
     }
 
@@ -331,9 +341,14 @@ class ITantraForegroundService : Service() {
         connectionMode = mode
         when (mode) {
             ConnectionMode.PHONE_MODE -> {
-                if (!audioCaptureModule.isRunning) audioCaptureModule.startCapture()
+                audioCaptureManager.currentMode = AudioCaptureManager.Mode.PHONE_MODE
+                audioCaptureManager.currentLanguage = sttLanguage
+                if (!audioCaptureManager.isRunning) audioCaptureManager.startCapture()
             }
-            ConnectionMode.PUSH_TO_TALK -> audioCaptureModule.stopCapture()
+            ConnectionMode.PUSH_TO_TALK -> {
+                audioCaptureManager.currentMode = AudioCaptureManager.Mode.PUSH_TO_TALK
+                audioCaptureManager.stopCapture()
+            }
         }
     }
 
@@ -363,7 +378,7 @@ class ITantraForegroundService : Service() {
         _networkStateFlow.value = "CONNECTING"
     }
 
-    fun setSTTLanguage(lang: String) { sttLanguage = lang; audioCaptureModule.currentLanguage = lang }
+    fun setSTTLanguage(lang: String) { sttLanguage = lang; audioCaptureManager.currentLanguage = lang }
     fun setTTSLanguage(lang: String) { ttsLanguage = lang }
     fun getLoadedTTSLanguages(): Set<String> = ttsModule.getLoadedLanguages()
     fun unloadTTSLanguage(lang: String) = ttsModule.unloadLanguage(lang)

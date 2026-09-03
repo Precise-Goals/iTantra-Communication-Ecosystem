@@ -6,7 +6,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.itantra.core.ai.LanguageDetector
 import com.itantra.core.ai.TacticalAiEngine
-import com.itantra.core.audio.AudioCaptureModule
+import com.itantra.core.audio.AudioCaptureManager
 import com.itantra.core.audio.AudioPlaybackManager
 import com.itantra.core.audio.STTModule
 import com.itantra.core.audio.TTSModule
@@ -18,9 +18,12 @@ import com.itantra.data.PeerRegistryRepository
 import com.itantra.domain.contracts.AudioCallbacks
 import com.itantra.domain.model.AppResult
 import com.itantra.domain.model.DeviceProfile
+import com.itantra.domain.model.Direction
 import com.itantra.domain.model.DownloadState
+import com.itantra.domain.model.MessageType
 import com.itantra.domain.model.ModelPack
 import com.itantra.domain.model.PeerDevice
+import com.itantra.domain.model.TransceiverMessage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -95,6 +98,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         else meshHardwareManager.stopHostBeacon()
     }
 
+    fun isWifiEnabled(): Boolean = meshHardwareManager.isWifiEnabled()
+    fun isBluetoothEnabled(): Boolean = meshHardwareManager.isBluetoothEnabled()
+
     fun setDiscovering(enabled: Boolean) {
         if (enabled) meshHardwareManager.startPeerDiscovery()
         else meshHardwareManager.stopPeerDiscovery()
@@ -106,6 +112,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun revokePeer(deviceId: String) {
         viewModelScope.launch { peerRegistry.revokePeer(deviceId) }
+    }
+
+    fun connectToPeer(peer: PeerDevice) {
+        meshHardwareManager.connectToPeer(peer)
     }
 
     // ── 100% OFFLINE STT & TTS PIPELINE (Zero Google APIs) ───────────
@@ -124,15 +134,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val sttModule = STTModule(application, audioCallbacks)
     private val ttsModule = TTSModule(application, audioCallbacks)
     private val audioPlayback = AudioPlaybackManager(application, audioCallbacks)
-    private val audioCapture = AudioCaptureModule(
+    private val audioCapture = AudioCaptureManager(
         vadModule = vadModule,
         sttModule = sttModule,
         callbacks = audioCallbacks,
         onSpeechReady = { pcm, lang ->
-            val result = sttModule.transcribe(pcm, lang)
-            if (result is AppResult.Success && result.data.isNotBlank()) {
-                viewModelScope.launch(Dispatchers.Main) {
-                    sendAiMessage(result.data)
+            // Callback runs on audio thread — launch coroutine for suspend call
+            viewModelScope.launch(Dispatchers.Default) {
+                sttModule.ensureLoaded()
+                val result = sttModule.transcribe(pcm, lang)
+                if (result is AppResult.Success && result.data.isNotBlank()) {
+                    // If in Phone mode or PTT mode, broadcast over mesh; else feed to AI assistant
+                    if (_isPhoneMode.value || _isPttTransmitting.value) {
+                        broadcastPttMessage(result.data, lang)
+                    } else {
+                        launch(Dispatchers.Main) { sendAiMessage(result.data) }
+                    }
                 }
             }
         }
@@ -146,6 +163,141 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _isRecordingVoice = MutableStateFlow(false)
     val isRecordingVoice: StateFlow<Boolean> = _isRecordingVoice.asStateFlow()
+
+    // ── Phone Mode (Hands-Free Full Duplex VAD) ──────────────────────────
+    private val _isPhoneMode = MutableStateFlow(false)
+    val isPhoneMode: StateFlow<Boolean> = _isPhoneMode.asStateFlow()
+
+    fun setPhoneMode(enabled: Boolean) {
+        _isPhoneMode.value = enabled
+        if (enabled) {
+            audioCapture.currentMode = AudioCaptureManager.Mode.PHONE_MODE
+            audioCapture.currentLanguage = _selectedLanguage.value
+            viewModelScope.launch(Dispatchers.Default) {
+                vadModule.initialize()
+                if (!audioCapture.isRunning) {
+                    audioCapture.startCapture()
+                }
+            }
+            Log.i("MainViewModel", "Phone Mode (Hands-Free VAD) activated")
+        } else {
+            audioCapture.currentMode = AudioCaptureManager.Mode.PUSH_TO_TALK
+            if (!_isPttTransmitting.value) {
+                audioCapture.stopCapture()
+            }
+            Log.i("MainViewModel", "Switched to Push-to-Talk (PTT) Mode")
+        }
+    }
+
+    // ── PTT Radio Transmission State ─────────────────────────────────────
+    private val _isPttTransmitting = MutableStateFlow(false)
+    val isPttTransmitting: StateFlow<Boolean> = _isPttTransmitting.asStateFlow()
+
+    private val _pttMessageLog = MutableStateFlow<List<TransceiverMessage>>(emptyList())
+    val pttMessageLog: StateFlow<List<TransceiverMessage>> = _pttMessageLog.asStateFlow()
+
+    init {
+        viewModelScope.launch(Dispatchers.IO) {
+            TacticalAiEngine.ensureLoaded(application)
+            sttModule.ensureLoaded()
+        }
+
+        // Connect live mesh transport callbacks for peer data and sound streaming
+        meshHardwareManager.onMessageReceivedListener = { incomingMsg ->
+            viewModelScope.launch(Dispatchers.Main) {
+                _pttMessageLog.value = (_pttMessageLog.value + incomingMsg.copy(direction = Direction.RECEIVED)).takeLast(50)
+                // Speak received text aloud directly in sender's stamped language via AudioPlaybackManager
+                audioPlayback.playIncomingMessage(incomingMsg, ttsModule)
+            }
+        }
+    }
+
+    /**
+     * Start PTT radio transmission.
+     * Begins audio capture → VAD → STT pipeline.
+     * When speech ends, STT result is broadcast over the mesh network.
+     */
+    fun startPttTransmit() {
+        if (_isPttTransmitting.value) return
+        _isPttTransmitting.value = true
+        _isRecordingVoice.value = true
+        audioCapture.currentMode = AudioCaptureManager.Mode.PUSH_TO_TALK
+        audioCapture.currentLanguage = _selectedLanguage.value
+        viewModelScope.launch(Dispatchers.Default) {
+            vadModule.initialize()
+            if (!audioCapture.isRunning) {
+                audioCapture.startCapture()
+            }
+        }
+        Log.d("MainViewModel", "PTT transmit started")
+    }
+
+    /**
+     * Stop PTT radio transmission.
+     * Flushes remaining audio buffer → STT → broadcasts final frame.
+     */
+    fun stopPttTransmit() {
+        if (!_isPttTransmitting.value) return
+        _isRecordingVoice.value = false
+        viewModelScope.launch(Dispatchers.Default) {
+            val pcm = audioCapture.flushAndTranscribe()
+            if (!_isPhoneMode.value) {
+                audioCapture.stopCapture()
+            }
+            _isPttTransmitting.value = false
+
+            if (pcm != null && pcm.isNotEmpty()) {
+                sttModule.ensureLoaded()
+                val result = sttModule.transcribe(pcm, _selectedLanguage.value)
+                if (result is AppResult.Success && result.data.isNotBlank()) {
+                    broadcastPttMessage(result.data, _selectedLanguage.value)
+                }
+            }
+        }
+        Log.d("MainViewModel", "PTT transmit stopped")
+    }
+
+    /**
+     * Broadcast an emergency SOS alert to all connected peers.
+     * Forces ALERT message type with maximum alarm volume override on receiver.
+     */
+    fun broadcastAlert(text: String = "EMERGENCY DISTRESS SOS ALERT") {
+        val msg = TransceiverMessage(
+            type = MessageType.ALERT,
+            text = text,
+            srcLang = _selectedLanguage.value,
+            dstLang = _selectedLanguage.value,
+            senderId = MeshHardwareManager.HARDWARE_DEVICE_NAME,
+            timestamp = System.currentTimeMillis(),
+            confidence = 1.0f,
+            direction = Direction.SENT
+        )
+        _pttMessageLog.value = (_pttMessageLog.value + msg).takeLast(50)
+        meshHardwareManager.broadcastMessage(msg)
+        Log.i("MainViewModel", "Broadcasted high-priority ALERT: '$text'")
+    }
+
+    /**
+     * Broadcast a transcribed message over the mesh network.
+     * Encodes as TransceiverMessage and hands off to MeshHardwareManager socket transport.
+     */
+    private fun broadcastPttMessage(text: String, langCode: String) {
+        val msg = TransceiverMessage(
+            type = MessageType.SPEECH,
+            text = text,
+            srcLang = langCode,
+            dstLang = langCode,
+            senderId = MeshHardwareManager.HARDWARE_DEVICE_NAME,
+            timestamp = System.currentTimeMillis(),
+            confidence = 0.85f,
+            direction = Direction.SENT
+        )
+        // Log to PTT message log for UI display
+        _pttMessageLog.value = (_pttMessageLog.value + msg).takeLast(50)
+        // Broadcast over Wi-Fi Direct / BT mesh
+        meshHardwareManager.broadcastMessage(msg)
+        Log.d("MainViewModel", "PTT broadcast: '$text' [$langCode]")
+    }
 
     fun toggleVoiceMute() {
         _isVoiceMuted.value = !_isVoiceMuted.value
@@ -233,7 +385,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _isAiThinking.value = true
         viewModelScope.launch {
             kotlinx.coroutines.delay(180)
-            val fullReply = TacticalAiEngine.generateResponse(text.trim())
+            val fullReply = TacticalAiEngine.generateResponse(text.trim(), getApplication())
             _isAiThinking.value = false
 
             val assistantMsgId = UUID.randomUUID().toString()
@@ -255,8 +407,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 kotlinx.coroutines.delay(18)
             }
 
-            // Immediately pipe generation output into local ONNX TTS engine
-            speakAiResponse(fullReply, detection.languageCode)
+            // Immediately pipe generation output into local ONNX TTS engine in its actual output language
+            speakAiResponse(fullReply)
         }
     }
 
@@ -274,8 +426,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     override fun onCleared() {
         super.onCleared()
+        _isPttTransmitting.value = false
         meshHardwareManager.release()
         ttsModule.release()
+        sttModule.release()
         audioCapture.stopCapture()
         downloadManager.refreshStates()
     }
