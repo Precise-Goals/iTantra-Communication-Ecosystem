@@ -283,8 +283,14 @@ export default function App() {
           <a href="#sitemap">SITEMAP</a>
         </div>
         <div className="nav-right">
-          <span className="nav-status"><span className="status-dot"></span> OFFLINE — V1.0</span>
-          <a href="https://github.com/Precise-Goals/iTantra-Communication-Ecosystem/releases/download/android-app/iTantra.apk" className="btn-cta">DOWNLOAD APK</a>
+          <a 
+            href="https://github.com/Precise-Goals/iTantra-Communication-Ecosystem/releases/download/android-app/iTantra.apk" 
+            target="_blank" 
+            rel="noopener noreferrer" 
+            className="btn-cta"
+          >
+            DOWNLOAD APK
+          </a>
         </div>
       </nav>
 
@@ -307,7 +313,14 @@ export default function App() {
             internet. No literacy required.
           </p>
           <div className="hero-actions">
-            <a href="https://github.com/Precise-Goals/iTantra-Communication-Ecosystem/releases/download/android-app/iTantra.apk" className="btn-cta large">DOWNLOAD APK</a>
+            <a 
+              href="https://github.com/Precise-Goals/iTantra-Communication-Ecosystem/releases/download/android-app/iTantra.apk" 
+              target="_blank" 
+              rel="noopener noreferrer" 
+              className="btn-cta large"
+            >
+              DOWNLOAD APK (v1.0)
+            </a>
             <a href="#manifesto" className="hero-link">READ THE MANIFESTO ↓</a>
           </div>
         </div>
@@ -444,13 +457,10 @@ export default function App() {
       {/* ── FOOTER ── */}
       <footer className="site-footer">
         <div className="footer-inner">
-          <div className="footer-logo">
-            <span className="nav-logo-icon">((•))</span>
-            <span className="nav-logo-text">iTantra</span>
+          {/* Giant Sarvam-Style iTantra White Display Text */}
+          <div className="footer-big-brand-wrapper">
+            <h1 className="footer-big-brand">iTantra</h1>
           </div>
-          <p className="footer-tagline">
-            Built for the moment everything else fails.
-          </p>
         </div>
       </footer>
 

@@ -83,9 +83,13 @@
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 1.5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
   transition: background 0.15s, transform 0.1s;
 }
-.btn-cta:hover { background: #333; transform: translateY(-1px); }
+.btn-cta:hover { background: #333; transform: translateY(-1px); color: #ffffff; }
 .btn-cta.large { padding: 14px 32px; font-size: 12px; }
 
 /* ─────────────────────────────
@@ -735,25 +739,52 @@
    FOOTER
 ───────────────────────────── */
 .site-footer {
-  background: #000;
-  padding: 60px 0;
-  color: #fff;
+  background: #000000;
+  padding: 60px 0 40px 0;
+  color: #ffffff;
+  overflow: hidden;
 }
+
 .footer-inner {
   max-width: 1440px;
   margin: 0 auto;
   padding: 0 40px;
-}
-.footer-logo {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 20px;
+  justify-content: center;
 }
-.footer-logo .nav-logo-icon { color: #aaa; }
-.footer-tagline {
-  font-size: 14px;
-  color: #666;
+
+.footer-big-brand-wrapper {
+  width: 100%;
+  text-align: center;
+}
+
+.footer-big-brand {
+  font-family: 'SeasonMix', 'PP Neue Montreal', Arial, sans-serif;
+  font-size: clamp(5rem, 18vw, 18rem);
+  font-weight: 900;
+  letter-spacing: -0.05em;
+  line-height: 0.85;
+  text-transform: none;
+  user-select: none;
+  margin: 0 auto;
+  text-align: center;
+  width: 100%;
+
+  /* Premium Metallic White to Cyan/Blue Gradient Fill */
+  background: linear-gradient(
+    135deg,
+    #ffffff 0%,
+    #e2e8f0 25%,
+    #38bdf8 55%,
+    #2dd4bf 78%,
+    #ffffff 100%
+  );
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  color: transparent;
 }
 
 /* ─────────────────────────────
