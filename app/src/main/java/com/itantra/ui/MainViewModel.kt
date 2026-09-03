@@ -151,8 +151,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     fun setHosting(enabled: Boolean) {
-        if (enabled) meshHardwareManager.startHostBeacon()
-        else meshHardwareManager.stopHostBeacon()
+        if (enabled) {
+            meshHardwareManager.startHostBeacon()
+            // "Host Beacon" now also means "listenable over Bluetooth" — previously the RFCOMM
+            // server only started automatically after repeated Wi-Fi Direct failures, so two
+            // devices that both only ever dial out could never actually connect to each other.
+            foregroundService?.startBluetoothServer()
+        } else {
+            meshHardwareManager.stopHostBeacon()
+        }
     }
 
     fun setDiscovering(enabled: Boolean) {

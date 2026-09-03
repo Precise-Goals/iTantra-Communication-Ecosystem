@@ -316,6 +316,20 @@ class ITantraForegroundService : Service() {
 
     // ==================== PUBLIC API (called from Activity via Binder) ====================
 
+    /**
+     * Start listening for incoming Bluetooth RFCOMM connections. Previously this only ever
+     * happened automatically after 3 consecutive Wi-Fi Direct failures (see networkCallbacks
+     * .onNetworkError) — with no way to explicitly become listenable, two devices both only
+     * ever calling connectToDevice() (never startServer()) could never actually connect to each
+     * other (confirmed on-device: both sides logged "BT connect error", neither was listening).
+     */
+    fun startBluetoothServer() {
+        if (!isBluetoothFallbackActive) {
+            isBluetoothFallbackActive = true
+            bluetoothManager.startServer()
+        }
+    }
+
     /** Start PTT capture (hold) */
     fun startPTT() {
         if (!audioCaptureModule.isRunning) {

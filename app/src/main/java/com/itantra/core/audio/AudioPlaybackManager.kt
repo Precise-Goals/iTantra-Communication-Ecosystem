@@ -63,7 +63,12 @@ class AudioPlaybackManager(
         val track = AudioTrack.Builder()
             .setAudioAttributes(
                 AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
+                    // USAGE_VOICE_COMMUNICATION routes through the voice-call audio path —
+                    // often the earpiece, at reduced volume, appropriate for a real phone call
+                    // held to the ear. This is a voice message meant to be heard out loud
+                    // (confirmed on-device: "the volume is too low" with the old value).
+                    // USAGE_MEDIA routes to the main speaker at normal media volume instead.
+                    .setUsage(AudioAttributes.USAGE_MEDIA)
                     .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                     .build()
             )
@@ -79,6 +84,7 @@ class AudioPlaybackManager(
             .build()
 
         try {
+            track.setVolume(1.0f)
             track.play()
             track.write(waveform, 0, waveform.size, AudioTrack.WRITE_BLOCKING)
             track.stop()
