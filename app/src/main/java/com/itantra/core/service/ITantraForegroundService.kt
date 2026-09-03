@@ -1,11 +1,17 @@
 package com.itantra.core.service
 
+import android.annotation.SuppressLint
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.bluetooth.BluetoothDevice
+import android.bluetooth.BluetoothManager
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.os.Binder
 import android.os.Build
 import android.os.IBinder
@@ -13,13 +19,12 @@ import android.os.PowerManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.itantra.R
-import com.itantra.core.audio.AudioCaptureManager
+import com.itantra.core.audio.AudioCaptureModule
 import com.itantra.core.audio.AudioPlaybackManager
 import com.itantra.core.audio.STTModule
 import com.itantra.core.audio.TTSModule
 import com.itantra.core.audio.VADModule
 import com.itantra.core.network.BluetoothRFCOMMManager
-import com.itantra.core.network.NetworkTransceiver
 import com.itantra.core.network.SocketTransport
 import com.itantra.core.network.WifiDirectManager
 import com.itantra.core.proto.ProtobufSerializer
@@ -117,9 +122,8 @@ class ITantraForegroundService : Service() {
     private lateinit var sttModule: STTModule
     private lateinit var ttsModule: TTSModule
     private lateinit var audioPlayback: AudioPlaybackManager
-    private lateinit var audioCaptureManager: AudioCaptureManager
+    private lateinit var audioCaptureModule: AudioCaptureModule
     private lateinit var socketTransport: SocketTransport
-    private lateinit var networkTransceiver: NetworkTransceiver
     private lateinit var wifiDirectManager: WifiDirectManager
     private lateinit var bluetoothManager: BluetoothRFCOMMManager
     private var wakeLock: PowerManager.WakeLock? = null
@@ -159,6 +163,9 @@ class ITantraForegroundService : Service() {
         }
 
         override fun onTextReceived(message: TransceiverMessage) {
+            // Previously silent — made visible so a future two-device test can confirm receipt
+            // from logcat alone, matching the visibility already present on the send side.
+            Log.d(TAG, "Received from ${message.senderId}: '${message.text.take(80)}' [${message.type}]")
             appendMessage(message.copy(direction = Direction.RECEIVED))
             // Handle ALERT messages specially
             if (message.type == MessageType.ALERT) {
@@ -166,10 +173,15 @@ class ITantraForegroundService : Service() {
                     _alertFlow.emit(AlertEvent(message))
                 }
             }
-            // Synthesize and play incoming text via AudioPlaybackManager:
-            // Strictly trusts the sender's stamped language ID, normalizes numbers/currency,
-            // and overrides volume with AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE if ALERT
-            audioPlayback.playIncomingMessage(message, ttsModule)
+            // Synthesize incoming text via TTS
+            serviceScope.launch(Dispatchers.Default) {
+                val isAlert = message.type == MessageType.ALERT
+                val waveform = ttsModule.synthesize(message.text, ttsLanguage)
+                if (waveform != null) {
+                    // synthesize() already returns audio resampled to PLAYBACK_SAMPLE_RATE
+                    audioPlayback.play(waveform, isAlert)
+                }
+            }
         }
 
         override fun onNetworkError(error: AppResult.Error) {
@@ -261,13 +273,12 @@ class ITantraForegroundService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
-        audioCaptureManager.stopCapture()
+        audioCaptureModule.stopCapture()
         vadModule.release()
         sttModule.release()
         ttsModule.release()
         wifiDirectManager.unregister()
         socketTransport.stop()
-        networkTransceiver.stop()
         bluetoothManager.stop()
         wakeLock?.release()
         Log.d(TAG, "Service destroyed")
@@ -281,58 +292,60 @@ class ITantraForegroundService : Service() {
         ttsModule = TTSModule(this, audioCallbacks)
         audioPlayback = AudioPlaybackManager(this, audioCallbacks)
         socketTransport = SocketTransport(networkCallbacks, deviceId)
-        networkTransceiver = NetworkTransceiver(networkCallbacks, deviceId)
         wifiDirectManager = WifiDirectManager(this, networkCallbacks, socketTransport, deviceId)
         bluetoothManager = BluetoothRFCOMMManager(this, networkCallbacks, deviceId)
 
-        audioCaptureManager = AudioCaptureManager(
+        audioCaptureModule = AudioCaptureModule(
             vadModule = vadModule,
             sttModule = sttModule,
             callbacks = audioCallbacks,
             onSpeechReady = { audioBuffer, lang ->
-                sttModule.ensureLoaded()
+                sttModule.ensureLoaded(lang)
                 sttModule.transcribe(audioBuffer, lang)
             }
-        ).apply {
-            currentMode = if (connectionMode == ConnectionMode.PHONE_MODE) {
-                AudioCaptureManager.Mode.PHONE_MODE
-            } else {
-                AudioCaptureManager.Mode.PUSH_TO_TALK
-            }
-            currentLanguage = sttLanguage
-        }
+        )
 
         // Initialize VAD on startup (always resident)
         serviceScope.launch {
             val vadOk = vadModule.initialize()
             if (vadOk && connectionMode == ConnectionMode.PHONE_MODE) {
-                audioCaptureManager.startCapture()
+                audioCaptureModule.startCapture()
             }
         }
     }
 
     // ==================== PUBLIC API (called from Activity via Binder) ====================
 
+    /**
+     * Start listening for incoming Bluetooth RFCOMM connections. Previously this only ever
+     * happened automatically after 3 consecutive Wi-Fi Direct failures (see networkCallbacks
+     * .onNetworkError) — with no way to explicitly become listenable, two devices both only
+     * ever calling connectToDevice() (never startServer()) could never actually connect to each
+     * other (confirmed on-device: both sides logged "BT connect error", neither was listening).
+     */
+    fun startBluetoothServer() {
+        if (!isBluetoothFallbackActive) {
+            isBluetoothFallbackActive = true
+            bluetoothManager.startServer()
+        }
+    }
+
     /** Start PTT capture (hold) */
     fun startPTT() {
-        audioCaptureManager.currentMode = AudioCaptureManager.Mode.PUSH_TO_TALK
-        audioCaptureManager.currentLanguage = sttLanguage
-        if (!audioCaptureManager.isRunning) {
-            audioCaptureManager.startCapture()
+        if (!audioCaptureModule.isRunning) {
+            audioCaptureModule.startCapture()
         }
     }
 
     /** Stop PTT capture (release) — flushes buffer to STT */
     fun stopPTT() {
         serviceScope.launch {
-            val buffer = audioCaptureManager.flushAndTranscribe()
+            val buffer = audioCaptureModule.flushAndTranscribe()
             if (buffer != null && buffer.isNotEmpty()) {
-                sttModule.ensureLoaded()
+                sttModule.ensureLoaded(sttLanguage)
                 sttModule.transcribe(buffer, sttLanguage)
             }
-            if (connectionMode != ConnectionMode.PHONE_MODE) {
-                audioCaptureManager.stopCapture()
-            }
+            audioCaptureModule.stopCapture()
         }
     }
 
@@ -341,14 +354,9 @@ class ITantraForegroundService : Service() {
         connectionMode = mode
         when (mode) {
             ConnectionMode.PHONE_MODE -> {
-                audioCaptureManager.currentMode = AudioCaptureManager.Mode.PHONE_MODE
-                audioCaptureManager.currentLanguage = sttLanguage
-                if (!audioCaptureManager.isRunning) audioCaptureManager.startCapture()
+                if (!audioCaptureModule.isRunning) audioCaptureModule.startCapture()
             }
-            ConnectionMode.PUSH_TO_TALK -> {
-                audioCaptureManager.currentMode = AudioCaptureManager.Mode.PUSH_TO_TALK
-                audioCaptureManager.stopCapture()
-            }
+            ConnectionMode.PUSH_TO_TALK -> audioCaptureModule.stopCapture()
         }
     }
 
@@ -372,13 +380,90 @@ class ITantraForegroundService : Service() {
         }
     }
 
-    /** Connect to a discovered Wi-Fi Direct peer */
+    /** Connect to a discovered Wi-Fi Direct peer by MAC address */
     fun connectToPeer(deviceAddress: String) {
-        // WifiDirectManager handles connection via WifiP2pDevice
         _networkStateFlow.value = "CONNECTING"
+        wifiDirectManager.connectToPeerAddress(deviceAddress)
     }
 
-    fun setSTTLanguage(lang: String) { sttLanguage = lang; audioCaptureManager.currentLanguage = lang }
+    /** Already-paired Bluetooth devices, for a UI picker — BluetoothRFCOMMManager.connectToDevice
+     * needs a real BluetoothDevice, which only bonded-device enumeration can supply without a
+     * fresh discovery scan. */
+    @SuppressLint("MissingPermission")
+    fun getBondedBluetoothDevices(): List<PeerDevice> {
+        val adapter = (getSystemService(BluetoothManager::class.java))?.adapter ?: return emptyList()
+        if (!adapter.isEnabled) return emptyList()
+        return adapter.bondedDevices.map { device ->
+            PeerDevice(
+                deviceId = device.address,
+                deviceName = device.name ?: device.address,
+                connectionType = ConnectionType.BLUETOOTH,
+                isConnected = false
+            )
+        }
+    }
+
+    /** Connect to an already-paired Bluetooth device by MAC address. */
+    @SuppressLint("MissingPermission")
+    fun connectToBluetoothPeer(deviceAddress: String) {
+        val adapter = (getSystemService(BluetoothManager::class.java))?.adapter ?: return
+        val device = adapter.bondedDevices.firstOrNull { it.address == deviceAddress } ?: run {
+            Log.w(TAG, "connectToBluetoothPeer: $deviceAddress is not a bonded device")
+            return
+        }
+        bluetoothManager.connectToDevice(device)
+    }
+
+    /**
+     * Connect to a Bluetooth peer discovered but not yet paired (e.g. via
+     * MeshHardwareManager's discovery scan) — resolves a real BluetoothDevice for any known MAC
+     * address (works even unpaired), triggers real Android pairing via [BluetoothDevice.createBond],
+     * and connects automatically once bonding succeeds. Real pairing means the OS may show its own
+     * PIN/passkey confirmation UI on both devices — this call only initiates it.
+     */
+    @SuppressLint("MissingPermission")
+    fun pairAndConnectBluetoothPeer(deviceAddress: String) {
+        val adapter = (getSystemService(BluetoothManager::class.java))?.adapter ?: return
+        val device = adapter.getRemoteDevice(deviceAddress)
+
+        if (device.bondState == BluetoothDevice.BOND_BONDED) {
+            bluetoothManager.connectToDevice(device)
+            return
+        }
+
+        val receiver = object : BroadcastReceiver() {
+            @SuppressLint("MissingPermission")
+            override fun onReceive(ctx: Context, intent: Intent) {
+                val changedDevice = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java)
+                } else {
+                    @Suppress("DEPRECATION")
+                    intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
+                }
+                if (changedDevice?.address != deviceAddress) return
+
+                when (intent.getIntExtra(BluetoothDevice.EXTRA_BOND_STATE, BluetoothDevice.BOND_NONE)) {
+                    BluetoothDevice.BOND_BONDED -> {
+                        Log.d(TAG, "Paired with ${changedDevice.address}, connecting")
+                        runCatching { unregisterReceiver(this) }
+                        bluetoothManager.connectToDevice(changedDevice)
+                    }
+                    BluetoothDevice.BOND_NONE -> {
+                        Log.w(TAG, "Pairing failed/cancelled for ${changedDevice.address}")
+                        runCatching { unregisterReceiver(this) }
+                        serviceScope.launch {
+                            _errorFlow.emit(AppResult.Error(ErrorCode.BLUETOOTH_UNAVAILABLE, "Pairing failed for $deviceAddress"))
+                        }
+                    }
+                }
+            }
+        }
+        registerReceiver(receiver, IntentFilter(BluetoothDevice.ACTION_BOND_STATE_CHANGED))
+        Log.d(TAG, "Initiating pairing with $deviceAddress")
+        device.createBond()
+    }
+
+    fun setSTTLanguage(lang: String) { sttLanguage = lang; audioCaptureModule.currentLanguage = lang }
     fun setTTSLanguage(lang: String) { ttsLanguage = lang }
     fun getLoadedTTSLanguages(): Set<String> = ttsModule.getLoadedLanguages()
     fun unloadTTSLanguage(lang: String) = ttsModule.unloadLanguage(lang)

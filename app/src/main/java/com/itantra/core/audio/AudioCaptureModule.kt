@@ -48,7 +48,12 @@ class AudioCaptureModule(
     private var captureJob: Job? = null
     private var isCapturing = false
 
-    // Speech accumulation buffer
+    // Speech accumulation buffer. Written from the capture coroutine (Dispatchers.IO) and read/
+    // cleared from callers of flushAndTranscribe()/stopCapture() on other dispatchers — every
+    // access must go through bufferLock, or concurrent reads/writes throw
+    // ConcurrentModificationException (confirmed on a real device: PTT release calls
+    // flushAndTranscribe() while the capture loop is still appending the next chunk).
+    private val bufferLock = Any()
     private val speechBuffer = mutableListOf<FloatArray>()
     private var silenceChunkCount = 0
     private val silenceChunksForEndOfSpeech = (VADModule.SILENCE_DURATION_MS / 100).toInt() // 8 chunks
@@ -102,41 +107,48 @@ class AudioCaptureModule(
                 val speechProb = vadModule.process(floatChunk)
                 val isSpeech = speechProb >= 0.5f
 
+                var readySegment: FloatArray? = null
                 if (isSpeech) {
                     silenceChunkCount = 0
-                    // Guard against infinite accumulation
-                    if (speechBuffer.sumOf { it.size } < MAX_SPEECH_BUFFER_SAMPLES) {
-                        speechBuffer.add(floatChunk)
-                    }
-                } else {
-                    if (speechBuffer.isNotEmpty()) {
-                        silenceChunkCount++
-                        // Include a brief trailing silence for natural sentence boundary
-                        speechBuffer.add(floatChunk)
-
-                        if (silenceChunkCount >= silenceChunksForEndOfSpeech) {
-                            // End of speech detected — submit for STT
-                            val combined = FloatArray(speechBuffer.sumOf { it.size })
-                            var offset = 0
-                            speechBuffer.forEach { chunk ->
-                                chunk.copyInto(combined, offset)
-                                offset += chunk.size
-                            }
-                            speechBuffer.clear()
-                            silenceChunkCount = 0
-
-                            Log.d(TAG, "Speech segment complete: ${combined.size} samples")
-                            onSpeechReady(combined, currentLanguage)
+                    synchronized(bufferLock) {
+                        // Guard against infinite accumulation
+                        if (speechBuffer.sumOf { it.size } < MAX_SPEECH_BUFFER_SAMPLES) {
+                            speechBuffer.add(floatChunk)
                         }
                     }
+                } else {
+                    synchronized(bufferLock) {
+                        if (speechBuffer.isNotEmpty()) {
+                            silenceChunkCount++
+                            // Include a brief trailing silence for natural sentence boundary
+                            speechBuffer.add(floatChunk)
+
+                            if (silenceChunkCount >= silenceChunksForEndOfSpeech) {
+                                // End of speech detected — submit for STT
+                                val combined = FloatArray(speechBuffer.sumOf { it.size })
+                                var offset = 0
+                                speechBuffer.forEach { chunk ->
+                                    chunk.copyInto(combined, offset)
+                                    offset += chunk.size
+                                }
+                                speechBuffer.clear()
+                                silenceChunkCount = 0
+                                readySegment = combined
+                            }
+                        }
+                    }
+                }
+                readySegment?.let { combined ->
+                    Log.d(TAG, "Speech segment complete: ${combined.size} samples")
+                    onSpeechReady(combined, currentLanguage)
                 }
             }
         }
     }
 
     /** For PTT mode: stop capture and immediately flush whatever was accumulated. */
-    suspend fun flushAndTranscribe(): FloatArray? {
-        if (speechBuffer.isEmpty()) return null
+    suspend fun flushAndTranscribe(): FloatArray? = synchronized(bufferLock) {
+        if (speechBuffer.isEmpty()) return@synchronized null
         val combined = FloatArray(speechBuffer.sumOf { it.size })
         var offset = 0
         speechBuffer.forEach { chunk ->
@@ -145,7 +157,7 @@ class AudioCaptureModule(
         }
         speechBuffer.clear()
         silenceChunkCount = 0
-        return combined
+        combined
     }
 
     fun stopCapture() {
@@ -154,7 +166,7 @@ class AudioCaptureModule(
         audioRecord?.stop()
         audioRecord?.release()
         audioRecord = null
-        speechBuffer.clear()
+        synchronized(bufferLock) { speechBuffer.clear() }
         Log.d(TAG, "Audio capture stopped")
     }
 

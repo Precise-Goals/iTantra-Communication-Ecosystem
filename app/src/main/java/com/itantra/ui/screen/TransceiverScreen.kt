@@ -1,13 +1,8 @@
 package com.itantra.ui.screen
 
 import android.Manifest
-import android.content.Context
-import android.content.Intent
 import android.content.pm.PackageManager
-import android.net.wifi.WifiManager
 import android.os.Build
-import android.provider.Settings
-import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -44,6 +39,7 @@ import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.filled.SignalWifi4Bar
 import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material.icons.outlined.PersonAdd
@@ -55,6 +51,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -74,12 +71,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.itantra.domain.model.ConnectionType
-import com.itantra.domain.model.Direction
 import com.itantra.domain.model.DownloadState
-import com.itantra.domain.model.MessageType
 import com.itantra.domain.model.ModelPack
 import com.itantra.domain.model.PeerDevice
-import com.itantra.domain.model.TransceiverMessage
 import com.itantra.ui.MainViewModel
 import com.itantra.ui.component.ModelDownloadGate
 import com.itantra.ui.theme.iTantraBackground
@@ -97,31 +91,12 @@ import com.itantra.ui.theme.iTantraSuccessLight
 import com.itantra.ui.theme.iTantraSurfaceHover
 import com.itantra.ui.theme.iTantraWhite
 
-private fun enableMeshHardwareAndHost(context: Context, viewModel: MainViewModel) {
-    val wifiManager = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
-    if (wifiManager?.isWifiEnabled != true) {
-        Toast.makeText(context, "Please turn ON Wi-Fi for Mesh Host Beacon", Toast.LENGTH_LONG).show()
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                context.startActivity(Intent(Settings.Panel.ACTION_WIFI).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-            } else {
-                context.startActivity(Intent(Settings.ACTION_WIFI_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-            }
-        } catch (e: Exception) {
-            context.startActivity(Intent(Settings.ACTION_WIFI_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-        }
-    }
-    viewModel.setHosting(true)
-    Toast.makeText(context, "Mesh Beacon Started — Broadcasting on Wi-Fi Direct & Bluetooth", Toast.LENGTH_SHORT).show()
-}
-
 @Composable
 fun TransceiverScreen(
     viewModel: MainViewModel,
     onPeerSelected: (String) -> Unit,
     onNavigateToDownloads: () -> Unit
 ) {
-    val context = LocalContext.current
     val downloadStates by viewModel.downloadStates.collectAsState()
     val isHosting by viewModel.isHosting.collectAsState()
     val isDiscovering by viewModel.isDiscovering.collectAsState()
@@ -129,97 +104,28 @@ fun TransceiverScreen(
     val detectedLanguage by viewModel.detectedLanguage.collectAsState()
     val isAutoDetect by viewModel.isAutoDetectEnabled.collectAsState()
 
+    // ── Paired Bluetooth devices (BluetoothRFCOMMManager.connectToDevice needs a real
+    // BluetoothDevice, which only bonded-device enumeration can supply without a scan) ──
+    val context = LocalContext.current
+    var bondedBtDevices by remember { mutableStateOf<List<PeerDevice>>(emptyList()) }
+    fun refreshBondedBtDevices() { bondedBtDevices = viewModel.bondedBluetoothDevices() }
+    val btPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted -> if (granted) refreshBondedBtDevices() }
+    LaunchedEffect(Unit) {
+        val hasBtConnect = Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
+            ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
+        if (hasBtConnect) {
+            refreshBondedBtDevices()
+        } else {
+            btPermissionLauncher.launch(Manifest.permission.BLUETOOTH_CONNECT)
+        }
+    }
+
     val corePacks = ModelPack.coreTransceiverPacks()
     val coreReady = corePacks.all { downloadStates[it] is DownloadState.Downloaded }
 
     var isPttActive by remember { mutableStateOf(false) }
-    val isPttTransmitting by viewModel.isPttTransmitting.collectAsState()
-    val isPhoneMode by viewModel.isPhoneMode.collectAsState()
-    val pttMessages by viewModel.pttMessageLog.collectAsState()
-
-    val meshPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestMultiplePermissions()
-    ) { permissions ->
-        val fineLocationGranted = permissions[Manifest.permission.ACCESS_FINE_LOCATION] ?: (
-            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
-        )
-        val nearbyGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            permissions[Manifest.permission.NEARBY_WIFI_DEVICES] ?: (
-                ContextCompat.checkSelfPermission(context, Manifest.permission.NEARBY_WIFI_DEVICES) == PackageManager.PERMISSION_GRANTED
-            )
-        } else true
-
-        if (fineLocationGranted && nearbyGranted) {
-            enableMeshHardwareAndHost(context, viewModel)
-        } else {
-            Toast.makeText(context, "Location & Nearby Devices permission required to host beacon", Toast.LENGTH_LONG).show()
-        }
-    }
-
-    fun onHostBeaconClicked() {
-        if (isHosting) {
-            viewModel.setHosting(false)
-            Toast.makeText(context, "Host Beacon Stopped", Toast.LENGTH_SHORT).show()
-            return
-        }
-
-        val requiredPermissions = mutableListOf(
-            Manifest.permission.ACCESS_FINE_LOCATION,
-            Manifest.permission.ACCESS_COARSE_LOCATION
-        )
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            requiredPermissions.add(Manifest.permission.NEARBY_WIFI_DEVICES)
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            requiredPermissions.add(Manifest.permission.BLUETOOTH_ADVERTISE)
-            requiredPermissions.add(Manifest.permission.BLUETOOTH_CONNECT)
-            requiredPermissions.add(Manifest.permission.BLUETOOTH_SCAN)
-        }
-
-        val missing = requiredPermissions.filter {
-            ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
-        }
-
-        if (missing.isNotEmpty()) {
-            meshPermissionLauncher.launch(missing.toTypedArray())
-        } else {
-            enableMeshHardwareAndHost(context, viewModel)
-        }
-    }
-
-    fun onSearchPeersClicked() {
-        if (isDiscovering) {
-            viewModel.setDiscovering(false)
-            return
-        }
-
-        val requiredPermissions = mutableListOf(
-            Manifest.permission.ACCESS_FINE_LOCATION,
-            Manifest.permission.ACCESS_COARSE_LOCATION
-        )
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            requiredPermissions.add(Manifest.permission.NEARBY_WIFI_DEVICES)
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            requiredPermissions.add(Manifest.permission.BLUETOOTH_SCAN)
-            requiredPermissions.add(Manifest.permission.BLUETOOTH_CONNECT)
-        }
-
-        val missing = requiredPermissions.filter {
-            ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
-        }
-
-        if (missing.isNotEmpty()) {
-            meshPermissionLauncher.launch(missing.toTypedArray())
-        } else {
-            val wifiManager = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
-            if (wifiManager?.isWifiEnabled != true) {
-                Toast.makeText(context, "Turn ON Wi-Fi for peer scanning", Toast.LENGTH_SHORT).show()
-            }
-            viewModel.setDiscovering(true)
-            Toast.makeText(context, "Scanning for mesh peers...", Toast.LENGTH_SHORT).show()
-        }
-    }
 
     val infiniteTransition = rememberInfiniteTransition(label = "transceiver_pulse")
     val pulseScale by infiniteTransition.animateFloat(
@@ -322,70 +228,21 @@ fun TransceiverScreen(
             ) {
                 TransceiverToggleCard(
                     label = "Host Beacon",
-                    sublabel = if (isHosting) "Broadcasting Active" else "Discoverable to peers",
+                    sublabel = "Discoverable to peers",
                     checked = isHosting,
-                    onCheckedChange = { onHostBeaconClicked() },
+                    onCheckedChange = { viewModel.setHosting(it) },
                     modifier = Modifier.weight(1f)
                 )
                 TransceiverToggleCard(
                     label = "Search Peers",
-                    sublabel = if (isDiscovering) "Scanning Nodes..." else "Scan for nodes",
+                    sublabel = "Scan for nodes",
                     checked = isDiscovering,
-                    onCheckedChange = { onSearchPeersClicked() },
+                    onCheckedChange = { viewModel.setDiscovering(it) },
                     modifier = Modifier.weight(1f)
                 )
             }
 
-            // ── Mode Switcher & Emergency SOS Row ───────────────────────
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 6.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // Mode Toggle Pill
-                Row(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(20.dp))
-                        .background(if (isPhoneMode) Color(0x1515803D) else iTantraCardAlt)
-                        .border(1.dp, if (isPhoneMode) iTantraSuccess else iTantraBorder, RoundedCornerShape(20.dp))
-                        .clickable { viewModel.setPhoneMode(!isPhoneMode) }
-                        .padding(horizontal = 14.dp, vertical = 7.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = if (isPhoneMode) Icons.Filled.Mic else Icons.Filled.GraphicEq,
-                        contentDescription = null,
-                        tint = if (isPhoneMode) iTantraSuccess else iTantraBlack,
-                        modifier = Modifier.size(14.dp)
-                    )
-                    Spacer(Modifier.width(6.dp))
-                    Text(
-                        text = if (isPhoneMode) "Phone Mode (Hands-Free VAD)" else "Walkie-Talkie (PTT)",
-                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, fontSize = 11.sp),
-                        color = if (isPhoneMode) iTantraSuccess else iTantraBlack
-                    )
-                }
-
-                // Emergency Distress SOS Broadcast Button
-                Row(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(20.dp))
-                        .background(Color(0xFFDC2626))
-                        .clickable { viewModel.broadcastAlert("EMERGENCY SOS: Distress alert broadcasted via mesh!") }
-                        .padding(horizontal = 12.dp, vertical = 7.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "SOS ALERT",
-                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, fontSize = 11.sp),
-                        color = iTantraWhite
-                    )
-                }
-            }
-
-            // ── MAIN HERO: Dynamic PTT / Phone Mode Button ───────────
+            // ── MAIN HERO: Giant Centered PTT Button ────────────────
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -396,16 +253,13 @@ fun TransceiverScreen(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center
                 ) {
-                    val activeColor = if (isPhoneMode) iTantraSuccess else (if (isPttActive) iTantraError else iTantraBlack)
-                    val activeBg = if (isPhoneMode) Color(0x1F15803D) else (if (isPttActive) Color(0x1FDC2626) else Color(0xFFF3F4F6))
-
                     // Outer ambient ring
                     Box(
                         modifier = Modifier
                             .size(230.dp)
-                            .scale(if (isPttActive || isPhoneMode) 1.05f else pulseScale)
+                            .scale(if (isPttActive) 1.05f else pulseScale)
                             .clip(CircleShape)
-                            .background(activeBg),
+                            .background(if (isPttActive) Color(0x1FDC2626) else Color(0xFFF3F4F6)),
                         contentAlignment = Alignment.Center
                     ) {
                         // Middle ring
@@ -413,10 +267,10 @@ fun TransceiverScreen(
                             modifier = Modifier
                                 .size(185.dp)
                                 .clip(CircleShape)
-                                .background(if (isPhoneMode) Color(0x2215803D) else (if (isPttActive) Color(0x33DC2626) else iTantraWhite))
+                                .background(if (isPttActive) Color(0x33DC2626) else iTantraWhite)
                                 .border(
                                     2.dp,
-                                    if (isPhoneMode) iTantraSuccess else (if (isPttActive) iTantraError else iTantraBorder),
+                                    if (isPttActive) iTantraError else iTantraBorder,
                                     CircleShape
                                 ),
                             contentAlignment = Alignment.Center
@@ -427,24 +281,22 @@ fun TransceiverScreen(
                                     .size(145.dp)
                                     .shadow(8.dp, CircleShape)
                                     .clip(CircleShape)
-                                    .background(if (isPhoneMode) Color(0xFF15803D) else (if (isPttActive) iTantraError else iTantraBlack))
+                                    .background(if (isPttActive) iTantraError else iTantraBlack)
                                     .border(
                                         2.dp,
-                                        if (isPhoneMode) Color(0xFF22C55E) else (if (isPttActive) Color(0xFFF87171) else iTantraBlack),
+                                        if (isPttActive) Color(0xFFF87171) else iTantraBlack,
                                         CircleShape
                                     )
-                                    .pointerInput(isPhoneMode) {
-                                        if (!isPhoneMode) {
-                                            detectTapGestures(
-                                                onPress = {
-                                                    isPttActive = true
-                                                    viewModel.startPttTransmit()
-                                                    tryAwaitRelease()
-                                                    isPttActive = false
-                                                    viewModel.stopPttTransmit()
-                                                }
-                                            )
-                                        }
+                                    .pointerInput(Unit) {
+                                        detectTapGestures(
+                                            onPress = {
+                                                isPttActive = true
+                                                viewModel.startTransceiverPtt()
+                                                tryAwaitRelease()
+                                                isPttActive = false
+                                                viewModel.stopTransceiverPtt()
+                                            }
+                                        )
                                     },
                                 contentAlignment = Alignment.Center
                             ) {
@@ -453,14 +305,14 @@ fun TransceiverScreen(
                                     verticalArrangement = Arrangement.Center
                                 ) {
                                     Icon(
-                                        imageVector = if (isPhoneMode || isPttActive) Icons.Filled.Mic else Icons.Filled.GraphicEq,
-                                        contentDescription = if (isPhoneMode) "Hands-free VAD Active" else "Push to Talk",
+                                        imageVector = if (isPttActive) Icons.Filled.Mic else Icons.Filled.GraphicEq,
+                                        contentDescription = "Push to Talk",
                                         tint = iTantraWhite,
                                         modifier = Modifier.size(46.dp)
                                     )
                                     Spacer(Modifier.height(4.dp))
                                     Text(
-                                        text = if (isPhoneMode) "VAD ACTIVE" else (if (isPttActive) "RELEASE" else "HOLD PTT"),
+                                        text = if (isPttActive) "RELEASE" else "HOLD PTT",
                                         style = MaterialTheme.typography.labelSmall.copy(
                                             fontWeight = FontWeight.Bold,
                                             fontSize = 11.sp,
@@ -476,15 +328,15 @@ fun TransceiverScreen(
                     Spacer(Modifier.height(16.dp))
 
                     Text(
-                        text = if (isPhoneMode) "Hands-Free Phone Mode (VAD Listening)" else (if (isPttActive) "Transmitting Audio Data…" else "Push to Talk (Walkie-Talkie)"),
+                        text = if (isPttActive) "Transmitting Audio Data…" else "Push to Talk (Walkie-Talkie)",
                         style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                        color = if (isPhoneMode) iTantraSuccess else (if (isPttActive) iTantraError else iTantraBlack)
+                        color = if (isPttActive) iTantraError else iTantraBlack
                     )
                     Spacer(Modifier.height(3.dp))
                     Text(
-                        text = if (isPhoneMode) "Automatic pause & stoppage detection (<800ms) streams text" else (if (isPttTransmitting) "VAD → STT → Broadcasting Protobuf Frame" else "Silero VAD → Whisper STT → ~200B Protobuf Frame"),
+                        text = "Silero VAD → IndicConformer STT → ~200B Protobuf Frame",
                         style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                        color = if (isPhoneMode || isPttTransmitting) iTantraSuccess else iTantraBlack60
+                        color = iTantraBlack60
                     )
                 }
             }
@@ -541,7 +393,56 @@ fun TransceiverScreen(
                             items(peers, key = { it.deviceId }) { peer ->
                                 PeerRowItemWhite(
                                     peer = peer,
-                                    onClick = { if (peer.isConnected) onPeerSelected(peer.deviceId) },
+                                    onClick = {
+                                        when {
+                                            peer.isConnected -> onPeerSelected(peer.deviceId)
+                                            // MeshHardwareManager's Bluetooth discovery surfaces
+                                            // devices here that may not be paired yet — this
+                                            // route was previously always attempting a Wi-Fi
+                                            // Direct connect regardless of the peer's real type.
+                                            peer.connectionType == ConnectionType.BLUETOOTH ->
+                                                viewModel.pairAndConnectBluetoothPeer(peer.deviceId)
+                                            else -> viewModel.connectToPeer(peer.deviceId)
+                                        }
+                                    },
+                                    onAuthorize = { viewModel.authorizePeer(peer.deviceId) },
+                                    onRevoke = { viewModel.revokePeer(peer.deviceId) }
+                                )
+                            }
+                        }
+                    }
+
+                    // ── Paired Bluetooth Devices ─────────────────────────
+                    if (bondedBtDevices.isNotEmpty()) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Paired Bluetooth (${bondedBtDevices.size})",
+                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                color = iTantraBlack
+                            )
+                            Text(
+                                text = "tap to connect",
+                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                color = iTantraBlack60
+                            )
+                        }
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(minOf(bondedBtDevices.size * 72, 216).dp),
+                            contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 8.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            items(bondedBtDevices, key = { it.deviceId }) { peer ->
+                                PeerRowItemWhite(
+                                    peer = peer,
+                                    onClick = { viewModel.connectToBluetoothPeer(peer.deviceId) },
                                     onAuthorize = { viewModel.authorizePeer(peer.deviceId) },
                                     onRevoke = { viewModel.revokePeer(peer.deviceId) }
                                 )
@@ -618,7 +519,10 @@ private fun PeerRowItemWhite(
                 if (peer.isConnected) iTantraSuccess.copy(alpha = 0.5f) else iTantraBorder,
                 RoundedCornerShape(14.dp)
             )
-            .clickable(enabled = peer.isConnected, onClick = onClick)
+            // Previously `enabled = peer.isConnected` disabled tapping entirely for an
+            // unconnected peer — meaning "tap to connect" never actually fired a connect
+            // attempt. Always clickable now; onClick itself branches on isConnected.
+            .clickable(onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 10.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically

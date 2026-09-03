@@ -3,38 +3,32 @@ package com.itantra.core.audio
 import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
+import ai.onnxruntime.TensorInfo
 import android.content.Context
 import android.util.Log
+import com.itantra.core.download.ModelAssetExtractor
 import com.itantra.domain.contracts.AudioCallbacks
 import com.itantra.domain.model.AppResult
 import com.itantra.domain.model.ErrorCode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.io.File
 import java.nio.FloatBuffer
 import kotlin.math.cos
 import kotlin.math.ln
 import kotlin.math.PI
 import kotlin.math.sin
-import kotlin.math.sqrt
 
 /**
- * Speech-to-Text using OpenAI Whisper Small INT8 (standalone monolithic ONNX).
+ * Speech-to-Text module using AI4Bharat IndicConformer (sherpa-onnx export, ONNX INT8).
  *
- * 100% OFFLINE — Strictly zero Google Speech / Cloud APIs.
+ * There is no single "multilingual" model — sherpa-onnx ships one ONNX graph per language,
+ * each with its own tokens.txt vocabulary alongside it. Sessions and vocabularies are
+ * lazy-loaded and cached per language code.
  *
- * Model: whisper_small_int8.onnx (~244MB)
- * - Supports all 10 Indic languages + English natively.
- * - Input: Log-mel spectrogram [1, 80, 3000] (30s padded window at 16kHz).
- * - Language forced via decoder prefix token (no explicit "language" input tensor).
- * - Output: Token sequence decoded via greedy CTC.
+ * Model files: filesDir/models/stt_{lang}_int8.onnx + stt_{lang}_tokens.txt
  *
- * Performance targets (Whisper Small INT8 on ARM64):
- * - Transcription latency: 800ms–2500ms for 5s audio on mid-range device.
- * - WER: ~10–12% for Hindi, ~8% for English.
- *
- * Fallback: When model is not loaded (not yet downloaded), returns a descriptive
- * indicator string so the UI knows to prompt download.
+ * If a language's model/vocab isn't downloaded, [transcribe] returns
+ * [AppResult.Error] with [ErrorCode.MODEL_LOAD_FAILED] — it never fabricates text.
  */
 class STTModule(
     private val context: Context,
@@ -42,354 +36,325 @@ class STTModule(
 ) {
     companion object {
         private const val TAG = "STTModule"
-        // Whisper uses 80-mel, 3000-frame (30s) fixed-size spectrogram
         const val SAMPLE_RATE = 16000
         private const val N_MELS = 80
-        private const val N_FFT = 400        // 25ms window at 16kHz
-        private const val HOP_LENGTH = 160   // 10ms hop at 16kHz
-        private const val WHISPER_FRAMES = 3000 // 30s at 10ms hop
+        private const val FRAME_LENGTH = 400   // 25ms window at 16kHz
+        private const val HOP_LENGTH = 160     // 10ms hop at 16kHz
 
-        // Whisper language token IDs (from Whisper multilingual tokenizer)
-        private val WHISPER_LANG_TOKENS: Map<String, Int> = mapOf(
-            "en" to 50259, "hi" to 50276, "mr" to 50305, "gu" to 50307,
-            "kn" to 50310, "ml" to 50308, "ta" to 50265, "te" to 50309,
-            "or" to 50418, "bn" to 50302
-        )
-
-        const val IDLE_TIMEOUT_MS = 60_000L
-        private const val SHERPA_INDIC_FILE_NAME = "indicconformer_sherpa_int8.onnx"
-        private const val MODEL_INT8_NAME = "model.int8.onnx"
-        private const val MODEL_FILE_NAME = "whisper_small_int8.onnx"
-        private const val LEGACY_STT_FILE_NAME = "indicconformer_multilingual_int8.onnx"
+        /** Candidate input names for the acoustic feature tensor, in priority order. */
+        private val FEATURE_INPUT_ALIASES = listOf("audio_signal", "x", "features", "input", "waveform")
+        /** Candidate input names for the sequence-length tensor, in priority order. */
+        private val LENGTH_INPUT_ALIASES = listOf("length", "x_lens", "input_length", "x_length")
     }
 
-    private var ortEnv: OrtEnvironment? = null
-    private var session: OrtSession? = null
-    var isLoaded = false
-        private set
+    private val ortEnv: OrtEnvironment by lazy { OrtEnvironment.getEnvironment() }
+    private val sessionCache = mutableMapOf<String, OrtSession>()
+    private val vocabCache = mutableMapOf<String, Array<String>>()
+    private val ioNamesCache = mutableMapOf<String, IoNames>()
 
-    private val tokensMap = mutableMapOf<Int, String>()
-
-    private fun loadTokens(modelsDir: File) {
-        if (tokensMap.isNotEmpty()) return
-        val tokensFile = File(modelsDir, "tokens.txt")
-        if (!tokensFile.exists()) {
-            Log.w(TAG, "tokens.txt not found in ${modelsDir.absolutePath}")
-            return
-        }
-        try {
-            tokensFile.forEachLine { line ->
-                val trimmed = line.trim()
-                if (trimmed.isNotEmpty()) {
-                    val lastSpace = trimmed.lastIndexOf(' ')
-                    if (lastSpace > 0) {
-                        val token = trimmed.substring(0, lastSpace)
-                        val idStr = trimmed.substring(lastSpace + 1)
-                        idStr.toIntOrNull()?.let { id ->
-                            tokensMap[id] = token
-                        }
-                    }
-                }
-            }
-            Log.i(TAG, "Successfully loaded ${tokensMap.size} tokens for IndicConformer CTC decoding")
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed loading tokens.txt: ${e.message}")
-        }
-    }
+    private data class IoNames(val featureInput: String, val lengthInput: String?, val outputName: String)
 
     /**
-     * Lazy-load the IndicConformer / Whisper ONNX model from physical disk.
+     * Ensure the session + tokenizer for [languageCode] are loaded (downloading is handled
+     * separately by ModelDownloadManager — this only loads what's already on disk).
+     * @return true if the language is ready to transcribe, false if the model/vocab is missing.
      */
-    suspend fun ensureLoaded(): Boolean = withContext(Dispatchers.Default) {
-        if (isLoaded && session != null) return@withContext true
-
-        val modelsDir = File(context.filesDir, "models")
-
-        // Priority order: meetsync IndicConformer Sherpa ONNX, then Whisper Small, then legacy
-        val modelFile = sequenceOf(
-            File(modelsDir, SHERPA_INDIC_FILE_NAME),
-            File(modelsDir, MODEL_INT8_NAME),
-            File(modelsDir, MODEL_FILE_NAME),
-            File(modelsDir, LEGACY_STT_FILE_NAME)
-        ).firstOrNull { it.exists() && it.length() > 20 * 1024 * 1024L } // must be > 20MB
-
-        if (modelFile == null) {
-            Log.w(TAG, "STT model not available (not downloaded yet)")
-            return@withContext false
+    suspend fun ensureLoaded(languageCode: String): Boolean = withContext(Dispatchers.Default) {
+        if (sessionCache.containsKey(languageCode) && vocabCache.containsKey(languageCode)) {
+            return@withContext true
         }
 
         try {
-            Log.d(TAG, "Loading STT model from ${modelFile.name} (${modelFile.length() / 1024 / 1024}MB)...")
             val startMs = System.currentTimeMillis()
 
-            ortEnv = OrtEnvironment.getEnvironment()
-            val opts = OrtSession.SessionOptions().apply {
+            val modelPath = ModelAssetExtractor.getPhysicalModelPath(
+                context, "stt_${languageCode}_int8.onnx", "models/stt/${languageCode}_model.int8.onnx"
+            )
+            val vocabPath = ModelAssetExtractor.getPhysicalModelPath(
+                context, "stt_${languageCode}_tokens.txt", "models/stt/${languageCode}_tokens.txt"
+            )
+
+            if (modelPath == null || vocabPath == null) {
+                Log.w(TAG, "STT model or tokenizer not available on disk for '$languageCode' (model=$modelPath, vocab=$vocabPath)")
+                return@withContext false
+            }
+
+            val vocab = parseTokensFile(vocabPath)
+            if (vocab.isEmpty()) {
+                Log.w(TAG, "STT tokenizer for '$languageCode' parsed to an empty vocabulary")
+                return@withContext false
+            }
+
+            val sessionOptions = OrtSession.SessionOptions().apply {
                 setIntraOpNumThreads(2)
                 setInterOpNumThreads(1)
                 setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
                 try {
                     addNnapi()
-                    Log.d(TAG, "STT: NNAPI delegate enabled")
+                    Log.d(TAG, "STT('$languageCode'): NNAPI delegate enabled")
                 } catch (e: Exception) {
-                    Log.d(TAG, "STT: NNAPI unavailable — using CPU XNNPACK")
+                    Log.d(TAG, "STT('$languageCode'): NNAPI unavailable, falling back to CPU XNNPACK")
                 }
             }
 
-            session = ortEnv!!.createSession(modelFile.absolutePath, opts)
-            isLoaded = session != null
+            val session = ortEnv.createSession(modelPath, sessionOptions)
+            val ioNames = resolveIoNames(session) ?: run {
+                Log.e(TAG, "STT('$languageCode'): could not resolve input/output tensor names, closing session")
+                session.close()
+                return@withContext false
+            }
 
-            loadTokens(modelsDir)
+            sessionCache[languageCode] = session
+            vocabCache[languageCode] = vocab
+            ioNamesCache[languageCode] = ioNames
 
-            val inputNames = session?.inputNames?.toList() ?: emptyList()
-            Log.d(TAG, "STT model loaded in ${System.currentTimeMillis() - startMs}ms. Inputs: $inputNames, Tokens: ${tokensMap.size}")
-            isLoaded
+            val loadMs = System.currentTimeMillis() - startMs
+            Log.d(TAG, "STT('$languageCode') loaded in ${loadMs}ms — vocab size ${vocab.size}, inputs=${ioNames}")
+            true
         } catch (e: Exception) {
-            Log.e(TAG, "STT model load failed: ${e.message}")
-            isLoaded = false
+            Log.e(TAG, "STT('$languageCode') load failed: ${e.message}", e)
             false
         }
     }
 
     /**
+     * Inspect the session's real input/output tensor names instead of assuming fixed ones —
+     * the exact sherpa-onnx export convention can't be verified without the actual model file.
+     * Picks the length input (rank <= 1) and feature input (everything else) by shape when the
+     * alias lists don't match, and fails explicitly rather than guessing wrong.
+     */
+    private fun resolveIoNames(session: OrtSession): IoNames? {
+        val inputNames = session.inputNames
+        val outputNames = session.outputNames
+        val outputName = outputNames.firstOrNull() ?: return null
+
+        FEATURE_INPUT_ALIASES.firstOrNull { it in inputNames }?.let { feature ->
+            val length = LENGTH_INPUT_ALIASES.firstOrNull { it in inputNames }
+            return IoNames(feature, length, outputName)
+        }
+
+        // No known alias matched — fall back to shape-based inference.
+        val inputInfo = session.inputInfo
+        val lengthCandidates = inputInfo.filter { (_, info) ->
+            ((info.info as? TensorInfo)?.shape?.size ?: -1) <= 1
+        }.keys
+        val featureCandidates = inputNames - lengthCandidates
+
+        val feature = featureCandidates.firstOrNull() ?: return null
+        val length = lengthCandidates.firstOrNull()
+        return IoNames(feature, length, outputName)
+    }
+
+    /** Reads a sherpa-onnx `tokens.txt` file from disk and parses it via [CtcDecoder.parseTokens]. */
+    private fun parseTokensFile(path: String): Array<String> =
+        CtcDecoder.parseTokens(java.io.File(path).readText())
+
+    /**
      * Transcribe a speech audio buffer to text.
      *
      * @param audioBuffer PCM float samples [-1.0, 1.0] at 16kHz.
-     * @param languageCode BCP-47 code ("hi", "ta", "mr", "en", etc.)
-     * @return Transcribed text or error.
+     * @param languageCode BCP-47 language code (e.g., "hi", "ta", "en").
+     * @return Transcribed text string, or [AppResult.Error] if the model isn't downloaded
+     *   or inference fails. Never returns fabricated placeholder text.
      */
     suspend fun transcribe(
         audioBuffer: FloatArray,
         languageCode: String = "hi"
     ): AppResult<String> = withContext(Dispatchers.Default) {
+        val sess = sessionCache[languageCode]
+        val vocab = vocabCache[languageCode]
+        val ioNames = ioNamesCache[languageCode]
 
-        val sess = session
-        val env = ortEnv
-
-        // Model not loaded — indicate to user (not a fake transcription)
-        if (sess == null || env == null || !isLoaded) {
-            return@withContext AppResult.Error(
-                ErrorCode.STT_INFERENCE_FAILED,
-                "STT model not loaded. Please download the voice pack first."
+        if (sess == null || vocab == null || ioNames == null) {
+            val error = AppResult.Error(
+                ErrorCode.MODEL_LOAD_FAILED,
+                "STT model not downloaded for language '$languageCode'"
             )
+            callbacks.onAudioError(error)
+            return@withContext error
         }
 
         val inferenceStart = System.currentTimeMillis()
         try {
-            // Step 1: Compute log-mel spectrogram, padded/truncated to WHISPER_FRAMES
-            val melSpec = computeWhisperLogMel(audioBuffer)
-
-            // Step 2: Create input tensor [1, 80, 3000]
-            val inputTensor = OnnxTensor.createTensor(
-                env,
-                FloatBuffer.wrap(melSpec),
-                longArrayOf(1L, N_MELS.toLong(), WHISPER_FRAMES.toLong())
-            )
-
-            // Whisper ONNX (encoder-decoder exported) has a single "input_features" input
-            // The decoder forced_decoder_ids handle language selection via initial token prefix
-            val inputs = mapOf("input_features" to inputTensor)
-
-            // Step 3: Run encoder inference
-            val outputs = sess.run(inputs)
-            inputTensor.close()
-
-            // Step 4: Decode output tokens to text
-            // Whisper ONNX output: "last_hidden_state" [1, T, hidden] or "logits" [1, T, vocab]
-            val text = decodeWhisperOutput(outputs, languageCode, env)
-            outputs.close()
-
-            val inferenceMs = System.currentTimeMillis() - inferenceStart
-            Log.d(TAG, "STT transcribed: '${text.take(60)}' in ${inferenceMs}ms [$languageCode]")
-
-            if (text.isBlank()) {
-                AppResult.Error(ErrorCode.STT_INFERENCE_FAILED, "Empty transcription result")
-            } else {
-                callbacks.onSTTResult(AppResult.Success(text), 0.85f, inferenceMs)
-                AppResult.Success(text)
+            val features = extractLogMelSpectrogram(audioBuffer)
+            val numFrames = features.size / N_MELS
+            if (numFrames <= 0) {
+                return@withContext AppResult.Error(ErrorCode.STT_INFERENCE_FAILED, "Audio buffer too short to transcribe")
             }
 
+            val featureTensor = OnnxTensor.createTensor(
+                ortEnv,
+                FloatBuffer.wrap(features),
+                longArrayOf(1, N_MELS.toLong(), numFrames.toLong())
+            )
+
+            val inputs = mutableMapOf(ioNames.featureInput to featureTensor)
+            val lengthTensor = if (ioNames.lengthInput != null) {
+                OnnxTensor.createTensor(ortEnv, longArrayOf(numFrames.toLong())).also { inputs[ioNames.lengthInput] = it }
+            } else null
+
+            val outputs = sess.run(inputs)
+
+            @Suppress("UNCHECKED_CAST")
+            val logits = outputs[0].value as Array<Array<FloatArray>>
+            // NeMo/IndicConformer CTC convention: blank is the LAST vocab entry, not id 0
+            // (confirmed on-device: hi's tokens.txt has "<unk> 0" ... "<blk> 5632").
+            val text = CtcDecoder.greedyDecode(logits[0], vocab, blankId = vocab.size - 1)
+
+            val inferenceMs = System.currentTimeMillis() - inferenceStart
+            Log.d(TAG, "STT inference: '${text.take(50)}' in ${inferenceMs}ms [${languageCode}]")
+
+            featureTensor.close()
+            lengthTensor?.close()
+            outputs.close()
+
+            if (text.isBlank()) {
+                AppResult.Error(ErrorCode.STT_INFERENCE_FAILED, "Empty transcription")
+            } else {
+                val confidence = estimateConfidence(logits[0])
+                callbacks.onSTTResult(AppResult.Success(text), confidence, inferenceMs)
+                AppResult.Success(text)
+            }
         } catch (e: Exception) {
             Log.e(TAG, "STT inference error: ${e.message}", e)
             callbacks.onAudioError(
                 AppResult.Error(ErrorCode.STT_INFERENCE_FAILED, "STT failed: ${e.message}")
             )
-            AppResult.Error(ErrorCode.STT_INFERENCE_FAILED, e.message ?: "STT error")
+            AppResult.Error(ErrorCode.STT_INFERENCE_FAILED, e.message ?: "Unknown error")
         }
     }
 
     /**
-     * Compute Whisper-compatible log-mel spectrogram.
-     * Input: 16kHz PCM float array.
-     * Output: Float array of shape [N_MELS * WHISPER_FRAMES] = [80 * 3000].
+     * Extract 80-dimensional log-mel spectrogram features from raw PCM audio.
+     * Uses standard mel filterbank parameters matching IndicConformer training config.
      */
-    private fun computeWhisperLogMel(audio: FloatArray): FloatArray {
-        // Pad or truncate to exactly 30s (480000 samples at 16kHz)
-        val targetLen = SAMPLE_RATE * 30
-        val paddedAudio = when {
-            audio.size >= targetLen -> audio.copyOf(targetLen)
-            else -> audio + FloatArray(targetLen - audio.size) { 0f }
-        }
+    private fun extractLogMelSpectrogram(audio: FloatArray): FloatArray {
+        val frames = mutableListOf<FloatArray>()
+        var start = 0
 
-        val numFrames = (paddedAudio.size - N_FFT) / HOP_LENGTH + 1
-        val actualFrames = minOf(numFrames, WHISPER_FRAMES)
-
-        val melSpec = Array(N_MELS) { FloatArray(WHISPER_FRAMES) }
-
-        // Simplified mel spectrogram using STFT magnitude
-        for (t in 0 until actualFrames) {
-            val start = t * HOP_LENGTH
-            val frame = FloatArray(N_FFT) { i ->
-                if (start + i < paddedAudio.size) paddedAudio[start + i] else 0f
-            }
+        while (start + FRAME_LENGTH <= audio.size) {
+            val frame = audio.copyOfRange(start, start + FRAME_LENGTH)
 
             // Apply Hann window
             for (i in frame.indices) {
-                frame[i] *= (0.5 * (1 - cos(2.0 * PI * i / (N_FFT - 1)))).toFloat()
+                frame[i] *= (0.5f * (1f - cos(2.0 * PI * i / (FRAME_LENGTH - 1)))).toFloat()
             }
 
-            // Compute power spectrum via DFT approximation (N_FFT/2 + 1 bins)
-            val halfFFT = N_FFT / 2 + 1
-            val powers = FloatArray(halfFFT)
-            for (k in 0 until halfFFT) {
-                var re = 0.0; var im = 0.0
-                for (n in frame.indices) {
-                    val angle = 2.0 * PI * k * n / N_FFT
-                    re += frame[n] * cos(angle)
-                    im -= frame[n] * sin(angle)
-                }
-                powers[k] = (re * re + im * im).toFloat()
+            // FFT magnitude spectrum (simplified — real impl uses FFTW or KissFFT via JNI)
+            val spectrum = computePowerSpectrum(frame)
+
+            // Apply mel filterbank (80 filters, 0Hz–8000Hz)
+            val melFeatures = applyMelFilterbank(spectrum, N_MELS, SAMPLE_RATE)
+
+            // Log compression
+            for (i in melFeatures.indices) {
+                melFeatures[i] = (ln(melFeatures[i].toDouble() + 1e-10)).toFloat()
             }
 
-            // Project to mel scale (triangular filterbank)
-            val melMin = 0.0
-            val melMax = hzToMel(SAMPLE_RATE.toDouble() / 2)
-            for (m in 0 until N_MELS) {
-                val melCenter = melMin + (melMax - melMin) * (m + 1) / (N_MELS + 1)
-                val fCenter = melToHz(melCenter).toInt().coerceIn(0, halfFFT - 1)
-                val fLow = (fCenter - 2).coerceAtLeast(0)
-                val fHigh = (fCenter + 2).coerceAtMost(halfFFT - 1)
-                var energy = 0.0
-                for (f in fLow..fHigh) energy += powers[f]
-                melSpec[m][t] = (ln((energy / (fHigh - fLow + 1)).coerceAtLeast(1e-10))).toFloat()
-            }
+            frames.add(melFeatures)
+            start += HOP_LENGTH
         }
 
-        // Normalize: clamp to max(log_mel) - 8.0, scale to [-1, 1]
-        val allValues = melSpec.flatMap { it.toList() }
-        val maxVal = allValues.max()
-        val floor = maxVal - 8.0f
-
-        val output = FloatArray(N_MELS * WHISPER_FRAMES)
+        // Per-feature (per-mel-channel) normalization across this utterance's frames — NeMo's
+        // AudioToMelSpectrogramPreprocessor default ("normalize: per_feature"). IndicConformer is
+        // NeMo-trained, so it expects normalized input; without this the encoder saw
+        // out-of-distribution magnitudes and collapsed to the same predicted token regardless of
+        // audio content (confirmed on-device: three different-length recordings all decoded to
+        // the same single repeated character).
+        val T = frames.size
         for (m in 0 until N_MELS) {
-            for (t in 0 until WHISPER_FRAMES) {
-                val clamped = melSpec[m][t].coerceAtLeast(floor)
-                output[m * WHISPER_FRAMES + t] = (clamped + 4.0f) / 4.0f
+            var mean = 0.0
+            for (t in 0 until T) mean += frames[t][m]
+            mean /= T
+            var variance = 0.0
+            for (t in 0 until T) {
+                val d = frames[t][m] - mean
+                variance += d * d
+            }
+            val std = kotlin.math.sqrt(variance / T)
+            val denom = (std + 1e-5).toFloat()
+            for (t in 0 until T) frames[t][m] = ((frames[t][m] - mean) / denom).toFloat()
+        }
+
+        // Flatten [T, N_MELS] → [N_MELS, T] (transpose for model input)
+        val result = FloatArray(N_MELS * T)
+        for (t in 0 until T) {
+            for (m in 0 until N_MELS) {
+                result[m * T + t] = frames[t][m]
             }
         }
-        return output
+        return result
     }
 
-    /**
-     * Decode ONNX STT output to text.
-     * Supports both CTC IndicConformer (Sherpa) outputs and Whisper outputs.
-     */
-    @Suppress("UNCHECKED_CAST")
-    private fun decodeWhisperOutput(outputs: OrtSession.Result, langCode: String, env: OrtEnvironment): String {
-        try {
-            val outputValue = outputs[0].value
+    /** Compute power spectrum via naive DFT (production should use FFTW via JNI). */
+    private fun computePowerSpectrum(frame: FloatArray): FloatArray {
+        val N = frame.size
+        val halfN = N / 2 + 1
+        val spectrum = FloatArray(halfN)
+        for (k in 0 until halfN) {
+            var re = 0.0
+            var im = 0.0
+            for (n in frame.indices) {
+                val angle = 2.0 * PI * k * n / N
+                re += frame[n] * cos(angle)
+                im -= frame[n] * sin(angle)
+            }
+            spectrum[k] = (re * re + im * im).toFloat()
+        }
+        return spectrum
+    }
 
-            // 3D logits: shape [1, T, vocab_size]
-            if (outputValue is Array<*>) {
-                val logits = outputValue as? Array<Array<FloatArray>> ?: return ""
-                val frameLogits = logits[0]
-                val vocabSize = frameLogits.firstOrNull()?.size ?: 0
+    /** Apply mel filterbank to linear frequency spectrum. */
+    private fun applyMelFilterbank(spectrum: FloatArray, nMels: Int, sampleRate: Int): FloatArray {
+        val fMax = sampleRate / 2.0
+        val melMin = hzToMel(0.0)
+        val melMax = hzToMel(fMax)
+        val melPoints = FloatArray(nMels + 2) { i ->
+            melToHz(melMin + i * (melMax - melMin) / (nMels + 1)).toFloat()
+        }
 
-                // If vocab size matches IndicConformer tokens (~5633) or tokensMap is loaded:
-                if (tokensMap.isNotEmpty() || vocabSize in 1000..10000) {
-                    return ctcGreedyDecode(frameLogits)
+        val result = FloatArray(nMels)
+        val fftBins = spectrum.size
+        for (m in 0 until nMels) {
+            var energy = 0f
+            for (k in spectrum.indices) {
+                val freq = k.toFloat() * sampleRate / (2 * (fftBins - 1))
+                val lower = melPoints[m]
+                val center = melPoints[m + 1]
+                val upper = melPoints[m + 2]
+                val weight = when {
+                    freq >= lower && freq <= center -> (freq - lower) / (center - lower)
+                    freq > center && freq <= upper  -> (upper - freq) / (upper - center)
+                    else                            -> 0f
                 }
-
-                // Otherwise Whisper fallback decoding
-                return greedyDecodeTokens(frameLogits)
+                energy += spectrum[k] * weight
             }
-
-            return ""
-        } catch (e: Exception) {
-            Log.e(TAG, "STT decode error: ${e.message}")
-            return ""
+            result[m] = energy
         }
+        return result
     }
 
-    /**
-     * CTC greedy argmax decoding for IndicConformer.
-     */
-    private fun ctcGreedyDecode(logits: Array<FloatArray>): String {
-        val sb = StringBuilder()
-        var prevTokenId = -1
-
-        for (frame in logits) {
-            val maxId = frame.indices.maxByOrNull { frame[it] } ?: continue
-            // 0 is <blk> (blank) in Sherpa Conformer CTC
-            if (maxId != 0 && maxId != prevTokenId) {
-                val token = tokensMap[maxId] ?: ""
-                if (token.isNotBlank() && !token.startsWith("<") && !token.endsWith(">")) {
-                    sb.append(token)
-                }
-            }
-            prevTokenId = maxId
-        }
-
-        return sb.toString().replace(" ", " ").trim()
-    }
-
-    /**
-     * Greedy decode for Whisper models: argmax over vocab at each timestep.
-     */
-    private fun greedyDecodeTokens(logits: Array<FloatArray>): String {
-        val sb = StringBuilder()
-        var prevToken = -1
-
-        for (frame in logits) {
-            val tokenId = frame.indices.maxByOrNull { frame[it] } ?: continue
-            if (tokenId != prevToken && tokenId > 3 && tokenId < 50000) {
-                if (tokenId < 128) {
-                    sb.append(tokenId.toChar())
-                }
-            }
-            prevToken = tokenId
-        }
-
-        return sb.toString().trim().ifBlank { "" }
-    }
-
-    // Mel scale conversions
-    private fun hzToMel(hz: Double) = 2595.0 * ln(1.0 + hz / 700.0) / ln(10.0)
+    private fun hzToMel(hz: Double) = 2595.0 * Math.log10(1.0 + hz / 700.0)
     private fun melToHz(mel: Double) = 700.0 * (Math.pow(10.0, mel / 2595.0) - 1.0)
 
-    /**
-     * Estimate confidence from logit entropy.
-     */
     private fun estimateConfidence(logits: Array<FloatArray>): Float {
         if (logits.isEmpty()) return 0f
-        val frameConf = logits.map { frame ->
-            val maxLogit = frame.max()
-            (maxLogit / 10f).coerceIn(0f, 1f)
+        var sumMax = 0f
+        for (frame in logits) {
+            val maxProb = frame.max()
+            sumMax += maxProb
         }
-        return frameConf.average().toFloat()
+        return (sumMax / logits.size).coerceIn(0f, 1f)
     }
 
     fun release() {
-        session?.close()
-        session = null
-        ortEnv = null
-        isLoaded = false
+        sessionCache.values.forEach { runCatching { it.close() } }
+        sessionCache.clear()
+        vocabCache.clear()
+        ioNamesCache.clear()
+        Log.d(TAG, "STTModule released")
     }
-}
 
-// FloatArray concat helper
-private operator fun FloatArray.plus(other: FloatArray): FloatArray {
-    val result = FloatArray(size + other.size)
-    System.arraycopy(this, 0, result, 0, size)
-    System.arraycopy(other, 0, result, size, other.size)
-    return result
+    fun isLanguageLoaded(languageCode: String): Boolean =
+        sessionCache.containsKey(languageCode) && vocabCache.containsKey(languageCode)
 }

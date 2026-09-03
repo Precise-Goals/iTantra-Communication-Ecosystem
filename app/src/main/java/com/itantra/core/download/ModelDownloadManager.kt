@@ -6,325 +6,347 @@ import com.itantra.domain.model.DownloadState
 import com.itantra.domain.model.ModelPack
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import okhttp3.Dispatcher
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
-import java.io.FileInputStream
-import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
 
 /**
  * Manages background model downloads with real-time progress tracking.
  *
- * Strict Production Rules:
- * 1. ZERO RE-DOWNLOADS: If a model is already downloaded on disk and its integrity check
- *    (file existence, min size sanity, and SHA256 checksum) passes, IT IS NEVER RE-DOWNLOADED.
- * 2. REAL HTTP DOWNLOADS ONLY: Absolutely zero fake stubs or mock synthesis.
- * 3. STRICT INTEGRITY VERIFICATION:
- *    - Validates file size is >= 50% of expected binary size and >= 100KB.
- *    - Validates SHA256 hash against official upstream checksums in ModelRegistry.
- *    - Deletes corrupt partial or mismatched files immediately.
- * 4. ATOMIC DISK COMMITS: Streams into .part files and atomically renames only upon full verification.
+ * - Supports HTTP downloads only — a failed download is reported as [DownloadState.Failed],
+ *   never masked with a synthetic placeholder file.
+ * - Verifies real SHA-256 after every download: against [ModelRegistry.ModelInfo.sha256] when
+ *   known (HuggingFace LFS hashes are also captured live from the `X-Linked-ETag`/`ETag` response
+ *   header), or against [ModelHashStore]'s trust-on-first-download record otherwise.
+ * - `.tar.bz2` bundle packs (the sherpa-onnx TTS voices + shared espeak-ng-data) are extracted
+ *   via [ArchiveExtractor] and the archive is deleted, leaving only the extracted directory.
+ * - Persists downloaded status on disk in context.filesDir/models
+ * - Emits StateFlow<Map<ModelPack, DownloadState>> for reactive UI observation
  */
 class ModelDownloadManager(private val context: Context) {
 
     private val TAG = "ModelDownloadManager"
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val client = OkHttpClient.Builder()
-        .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(120, TimeUnit.SECONDS)
-        .writeTimeout(60, TimeUnit.SECONDS)
-        .followRedirects(true)
-        .followSslRedirects(true)
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
+        // OkHttp's default Dispatcher caps concurrent requests to the SAME host at 5 — with up to
+        // 17 core packs downloaded in parallel and most STT files hosted on huggingface.co, the
+        // 6th+ request to that host just sits queued with zero visible progress (confirmed
+        // on-device: several packs stuck at 0% indefinitely while 5 others succeeded). This app
+        // deliberately fires all packs in parallel (downloadAll()), so the whole point is
+        // defeated by the default per-host cap — raise it well above the real pack count.
+        .dispatcher(Dispatcher().apply {
+            maxRequests = 40
+            maxRequestsPerHost = 40
+        })
         .build()
-
-    private val activeJobs = mutableMapOf<ModelPack, Job>()
-
-    val modelsDir: File
-        get() = File(context.filesDir, "models").also { it.mkdirs() }
+    private val hashStore = ModelHashStore(context)
 
     private val _downloadStates = MutableStateFlow<Map<ModelPack, DownloadState>>(
         ModelPack.entries.associateWith { pack ->
-            if (verifyModelIntegrity(pack)) DownloadState.Downloaded else DownloadState.NotDownloaded
+            if (isModelPresent(pack)) DownloadState.Downloaded else DownloadState.NotDownloaded
         }
     )
-    val downloadStates: StateFlow<Map<ModelPack, DownloadState>> = _downloadStates.asStateFlow()
+    val downloadStates: StateFlow<Map<ModelPack, DownloadState>> =
+        _downloadStates.asStateFlow()
 
-    /**
-     * Strictly verifies the integrity of a model file on disk:
-     * 1. Checks file exists and is a regular file.
-     * 2. Checks file size is >= 50% of expected binary size and >= 100KB.
-     * 3. Checks cryptographic SHA256 hash if specified in ModelRegistry.
-     *
-     * If the file is corrupt or has a mismatched checksum, it is automatically purged
-     * from disk and false is returned so it can be cleanly downloaded.
-     */
-    fun verifyModelIntegrity(pack: ModelPack): Boolean {
+    /** Directory where model files are stored on device */
+    val modelsDir: File
+        get() = File(context.filesDir, "models").also { it.mkdirs() }
+
+    /** Check if a model (or, for bundle packs, its extracted directory) is present on disk. */
+    fun isModelPresent(pack: ModelPack): Boolean {
         val info = ModelRegistry.getInfo(pack) ?: return false
+        if (info.downloadUrl.isBlank()) return false // unsupported pack, see ModelRegistry doc
+
+        if (info.extractDirName != null) {
+            val dir = File(modelsDir, info.extractDirName)
+            val files = dir.listFiles()
+            if (files.isNullOrEmpty()) return false
+            // A TTS voice bundle without its .onnx model is a partial/corrupted extraction (seen
+            // for real: a since-fixed race between duplicate download() calls for the same pack
+            // could clobber another in-flight extraction's output files). The shared
+            // ESPEAK_NG_DATA bundle has no .onnx of its own, so it's exempt from this check.
+            if (pack != ModelPack.ESPEAK_NG_DATA && files.none { it.extension == "onnx" }) return false
+            return true
+        }
+
         val file = File(modelsDir, info.fileName)
-        if (!file.exists() || !file.isFile) return false
-
-        val fileLength = file.length()
-        val minAcceptable = (info.sizeBytes * 0.50).toLong().coerceAtLeast(100 * 1024L)
-        if (fileLength < minAcceptable) {
-            Log.w(TAG, "Corrupt model detected for $pack: size $fileLength < expected min $minAcceptable. Deleting corrupt file.")
-            file.delete()
-            return false
-        }
-
-        val expectedSha = info.sha256
-        if (expectedSha.isNotBlank() && !expectedSha.startsWith("unknown") && !expectedSha.startsWith("placeholder")) {
-            val actualSha = computeSha256(file)
-            if (!actualSha.equals(expectedSha, ignoreCase = true)) {
-                Log.e(TAG, "Integrity check FAILED for $pack: expected SHA256 $expectedSha, got $actualSha. Deleting corrupt file.")
-                file.delete()
-                return false
-            }
-            Log.d(TAG, "Integrity verified for $pack: SHA256 $actualSha matches expected.")
-        }
-        return true
+        if (!file.exists() || file.length() <= 0) return false
+        val auxName = info.auxFileName ?: return true
+        val auxFile = File(modelsDir, auxName)
+        return auxFile.exists() && auxFile.length() > 0
     }
 
-    /** Returns true if the model is present on disk and passes all integrity checks. */
-    fun isModelPresent(pack: ModelPack): Boolean = verifyModelIntegrity(pack)
+    /** Check if all packs in the given list are present */
+    fun areAllPresent(packs: List<ModelPack>): Boolean = packs.all { isModelPresent(it) }
 
-    fun areAllPresent(packs: List<ModelPack>): Boolean = packs.all { verifyModelIntegrity(it) }
+    /** Whether a single already-downloaded file (main or aux) exists on disk and is non-empty. */
+    private fun isFilePresent(fileName: String): Boolean {
+        val f = File(modelsDir, fileName)
+        return f.exists() && f.length() > 0
+    }
 
     /**
-     * Start downloading a model pack.
-     *
-     * SAFETY GUARANTEE:
-     * If the model already exists on disk and passes SHA256 / size integrity,
-     * this method IMMEDIATELY returns and does NOT perform any network requests.
+     * Start downloading a pack. Reports [DownloadState.Failed] honestly on any error — never
+     * fabricates a file. A no-op if [pack] is already downloaded or already in flight — calling
+     * this twice concurrently for the same pack (e.g. re-tapping "Download the Pack" while a
+     * previous batch is still running) previously raced two writers on the same `.part` file,
+     * observed on a real device as spurious ENOENT failures and duplicate success logs.
      */
     fun download(pack: ModelPack) {
-        if (activeJobs[pack]?.isActive == true) {
-            Log.d(TAG, "$pack is already currently downloading")
-            return
-        }
-
         val info = ModelRegistry.getInfo(pack) ?: run {
             Log.e(TAG, "No registry entry for $pack")
-            updateState(pack, DownloadState.Failed("No model registry entry for $pack"))
             return
         }
+        if (info.downloadUrl.isBlank()) {
+            Log.w(TAG, "$pack has no known download source — not attempting")
+            updateState(pack, DownloadState.Failed("No offline TTS source available for this language"))
+            return
+        }
+        when (_downloadStates.value[pack]) {
+            is DownloadState.Downloaded, is DownloadState.Queued, is DownloadState.Downloading -> {
+                Log.d(TAG, "$pack already downloaded or in flight — ignoring duplicate download() call")
+                return
+            }
+            else -> {}
+        }
+        // Set Queued synchronously (not inside the launched coroutine) so this check-then-set is
+        // atomic from the caller's thread — closes the race two near-simultaneous calls from the
+        // same (Main) thread would otherwise both pass the check above before either reached here.
+        updateState(pack, DownloadState.Queued)
 
-        // ── ZERO REDOWNLOAD CHECK ──────────────────────────────────────
-        if (verifyModelIntegrity(pack)) {
-            Log.i(TAG, "Model $pack (${info.fileName}) is already downloaded and verified on disk. Skipping re-download.")
+        scope.launch {
+            // Skip re-downloading a piece that's already on disk — otherwise a pack that failed
+            // only on its (small) aux file after a successful (large) main-file download would
+            // re-fetch the whole main file again on every retry.
+            val mainOk = isFilePresent(info.fileName) || downloadFile(pack, info.downloadUrl, info.fileName, info.sizeBytes, info.sha256)
+            if (!mainOk) return@launch
+
+            if (info.auxUrl != null && info.auxFileName != null) {
+                val auxOk = isFilePresent(info.auxFileName) ||
+                    downloadFile(pack, info.auxUrl, info.auxFileName, sizeBytes = 0L, expectedSha256 = null, isAux = true)
+                if (!auxOk) return@launch
+            }
+
+            if (info.extractDirName != null) {
+                val archiveFile = File(modelsDir, info.fileName)
+                val destDir = File(modelsDir, info.extractDirName)
+                // Each Piper voice bundle embeds its own espeak-ng-data copy; skip it for
+                // anything but the shared ESPEAK_NG_DATA pack itself, which needs the real thing.
+                val excludePrefixes = if (pack == ModelPack.ESPEAK_NG_DATA) emptyList() else listOf("espeak-ng-data/")
+                try {
+                    ArchiveExtractor.extractTarBz2(archiveFile, destDir, excludePrefixes)
+                    archiveFile.delete()
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to extract $pack: ${e.message}", e)
+                    destDir.deleteRecursively()
+                    archiveFile.delete()
+                    updateState(pack, DownloadState.Failed("Archive extraction failed: ${e.message}"))
+                    return@launch
+                }
+            }
+
             updateState(pack, DownloadState.Downloaded)
-            return
+            Log.i(TAG, "$pack downloaded and verified successfully")
         }
+    }
 
-        val job = scope.launch {
-            val destFile = File(modelsDir, info.fileName)
-            val partFile = File(modelsDir, "${info.fileName}.part")
+    /**
+     * Downloads a single file for [pack] via real HTTP, verifies its SHA-256, and returns true on
+     * success. On any failure (network, HTTP status, integrity mismatch), marks the pack
+     * [DownloadState.Failed] with the real reason and returns false — never writes a placeholder
+     * file in place of the real download.
+     *
+     * Integrity check order:
+     *  1. [expectedSha256] from the registry, when the source is known upfront (e.g. GitHub's
+     *     published release-asset digest).
+     *  2. The `X-Linked-ETag`/`ETag` response header, when the host is HuggingFace (LFS files
+     *     serve their real SHA-256 this way).
+     *  3. [ModelHashStore] trust-on-first-download: no authoritative hash exists for this source,
+     *     so the first successful download's hash becomes the baseline; a later re-download that
+     *     doesn't match it is treated as corruption/tampering and rejected.
+     */
+    /** Searches [response] and every response earlier in its redirect chain for an `X-Linked-ETag` header. */
+    private fun findLinkedETag(response: okhttp3.Response): String? {
+        var current: okhttp3.Response? = response
+        while (current != null) {
+            current.header("x-linked-etag")?.let { return it }
+            current = current.priorResponse
+        }
+        return null
+    }
 
-            // Clean up any stale partial download
-            if (partFile.exists()) partFile.delete()
+    private suspend fun downloadFile(
+        pack: ModelPack,
+        url: String,
+        fileName: String,
+        sizeBytes: Long,
+        expectedSha256: String?,
+        isAux: Boolean = false
+    ): Boolean {
+        val destFile = File(modelsDir, fileName)
+        val partFile = File(modelsDir, "$fileName.part")
+        var remoteHash: String? = null
 
-            updateState(pack, DownloadState.Queued)
-            Log.i(TAG, "Initiating real HTTP download: $pack from ${info.downloadUrl}")
+        try {
+            val request = Request.Builder()
+                .url(url)
+                .header("User-Agent", "iTantra-Android/2.0")
+                .build()
 
-            try {
-                val request = Request.Builder()
-                    .url(info.downloadUrl)
-                    .header("User-Agent", "iTantra-Android/2.0 (+https://github.com/Precise-Goals/iTantra-Communication-Ecosystem)")
-                    .header("Accept", "application/octet-stream, */*")
-                    .build()
-
-                val response = client.newCall(request).execute()
-
+            client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
-                    val errorMsg = "HTTP ${response.code}: ${response.message} for ${info.downloadUrl}"
-                    Log.e(TAG, "Download failed: $pack — $errorMsg")
-                    updateState(pack, DownloadState.Failed(errorMsg))
-                    return@launch
+                    throw java.io.IOException("HTTP ${response.code}")
                 }
+                // HuggingFace's LFS "X-Linked-ETag" (the real content SHA-256) is set on the
+                // *redirect* response from huggingface.co, not on the final CDN response OkHttp
+                // hands back after auto-following it — confirmed on a real device: every HF-hosted
+                // download was failing integrity checks because response.header("x-linked-etag")
+                // was null on the terminal response, silently falling back to the CDN's own
+                // unrelated `etag` (a storage revision id, not a content hash). Walk the whole
+                // redirect chain via priorResponse so the real header is found wherever it lives.
+                remoteHash = HashUtils.normalizeHashHeader(findLinkedETag(response))
+                    ?: HashUtils.normalizeHashHeader(response.header("etag"))
+                val body = response.body ?: throw java.io.IOException("Empty response body")
+                val contentLength = body.contentLength().takeIf { it > 0 } ?: sizeBytes
 
-                val body = response.body ?: run {
-                    updateState(pack, DownloadState.Failed("Empty response body from server"))
-                    return@launch
-                }
-
-                val contentLength = body.contentLength().let { if (it > 0L) it else info.sizeBytes }
-
-                // Stream into .part file with throttle progress updates
-                partFile.outputStream().use { out ->
-                    body.byteStream().use { input ->
-                        val buffer = ByteArray(64 * 1024) // 64KB chunk buffer
+                partFile.outputStream().use { outputStream ->
+                    body.byteStream().use { inputStream ->
+                        val buffer = ByteArray(32 * 1024)
                         var downloadedBytes = 0L
                         var bytesRead: Int
-                        var lastUpdateTime = 0L
+                        var lastUpdate = 0L
 
-                        while (input.read(buffer).also { bytesRead = it } != -1) {
-                            out.write(buffer, 0, bytesRead)
+                        while (inputStream.read(buffer).also { bytesRead = it } != -1) {
+                            outputStream.write(buffer, 0, bytesRead)
                             downloadedBytes += bytesRead
 
-                            val now = System.currentTimeMillis()
-                            if (now - lastUpdateTime > 200L) {
-                                lastUpdateTime = now
-                                val progress = (downloadedBytes.toFloat() / contentLength.toFloat() * 100f)
-                                    .coerceIn(0f, 99f)
-                                updateState(
-                                    pack, DownloadState.Downloading(
-                                        progressPercent = progress,
-                                        downloadedBytes = downloadedBytes,
-                                        totalBytes = contentLength
+                            if (!isAux) {
+                                val now = System.currentTimeMillis()
+                                if (now - lastUpdate > 100 || downloadedBytes >= contentLength) {
+                                    lastUpdate = now
+                                    val totalTarget = if (contentLength > 0) maxOf(contentLength, downloadedBytes) else sizeBytes
+                                    val progress = ((downloadedBytes.toDouble() / totalTarget.toDouble()) * 100.0).toFloat().coerceIn(0f, 99f)
+                                    updateState(
+                                        pack,
+                                        DownloadState.Downloading(
+                                            progressPercent = progress,
+                                            downloadedBytes = downloadedBytes,
+                                            totalBytes = totalTarget
+                                        )
                                     )
-                                )
+                                }
                             }
                         }
-                        out.flush()
+                        outputStream.flush()
                     }
                 }
-
-                // ── POST-DOWNLOAD INTEGRITY VERIFICATION ─────────────────
-                val downloadedSize = partFile.length()
-                val minAcceptable = (info.sizeBytes * 0.50).toLong().coerceAtLeast(100 * 1024L)
-                if (downloadedSize < minAcceptable) {
-                    partFile.delete()
-                    val errMsg = "Downloaded file too small: ${downloadedSize} bytes (expected ~${info.sizeBytes}). Corrupted or HTML redirect."
-                    Log.e(TAG, "$pack: $errMsg")
-                    updateState(pack, DownloadState.Failed(errMsg))
-                    return@launch
-                }
-
-                // Cryptographic SHA256 validation
-                val expectedSha = info.sha256
-                if (expectedSha.isNotBlank() && !expectedSha.startsWith("unknown") && !expectedSha.startsWith("placeholder")) {
-                    Log.d(TAG, "Computing SHA256 checksum for downloaded $pack...")
-                    val actualSha = computeSha256(partFile)
-                    if (!actualSha.equals(expectedSha, ignoreCase = true)) {
-                        partFile.delete()
-                        val errMsg = "Integrity check FAILED for $pack: expected SHA256 $expectedSha, got $actualSha"
-                        Log.e(TAG, errMsg)
-                        updateState(pack, DownloadState.Failed("Integrity check failed: SHA256 mismatch"))
-                        return@launch
-                    }
-                    Log.i(TAG, "$pack SHA256 verified successfully: $actualSha")
-                }
-
-                // Atomically move .part -> final model file
-                if (destFile.exists()) destFile.delete()
-                val renamed = partFile.renameTo(destFile)
-                if (!renamed) {
-                    partFile.copyTo(destFile, overwrite = true)
-                    partFile.delete()
-                }
-
-                // If secondary asset exists (e.g. tokens.txt for STT), download it as well
-                if (info.secondaryUrl != null && info.secondaryFileName != null) {
-                    val secondaryDest = File(modelsDir, info.secondaryFileName)
-                    try {
-                        val secReq = Request.Builder()
-                            .url(info.secondaryUrl)
-                            .header("User-Agent", "iTantra-Android/2.0")
-                            .build()
-                        val secResp = client.newCall(secReq).execute()
-                        if (secResp.isSuccessful && secResp.body != null) {
-                            secondaryDest.writeBytes(secResp.body!!.bytes())
-                            Log.i(TAG, "Downloaded secondary asset for $pack: ${info.secondaryFileName} (${secondaryDest.length()} bytes)")
-                        }
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Failed downloading secondary asset ${info.secondaryFileName}: ${e.message}")
-                    }
-                }
-
-                updateState(pack, DownloadState.Downloaded)
-                Log.i(TAG, "$pack downloaded and verified successfully: ${destFile.length() / 1024 / 1024}MB at ${destFile.path}")
-
-            } catch (e: Exception) {
-                if (partFile.exists()) partFile.delete()
-                val errMsg = "Download exception: ${e.javaClass.simpleName}: ${e.message}"
-                Log.e(TAG, "$pack: $errMsg")
-                updateState(pack, DownloadState.Failed(errMsg))
             }
+
+            // Integrity check, in priority order: registry-known hash, then HF header, then TOFU.
+            val computedHash = HashUtils.computeSha256(partFile)
+            val authoritative = expectedSha256 ?: remoteHash
+            if (authoritative != null) {
+                if (!HashUtils.hashesMatch(computedHash, authoritative)) {
+                    partFile.delete()
+                    Log.e(TAG, "Integrity check FAILED for $pack ($fileName): expected $authoritative, got $computedHash")
+                    updateState(pack, DownloadState.Failed("Integrity check failed"))
+                    return false
+                }
+            } else {
+                val previouslyStored = hashStore.get(fileName)
+                if (previouslyStored != null && !HashUtils.hashesMatch(computedHash, previouslyStored)) {
+                    partFile.delete()
+                    Log.e(TAG, "Integrity check FAILED for $pack ($fileName): differs from previously-downloaded copy")
+                    updateState(pack, DownloadState.Failed("Integrity check failed (differs from last verified download)"))
+                    return false
+                }
+            }
+            hashStore.set(fileName, computedHash)
+
+            if (destFile.exists()) destFile.delete()
+            val renamed = partFile.renameTo(destFile)
+            if (!renamed) {
+                partFile.copyTo(destFile, overwrite = true)
+                partFile.delete()
+            }
+            return true
+        } catch (e: Exception) {
+            Log.e(TAG, "Download failed for $pack ($fileName): ${e.message}")
+            if (partFile.exists()) partFile.delete()
+            updateState(pack, DownloadState.Failed(e.message ?: "Download failed"))
+            return false
         }
-
-        activeJobs[pack] = job
     }
 
-    /** Cancel an in-progress download and clean up .part file */
+    /** Cancel an in-progress download */
     fun cancel(pack: ModelPack) {
-        activeJobs[pack]?.cancel()
-        activeJobs.remove(pack)
-        File(modelsDir, "${ModelRegistry.getInfo(pack)?.fileName}.part").delete()
-        updateState(pack, DownloadState.NotDownloaded)
-    }
-
-    /** Delete a downloaded model to free storage */
-    fun delete(pack: ModelPack) {
-        activeJobs[pack]?.cancel()
-        activeJobs.remove(pack)
         val info = ModelRegistry.getInfo(pack) ?: return
-        File(modelsDir, info.fileName).delete()
         File(modelsDir, "${info.fileName}.part").delete()
         updateState(pack, DownloadState.NotDownloaded)
     }
 
-    /**
-     * Download a list of model packs.
-     * Skips any model that is already present and passes integrity verification.
-     */
-    fun downloadAll(packs: List<ModelPack>) {
-        val needed = packs.filter { pack ->
-            val isPresent = verifyModelIntegrity(pack)
-            if (isPresent) {
-                Log.d(TAG, "$pack is already present & verified. Will not re-download.")
-                updateState(pack, DownloadState.Downloaded)
-            }
-            !isPresent
+    /** Delete a downloaded model (files or extracted bundle directory) to free storage */
+    fun delete(pack: ModelPack) {
+        val info = ModelRegistry.getInfo(pack) ?: return
+        if (info.extractDirName != null) {
+            File(modelsDir, info.extractDirName).deleteRecursively()
         }
-
-        if (needed.isEmpty()) {
-            Log.i(TAG, "All ${packs.size} requested packs are already downloaded and verified. No download needed.")
-            return
+        File(modelsDir, info.fileName).delete()
+        File(modelsDir, "${info.fileName}.part").delete()
+        info.auxFileName?.let { auxName ->
+            File(modelsDir, auxName).delete()
+            File(modelsDir, "$auxName.part").delete()
+            hashStore.clear(auxName)
         }
-
-        Log.i(TAG, "Starting download for ${needed.size} missing/unverified models: ${needed.map { it.name }}")
-        needed.forEach { download(it) }
+        hashStore.clear(info.fileName)
+        updateState(pack, DownloadState.NotDownloaded)
     }
 
+    /** Download a list of packs sequentially */
+    fun downloadAll(packs: List<ModelPack>) {
+        packs.forEach { download(it) }
+    }
+
+    /** Download all core mandatory transceiver packs */
     fun downloadCorePack() {
         downloadAll(ModelPack.coreTransceiverPacks())
     }
 
-    /** Re-check disk and refresh states against strict integrity verification */
+    /** Refresh state by re-checking disk */
     fun refreshStates() {
         val current = _downloadStates.value.toMutableMap()
         ModelPack.entries.forEach { pack ->
-            val isActive = current[pack] is DownloadState.Downloading || current[pack] is DownloadState.Queued
-            if (!isActive) {
-                current[pack] = if (verifyModelIntegrity(pack)) DownloadState.Downloaded else DownloadState.NotDownloaded
+            if (current[pack] !is DownloadState.Downloading && isModelPresent(pack)) {
+                current[pack] = DownloadState.Downloaded
+            } else if (current[pack] is DownloadState.Downloaded && !isModelPresent(pack)) {
+                current[pack] = DownloadState.NotDownloaded
             }
         }
         _downloadStates.value = current
     }
 
+    /**
+     * Returns the path to a downloaded model, or null if not present. For bundle packs
+     * (`extractDirName != null`) this is the extracted directory, not the (deleted) archive file.
+     */
     fun modelPath(pack: ModelPack): String? {
         val info = ModelRegistry.getInfo(pack) ?: return null
-        val file = File(modelsDir, info.fileName)
-        return if (file.exists() && file.length() > 0) file.absolutePath else null
-    }
-
-    /** Compute SHA256 of a file, returned as lowercase hex string. */
-    fun computeSha256(file: File): String {
-        val digest = MessageDigest.getInstance("SHA-256")
-        val buffer = ByteArray(64 * 1024)
-        FileInputStream(file).use { stream ->
-            var bytesRead: Int
-            while (stream.read(buffer).also { bytesRead = it } != -1) {
-                digest.update(buffer, 0, bytesRead)
-            }
+        if (info.extractDirName != null) {
+            val dir = File(modelsDir, info.extractDirName)
+            return if (dir.exists()) dir.absolutePath else null
         }
-        return digest.digest().joinToString("") { "%02x".format(it) }
+        val file = File(modelsDir, info.fileName)
+        return if (file.exists()) file.absolutePath else null
     }
 
     private fun updateState(pack: ModelPack, state: DownloadState) {

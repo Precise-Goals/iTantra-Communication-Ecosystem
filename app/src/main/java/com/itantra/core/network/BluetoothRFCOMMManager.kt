@@ -49,7 +49,6 @@ class BluetoothRFCOMMManager(
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     private var serverSocket: BluetoothServerSocket? = null
-    private var serverJob: kotlinx.coroutines.Job? = null
     private val connectedSockets = mutableMapOf<String, BluetoothSocket>()
 
     val isAvailable: Boolean get() = bluetoothAdapter?.isEnabled == true
@@ -65,12 +64,7 @@ class BluetoothRFCOMMManager(
             return
         }
 
-        if (serverJob?.isActive == true) {
-            Log.d(TAG, "RFCOMM server already listening")
-            return
-        }
-
-        serverJob = scope.launch {
+        scope.launch {
             try {
                 @Suppress("MissingPermission")
                 serverSocket = bluetoothAdapter!!.listenUsingRfcommWithServiceRecord(SERVICE_NAME, SERVICE_UUID)
@@ -94,9 +88,7 @@ class BluetoothRFCOMMManager(
             } catch (e: SecurityException) {
                 callbacks.onNetworkError(AppResult.Error(ErrorCode.PERMISSION_DENIED, e.message ?: "BT permission denied"))
             } catch (e: IOException) {
-                if (isActive) {
-                    Log.d(TAG, "RFCOMM server loop finished: ${e.message}")
-                }
+                Log.e(TAG, "RFCOMM server error: ${e.message}")
             }
         }
     }
@@ -185,12 +177,9 @@ class BluetoothRFCOMMManager(
     }
 
     fun stop() {
-        serverJob?.cancel()
-        serverJob = null
         connectedSockets.values.forEach { runCatching { it.close() } }
         connectedSockets.clear()
         runCatching { serverSocket?.close() }
-        serverSocket = null
         Log.d(TAG, "BluetoothRFCOMMManager stopped")
     }
 }

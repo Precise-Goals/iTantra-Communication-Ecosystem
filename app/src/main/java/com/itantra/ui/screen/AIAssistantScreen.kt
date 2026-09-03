@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
@@ -75,6 +76,19 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+/** STT input language options — must match the BCP-47 codes ModelRegistry.sttInfo() downloads for. */
+private val STT_LANGUAGES = listOf(
+    "hi" to "हिंदी",
+    "en" to "English",
+    "gu" to "ગુજરાતી",
+    "mr" to "मराठी",
+    "kn" to "ಕನ್ನಡ",
+    "ml" to "മലയാളം",
+    "ta" to "தமிழ்",
+    "te" to "తెలుగు",
+    "bn" to "বাংলা"
+)
+
 /**
  * 100% Offline AI Assistant Conversational Interface.
  *
@@ -93,6 +107,9 @@ fun AIAssistantScreen(
     val isSpeaking by viewModel.isSpeaking.collectAsState()
     val isVoiceMuted by viewModel.isVoiceMuted.collectAsState()
     val isRecordingVoice by viewModel.isRecordingVoice.collectAsState()
+    val isUsingRealLlm by viewModel.isUsingRealLlm.collectAsState()
+    val selectedLanguage by viewModel.selectedLanguage.collectAsState()
+    val voiceUnavailableNotice by viewModel.voiceUnavailableNotice.collectAsState()
     val listState = rememberLazyListState()
     var textInput by remember { mutableStateOf("") }
 
@@ -129,15 +146,27 @@ fun AIAssistantScreen(
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "Universal AI Assistant",
+                    text = "AI Tactical Assistant",
                     style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
                     color = iTantraBlack
                 )
                 Text(
-                    text = if (isSpeaking) "Vocalizing via local neural TTS…" else if (isRecordingVoice) "Listening (Local Neural STT)…" else "100% Offline · Universal Multilingual Intelligence",
+                    text = when {
+                        isSpeaking -> "Vocalizing via local neural TTS…"
+                        isRecordingVoice -> "Listening (Local IndicConformer STT)…"
+                        isUsingRealLlm -> "100% Offline · On-device Phi-3 (real generation)"
+                        else -> "100% Offline · Quick-reference assistant (Phi-3 not loaded)"
+                    },
                     style = MaterialTheme.typography.labelSmall,
                     color = if (isRecordingVoice) Color(0xFFDC2626) else if (isSpeaking) Color(0xFF2563EB) else iTantraSuccess
                 )
+                if (voiceUnavailableNotice != null) {
+                    Text(
+                        text = voiceUnavailableNotice ?: "",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color(0xFFB45309)
+                    )
+                }
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 // Local AudioTrack TTS Mute / Unmute
@@ -151,6 +180,31 @@ fun AIAssistantScreen(
                 // Clear chat
                 IconButton(onClick = { viewModel.clearAiChat() }) {
                     Icon(Icons.Filled.Clear, contentDescription = "Clear chat", tint = iTantraBlack60)
+                }
+            }
+        }
+
+        // ── STT input language (which on-device model transcribes the mic) ──
+        LazyRow(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            contentPadding = PaddingValues(bottom = 8.dp)
+        ) {
+            items(STT_LANGUAGES, key = { it.first }) { (code, label) ->
+                val isSelected = code == selectedLanguage
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(if (isSelected) iTantraBlack else iTantraCardAlt)
+                        .border(1.dp, if (isSelected) iTantraBlack else iTantraBorder, RoundedCornerShape(16.dp))
+                        .clickable { viewModel.setManualLanguage(code) }
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                ) {
+                    Text(
+                        text = label,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (isSelected) iTantraWhite else iTantraBlack60
+                    )
                 }
             }
         }
@@ -232,7 +286,7 @@ fun AIAssistantScreen(
             OutlinedTextField(
                 value = textInput,
                 onValueChange = { textInput = it },
-                placeholder = { Text("Speak or type any message or query…", color = iTantraBlack40, fontSize = 13.sp) },
+                placeholder = { Text("Speak or type any emergency query…", color = iTantraBlack40, fontSize = 13.sp) },
                 singleLine = true,
                 shape = RoundedCornerShape(22.dp),
                 modifier = Modifier.weight(1f),

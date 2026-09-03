@@ -3,94 +3,207 @@ package com.itantra.core.download
 import com.itantra.domain.model.ModelPack
 
 /**
- * Central registry of essential downloadable model packs for iTantra.
+ * Central registry of all downloadable model packs for iTantra.
  *
- * Minimalized strictly to the 4 essential on-device neural engines:
- * 1. Silero VAD v4: Voice Activity Detection (pause/stoppage)
- * 2. IndicConformer ONNX: Multilingual STT from meetsync/indic-conformer-onnx-sherpa
- * 3. Indic-Parler-TTS / IndicTTS: Multilingual speech synthesis
- * 4. Neural Transformer NLP: On-device universal AI reasoning assistant
+ * STT entries are sourced from AI4Bharat's IndicConformer (sherpa-onnx export) — one ONNX
+ * graph + tokens.txt vocab per language, no shared "multilingual" file exists.
+ *
+ * TTS entries are sourced from sherpa-onnx's `tts-models` GitHub Release
+ * (github.com/k2-fsa/sherpa-onnx/releases/tag/tts-models), which bundles real
+ * espeak-ng-phonemized VITS voices (Piper/Coqui/Mimic3) as ready-to-use
+ * model.onnx + tokens.txt pairs — verified by querying the release's asset
+ * list directly (not guessed from documentation). Every `.tar.bz2` entry's
+ * `sizeBytes` and, where GitHub publishes one, `sha256` were read from that
+ * asset list's real `size`/`digest` fields.
+ *
+ * Kannada, Tamil, Telugu, Marathi and Odia have **no** free pre-converted
+ * offline TTS source anywhere in that release (checked every vits-* family:
+ * piper/coqui/mimic3/mms/icefall/melo, every naming variant) — see the
+ * `ModelPack` entries for those languages, which are intentionally absent
+ * from [com.itantra.domain.model.ModelPack.coreTransceiverPacks]. The same
+ * source has no Odia STT model either — only "as" (Assamese), which is not
+ * substituted in as a fake Odia model.
  */
 object ModelRegistry {
 
-    // ── Official HuggingFace & Upstream Endpoints ─────────────────────────
-    // mijuanlo/silero-vad-onnx (Silero VAD ONNX)
     private const val SILERO_VAD_URL =
-        "https://huggingface.co/mijuanlo/silero-vad-onnx/resolve/main/onnx/model.onnx"
+        "https://raw.githubusercontent.com/snakers4/silero-vad/master/src/silero_vad/data/silero_vad.onnx"
+    private const val FASTTEXT_LID_URL =
+        "https://dl.fbaipublicfiles.com/fasttext/supervised-models/lid.176.ftz"
+    private const val SHERPA_BASE =
+        "https://huggingface.co/parismitaglobalsolutions/indicconformer-sherpa-onnx/resolve/main"
+    private const val SHERPA_TTS_MODELS_BASE =
+        "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models"
+    private const val PHI3_URL =
+        "https://huggingface.co/microsoft/Phi-3-mini-4k-instruct-gguf/resolve/main/Phi-3-mini-4k-instruct-q4.gguf"
 
-    // meetsync/indic-conformer-onnx-sherpa (AI4Bharat IndicConformer INT8 Quantized ASR)
-    private const val INDIC_CONFORMER_SHERPA_URL =
-        "https://huggingface.co/meetsync/indic-conformer-onnx-sherpa/resolve/main/model.int8.onnx"
-
-    private const val INDIC_CONFORMER_TOKENS_URL =
-        "https://huggingface.co/meetsync/indic-conformer-onnx-sherpa/resolve/main/tokens.txt"
-
-    // ai4bharat/indic-parler-tts & IndicTTS Multilingual acoustic voice engine
-    private const val INDIC_PARLER_TTS_URL =
-        "https://huggingface.co/rhasspy/piper-voices/resolve/main/hi/hi_IN/pratham/medium/hi_IN-pratham-medium.onnx"
-
-    // On-device Qwen2.5-0.5B-Instruct 4-bit Quantized Multilingual LLM (HuggingFace onnx-community)
-    private const val QWEN25_05B_URL =
-        "https://huggingface.co/onnx-community/Qwen2.5-0.5B-Instruct/resolve/main/onnx/model_q4.onnx"
-    private const val QWEN25_TOKENIZER_URL =
-        "https://huggingface.co/onnx-community/Qwen2.5-0.5B-Instruct/resolve/main/tokenizer.json"
-
-    // ── Model Info ────────────────────────────────────────────────────────
     data class ModelInfo(
         val pack: ModelPack,
         val fileName: String,
         val downloadUrl: String,
-        val sha256: String,       // Expected SHA-256 ("unknown" if verified by size check)
+        /** Real SHA-256 when known upfront (verified against GitHub's published asset digest or
+         * HuggingFace's LFS ETag); null when no authoritative hash is available before download —
+         * those packs fall back to trust-on-first-download (see ModelHashStore). */
+        val sha256: String?,
         val sizeBytes: Long,
-        val secondaryUrl: String? = null,
-        val secondaryFileName: String? = null,
-        val version: String = "2.0.0"
+        val version: String = "2.0.0",
+        /** Optional companion file (e.g. a tokenizer vocab) required alongside the main model. */
+        val auxFileName: String? = null,
+        val auxUrl: String? = null,
+        /** When set, [fileName] is a `.tar.bz2` archive extracted into `modelsDir/[extractDirName]/`
+         * and then deleted — used for the sherpa-onnx TTS voice bundles and the shared espeak-ng-data. */
+        val extractDirName: String? = null
+    )
+
+    /**
+     * sherpa-onnx per-language IndicConformer STT model + its tokens.txt vocab
+     * (no shared "multilingual" *model* file exists — each language is a separate ONNX graph).
+     *
+     * The tokenizer is a different story: verified via HuggingFace's real file-listing API
+     * (`api.github.com`-style `/api/models/...` — not the resolve/main HTTP-status guesswork
+     * this repo's registry used to rely on) that there is **no per-language tokens.txt** except
+     * `en/tokens.txt` — every other language shares one root-level `tokens.txt`. The previous
+     * version of this registry pointed every language at `$lang/tokens.txt`, which 404s for all
+     * 8 non-English languages: the ~188MB model would download fine, then the pack would be
+     * marked Failed on the tokens.txt 404, leaving an orphaned .onnx file that `isModelPresent()`
+     * correctly refuses to count as "downloaded" — from the outside this looked exactly like
+     * "the app can't remember my downloads."
+     *
+     * Only the "hi", "gu", "kn", "ta" sizes below were confirmed against the actual repo listing;
+     * the rest are estimates for progress-bar display only — the real HTTP Content-Length
+     * (see ModelDownloadManager.downloadFile) is used for the actual total whenever available.
+     * `sha256 = null` deliberately — HuggingFace doesn't publish these ahead of time; the real
+     * hash is captured live from the X-Linked-ETag response header at download time instead
+     * (a literal placeholder string here would be treated as an *authoritative* expected hash
+     * and make every real download fail its own integrity check).
+     */
+    private fun sttInfo(pack: ModelPack, lang: String, sizeBytes: Long): ModelInfo {
+        val tokensUrl = if (lang == "en") "$SHERPA_BASE/en/tokens.txt" else "$SHERPA_BASE/tokens.txt"
+        return ModelInfo(
+            pack = pack,
+            fileName = "stt_${lang}_int8.onnx",
+            downloadUrl = "$SHERPA_BASE/$lang/model.int8.onnx",
+            sha256 = null,
+            sizeBytes = sizeBytes,
+            auxFileName = "stt_${lang}_tokens.txt",
+            auxUrl = tokensUrl
+        )
+    }
+
+    /** A sherpa-onnx `tts-models` release TTS voice bundle: real espeak-ng phonemization included. */
+    private fun sherpaTtsInfo(
+        pack: ModelPack,
+        assetName: String,
+        lang: String,
+        sizeBytes: Long,
+        sha256: String? = null
+    ): ModelInfo = ModelInfo(
+        pack = pack,
+        fileName = assetName,
+        downloadUrl = "$SHERPA_TTS_MODELS_BASE/$assetName",
+        sha256 = sha256,
+        sizeBytes = sizeBytes,
+        extractDirName = "tts/$lang"
     )
 
     val registry: Map<ModelPack, ModelInfo> = mapOf(
-
-        // 1. Voice Activity Detector (Silero VAD from mijuanlo/silero-vad-onnx)
         ModelPack.VAD_MODEL to ModelInfo(
             pack = ModelPack.VAD_MODEL,
             fileName = "silero_vad_v4.onnx",
             downloadUrl = SILERO_VAD_URL,
-            sha256 = "unknown",
-            sizeBytes = 2_346_000L // 2.24 MB
+            sha256 = null, // GitHub raw content, no LFS digest header — trust-on-first-download
+            sizeBytes = 2_327_524L // 2.22 MB
         ),
 
-        // 2. Speech-to-Text: AI4Bharat IndicConformer ONNX (meetsync/indic-conformer-onnx-sherpa)
-        ModelPack.STT_INDIC_CONFORMER to ModelInfo(
-            pack = ModelPack.STT_INDIC_CONFORMER,
-            fileName = "indicconformer_sherpa_int8.onnx",
-            downloadUrl = INDIC_CONFORMER_SHERPA_URL,
-            sha256 = "unknown",
-            sizeBytes = 197_132_288L, // ~188 MB INT8 ASR
-            secondaryUrl = INDIC_CONFORMER_TOKENS_URL,
-            secondaryFileName = "tokens.txt"
+        // No Odia entry: the parismitaglobalsolutions/indicconformer-sherpa-onnx repo has no "or/" model —
+        // it only has "as/" (Assamese). Reusing that mislabeled as Odia would just be a second fabrication.
+        ModelPack.STT_HINDI to sttInfo(ModelPack.STT_HINDI, "hi", 197_595_593L),
+        ModelPack.STT_GUJARATI to sttInfo(ModelPack.STT_GUJARATI, "gu", 197_595_461L),
+        ModelPack.STT_MARATHI to sttInfo(ModelPack.STT_MARATHI, "mr", 197_595_500L),
+        ModelPack.STT_KANNADA to sttInfo(ModelPack.STT_KANNADA, "kn", 197_595_728L),
+        ModelPack.STT_MALAYALAM to sttInfo(ModelPack.STT_MALAYALAM, "ml", 197_595_500L),
+        ModelPack.STT_TAMIL to sttInfo(ModelPack.STT_TAMIL, "ta", 197_595_513L),
+        ModelPack.STT_TELUGU to sttInfo(ModelPack.STT_TELUGU, "te", 197_595_500L),
+        ModelPack.STT_BENGALI to sttInfo(ModelPack.STT_BENGALI, "bn", 197_595_500L),
+        ModelPack.STT_ENGLISH to sttInfo(ModelPack.STT_ENGLISH, "en", 197_595_500L),
+
+        ModelPack.LANG_DETECTION to ModelInfo(
+            pack = ModelPack.LANG_DETECTION,
+            fileName = "lid.176.ftz",
+            downloadUrl = FASTTEXT_LID_URL,
+            sha256 = null, // fbaipublicfiles, no LFS digest — trust-on-first-download
+            sizeBytes = 938_013L // 0.89 MB
         ),
 
-        // 3. Text-to-Speech: AI4Bharat Indic-Parler-TTS / IndicTTS Multilingual
-        ModelPack.TTS_INDIC_MODEL to ModelInfo(
-            pack = ModelPack.TTS_INDIC_MODEL,
-            fileName = "hi_vits_int8.onnx",
-            downloadUrl = INDIC_PARLER_TTS_URL,
-            sha256 = "169964b0871667f6793416d4b35e97357a68ba1ad01df8580c28048989ee7693",
-            sizeBytes = 63_516_050L // 60.57 MB
+        // Shared by every TTS voice below — real espeak-ng phoneme/language data.
+        ModelPack.ESPEAK_NG_DATA to ModelInfo(
+            pack = ModelPack.ESPEAK_NG_DATA,
+            fileName = "espeak-ng-data.tar.bz2",
+            downloadUrl = "$SHERPA_TTS_MODELS_BASE/espeak-ng-data.tar.bz2",
+            sha256 = null, // not published by GitHub for this asset — trust-on-first-download
+            sizeBytes = 7_252_012L,
+            extractDirName = "espeak-ng-data"
         ),
 
-        // 4. AI Assistant: Qwen2.5-0.5B-Instruct Quantized Multilingual LLM (~350 MB)
+        // Real, verified voices (sherpa-onnx tts-models release, checked 2026-09-02):
+        ModelPack.TTS_HINDI to sherpaTtsInfo(
+            ModelPack.TTS_HINDI, "vits-piper-hi_IN-pratham-medium.tar.bz2", "hi",
+            sizeBytes = 67_238_438L,
+            sha256 = "2084d321e1d2752f2b64ed3012ba27751df01a80da46f52920098cdcb7e35648"
+        ),
+        ModelPack.TTS_MALAYALAM to sherpaTtsInfo(
+            ModelPack.TTS_MALAYALAM, "vits-piper-ml_IN-arjun-medium.tar.bz2", "ml",
+            sizeBytes = 67_222_458L,
+            sha256 = "3058d098e8b1ffcdd6069e96b1d492f319333235912a627c309c7c54cea59acf"
+        ),
+        ModelPack.TTS_ENGLISH to sherpaTtsInfo(
+            ModelPack.TTS_ENGLISH, "vits-piper-en_US-lessac-low.tar.bz2", "en",
+            sizeBytes = 67_097_098L,
+            sha256 = "8fb427b8637334072ee5723d72fa418c45bfdd4b7deebeacdf2938662618c1cb"
+        ),
+        ModelPack.TTS_GUJARATI to sherpaTtsInfo(
+            // Only known source: Mimic3/CMU-Indic — lower "low" quality tier, no higher tier exists.
+            ModelPack.TTS_GUJARATI, "vits-mimic3-gu_IN-cmu-indic_low.tar.bz2", "gu",
+            sizeBytes = 79_992_004L,
+            sha256 = null // GitHub hasn't published a digest for this asset
+        ),
+        ModelPack.TTS_BENGALI to sherpaTtsInfo(
+            ModelPack.TTS_BENGALI, "vits-coqui-bn-custom_female.tar.bz2", "bn",
+            sizeBytes = 108_053_596L,
+            sha256 = null // GitHub hasn't published a digest for this asset
+        ),
+
+        // No known free offline TTS source exists for these — see class doc. Not downloadable;
+        // entries kept only so the enum/UI don't dangle. downloadUrl intentionally left blank.
+        ModelPack.TTS_KANNADA to ModelInfo(
+            ModelPack.TTS_KANNADA, fileName = "", downloadUrl = "", sha256 = null, sizeBytes = 0L
+        ),
+        ModelPack.TTS_TAMIL to ModelInfo(
+            ModelPack.TTS_TAMIL, fileName = "", downloadUrl = "", sha256 = null, sizeBytes = 0L
+        ),
+        ModelPack.TTS_TELUGU to ModelInfo(
+            ModelPack.TTS_TELUGU, fileName = "", downloadUrl = "", sha256 = null, sizeBytes = 0L
+        ),
+        ModelPack.TTS_MARATHI to ModelInfo(
+            ModelPack.TTS_MARATHI, fileName = "", downloadUrl = "", sha256 = null, sizeBytes = 0L
+        ),
+        ModelPack.TTS_ODIA to ModelInfo(
+            ModelPack.TTS_ODIA, fileName = "", downloadUrl = "", sha256 = null, sizeBytes = 0L
+        ),
+
         ModelPack.AI_ASSISTANT to ModelInfo(
             pack = ModelPack.AI_ASSISTANT,
-            fileName = "qwen25_05b_q4.onnx",
-            downloadUrl = QWEN25_05B_URL,
-            sha256 = "unknown",
-            sizeBytes = 368_000_000L, // ~350 MB
-            secondaryUrl = QWEN25_TOKENIZER_URL,
-            secondaryFileName = "tokenizer.json"
+            fileName = "phi3_mini_q4.gguf",
+            downloadUrl = PHI3_URL,
+            sha256 = null, // captured from HF's X-Linked-ETag header at download time instead
+            sizeBytes = 2_390_000_000L
         )
     )
 
     fun getInfo(pack: ModelPack): ModelInfo? = registry[pack]
+
+    /** True for the 5 languages with no known free TTS source (see class doc). */
+    fun isUnsupportedTts(pack: ModelPack): Boolean = registry[pack]?.downloadUrl?.isBlank() == true
 
     fun totalSizeBytes(packs: List<ModelPack>): Long =
         packs.sumOf { registry[it]?.sizeBytes ?: 0L }

@@ -3,8 +3,8 @@ package com.itantra.domain.model
 import kotlinx.serialization.Serializable
 
 /**
- * Defines the core downloadable neural model engines for iTantra.
- * Minimalized to the 4 essential on-device engines required for full multilingual operation.
+ * Defines all downloadable model packs for iTantra.
+ * Each pack is independently downloadable and tracked by DownloadState.
  */
 enum class ModelPack(
     val displayName: String,
@@ -17,48 +17,194 @@ enum class ModelPack(
     val requiredFor: String
 ) {
     VAD_MODEL(
-        displayName = "Voice Activity Detector (VAD)",
-        description = "Silero VAD v4 — ultra-low power pause and stoppage detection (~2MB)",
+        "Voice Activity Detector",
+        "Silero VAD — detects speech pauses in real-time",
         sizeMb = 2,
         isRequired = true,
         requiredFor = "Transceiver"
     ),
-    STT_INDIC_CONFORMER(
-        displayName = "Speech-to-Text Engine (STT)",
-        description = "AI4Bharat IndicConformer ONNX (meetsync/indic-conformer-onnx-sherpa) — 10 Indic languages + English",
+    STT_HINDI(
+        "Hindi STT Engine",
+        "IndicConformer (sherpa-onnx) — Hindi speech recognition",
         sizeMb = 188,
         isRequired = true,
         requiredFor = "Transceiver"
     ),
-    TTS_INDIC_MODEL(
-        displayName = "Text-to-Speech Engine (TTS)",
-        description = "AI4Bharat Indic-Parler-TTS / IndicTTS — Multilingual natural acoustic voice engine",
-        sizeMb = 60,
+    STT_GUJARATI(
+        "Gujarati STT Engine",
+        "IndicConformer (sherpa-onnx) — Gujarati speech recognition",
+        sizeMb = 188,
+        isRequired = false,
+        requiredFor = "Transceiver"
+    ),
+    STT_MARATHI(
+        "Marathi STT Engine",
+        "IndicConformer (sherpa-onnx) — Marathi speech recognition",
+        sizeMb = 188,
+        isRequired = false,
+        requiredFor = "Transceiver"
+    ),
+    STT_KANNADA(
+        "Kannada STT Engine",
+        "IndicConformer (sherpa-onnx) — Kannada speech recognition",
+        sizeMb = 188,
+        isRequired = false,
+        requiredFor = "Transceiver"
+    ),
+    STT_MALAYALAM(
+        "Malayalam STT Engine",
+        "IndicConformer (sherpa-onnx) — Malayalam speech recognition",
+        sizeMb = 188,
+        isRequired = false,
+        requiredFor = "Transceiver"
+    ),
+    STT_TAMIL(
+        "Tamil STT Engine",
+        "IndicConformer (sherpa-onnx) — Tamil speech recognition",
+        sizeMb = 188,
+        isRequired = false,
+        requiredFor = "Transceiver"
+    ),
+    STT_TELUGU(
+        "Telugu STT Engine",
+        "IndicConformer (sherpa-onnx) — Telugu speech recognition",
+        sizeMb = 188,
+        isRequired = false,
+        requiredFor = "Transceiver"
+    ),
+    STT_BENGALI(
+        "Bengali STT Engine",
+        "IndicConformer (sherpa-onnx) — Bengali speech recognition",
+        sizeMb = 188,
+        isRequired = false,
+        requiredFor = "Transceiver"
+    ),
+    STT_ENGLISH(
+        "English STT Engine",
+        "IndicConformer (sherpa-onnx) — English speech recognition",
+        sizeMb = 188,
+        isRequired = false,
+        requiredFor = "Transceiver"
+    ),
+    LANG_DETECTION(
+        "Language Auto-Detector",
+        "FastText LID — identifies spoken language automatically",
+        sizeMb = 1,
+        isRequired = false,
+        requiredFor = "Transceiver"
+    ),
+    ESPEAK_NG_DATA(
+        "Speech Phonemizer Data",
+        "Shared espeak-ng phoneme data — required by every voice pack below for real speech synthesis",
+        sizeMb = 7,
         isRequired = true,
         requiredFor = "Transceiver"
     ),
+    TTS_HINDI(
+        "Hindi Voice Pack",
+        "sherpa-onnx (Piper, real espeak-ng phonemization) — Hindi natural voice",
+        sizeMb = 64,
+        isRequired = false,
+        requiredFor = "Transceiver"
+    ),
+    TTS_GUJARATI(
+        "Gujarati Voice Pack",
+        "sherpa-onnx (Mimic3/CMU-Indic, real phonemization) — Gujarati voice, lower quality tier (only source found)",
+        sizeMb = 76,
+        isRequired = false,
+        requiredFor = "Transceiver"
+    ),
+    TTS_MARATHI(
+        "Marathi Voice Pack",
+        "Unsupported — no free offline TTS source found (checked Piper/Coqui/Mimic3/MMS)",
+        sizeMb = 0,
+        isRequired = false,
+        requiredFor = "Transceiver"
+    ),
+    TTS_KANNADA(
+        "Kannada Voice Pack",
+        "Unsupported — no free offline TTS source found (checked Piper/Coqui/Mimic3/MMS)",
+        sizeMb = 0,
+        isRequired = false,
+        requiredFor = "Transceiver"
+    ),
+    TTS_MALAYALAM(
+        "Malayalam Voice Pack",
+        "sherpa-onnx (Piper, real espeak-ng phonemization) — Malayalam natural voice",
+        sizeMb = 64,
+        isRequired = false,
+        requiredFor = "Transceiver"
+    ),
+    TTS_TAMIL(
+        "Tamil Voice Pack",
+        "Unsupported — no free offline TTS source found (checked Piper/Coqui/Mimic3/MMS)",
+        sizeMb = 0,
+        isRequired = false,
+        requiredFor = "Transceiver"
+    ),
+    TTS_TELUGU(
+        "Telugu Voice Pack",
+        "Unsupported — no free offline TTS source found (checked Piper/Coqui/Mimic3/MMS)",
+        sizeMb = 0,
+        isRequired = false,
+        requiredFor = "Transceiver"
+    ),
+    TTS_ODIA(
+        "Odia Voice Pack",
+        "Unsupported — no free offline TTS source found (checked Piper/Coqui/Mimic3/MMS)",
+        sizeMb = 0,
+        isRequired = false,
+        requiredFor = "Transceiver"
+    ),
+    TTS_BENGALI(
+        "Bengali Voice Pack",
+        "sherpa-onnx (Coqui, real phonemization) — Bengali natural voice",
+        sizeMb = 103,
+        isRequired = false,
+        requiredFor = "Transceiver"
+    ),
+    TTS_ENGLISH(
+        "English Voice Pack",
+        "sherpa-onnx (Piper, real espeak-ng phonemization) — English natural voice",
+        sizeMb = 64,
+        isRequired = false,
+        requiredFor = "Transceiver"
+    ),
     AI_ASSISTANT(
-        displayName = "AI Assistant (Qwen2.5-0.5B)",
-        description = "Qwen2.5-0.5B-Instruct ONNX (INT4) — 100% offline multilingual generative intelligence for 22+ languages",
-        sizeMb = 350,
+        "AI Assistant (Phi-3 Mini)",
+        "Phi-3 Mini Q4 — offline AI assistant, India-aware (MIT License)",
+        sizeMb = 2200,
         isRequired = false,
         requiredFor = "AI Assistant"
     );
 
     companion object {
-        /** Returns compulsory packs needed for core Transceiver */
+        /**
+         * Returns compulsory packs needed for full multilingual Transceiver & auto-LID.
+         *
+         * Only the languages with a real, verified TTS source are included — Kannada, Tamil,
+         * Telugu, Marathi and Odia are deliberately absent: no free offline TTS source exists
+         * for them (see [com.itantra.core.download.ModelRegistry]'s class doc). Their `ModelPack`
+         * entries stay in the enum (so nothing else dangles) but aren't offered as downloadable.
+         */
         fun coreTransceiverPacks(): List<ModelPack> = listOf(
             VAD_MODEL,
-            STT_INDIC_CONFORMER,
-            TTS_INDIC_MODEL
-        )
-
-        /** All essential packs for full system capability */
-        fun allEssentialPacks(): List<ModelPack> = listOf(
-            VAD_MODEL,
-            STT_INDIC_CONFORMER,
-            TTS_INDIC_MODEL,
-            AI_ASSISTANT
+            STT_HINDI,
+            STT_GUJARATI,
+            STT_MARATHI,
+            STT_KANNADA,
+            STT_MALAYALAM,
+            STT_TAMIL,
+            STT_TELUGU,
+            STT_BENGALI,
+            STT_ENGLISH,
+            LANG_DETECTION,
+            ESPEAK_NG_DATA,
+            TTS_HINDI,
+            TTS_GUJARATI,
+            TTS_MALAYALAM,
+            TTS_BENGALI,
+            TTS_ENGLISH
         )
     }
 }

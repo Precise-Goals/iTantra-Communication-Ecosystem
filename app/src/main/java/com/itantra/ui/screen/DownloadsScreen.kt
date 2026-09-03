@@ -26,6 +26,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.SmartToy
@@ -41,6 +43,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -65,17 +70,18 @@ import com.itantra.ui.theme.iTantraWhite
 @Composable
 fun DownloadsScreen(viewModel: MainViewModel) {
     val downloadStates by viewModel.downloadStates.collectAsState()
+    var showOptionalAssistant by remember { mutableStateOf(false) }
 
-    val essentialPacks = ModelPack.allEssentialPacks()
-    val allDownloaded = essentialPacks.all { downloadStates[it] is DownloadState.Downloaded }
-    val anyDownloading = essentialPacks.any { downloadStates[it] is DownloadState.Downloading }
+    val corePacks = ModelPack.coreTransceiverPacks()
+    val allCoreDownloaded = corePacks.all { downloadStates[it] is DownloadState.Downloaded }
+    val anyCoreDownloading = corePacks.any { downloadStates[it] is DownloadState.Downloading }
 
-    val downloadedCount = essentialPacks.count { downloadStates[it] is DownloadState.Downloaded }
-    val totalSizeMb = essentialPacks
-        .filter { downloadStates[it] is DownloadState.Downloaded }
-        .sumOf { pack -> ModelRegistry.getInfo(pack)?.sizeBytes ?: 0L } / (1024 * 1024)
+    val downloadedCount = downloadStates.values.count { it is DownloadState.Downloaded }
+    val totalSizeMb = downloadStates.entries
+        .filter { it.value is DownloadState.Downloaded }
+        .sumOf { (pack, _) -> ModelRegistry.getInfo(pack)?.sizeBytes ?: 0L } / (1024 * 1024)
 
-    val coreTotalBytes = ModelRegistry.totalSizeBytes(essentialPacks)
+    val coreTotalBytes = ModelRegistry.totalSizeBytes(corePacks)
     val coreTotalMb = coreTotalBytes / (1024 * 1024)
 
     LazyColumn(
@@ -94,12 +100,12 @@ fun DownloadsScreen(viewModel: MainViewModel) {
             ) {
                 Column {
                     Text(
-                        text = "Neural Engines",
+                        text = "Neural Models",
                         style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
                         color = iTantraBlack
                     )
                     Text(
-                        text = "$downloadedCount of ${essentialPacks.size} engines verified · ${totalSizeMb} MB on disk",
+                        text = "$downloadedCount of ${ModelPack.entries.size} installed · ${totalSizeMb} MB cached on disk",
                         style = MaterialTheme.typography.bodySmall,
                         color = iTantraBlack60
                     )
@@ -115,8 +121,8 @@ fun DownloadsScreen(viewModel: MainViewModel) {
                         Icon(Icons.Filled.Storage, contentDescription = null, tint = iTantraBlack, modifier = Modifier.size(14.dp))
                         Spacer(Modifier.width(6.dp))
                         Text(
-                            text = "100% Offline",
-                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, fontWeight = FontWeight.Bold),
+                            text = "Offline Storage",
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
                             color = iTantraBlack
                         )
                     }
@@ -124,16 +130,16 @@ fun DownloadsScreen(viewModel: MainViewModel) {
             }
         }
 
-        // ── HERO: "Download All Engines" ──────────────────────────
+        // ── HERO: "Download the Pack" (Compulsory Core & 10 Languages) ─
         item {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(26.dp))
-                    .background(if (allDownloaded) iTantraCardAlt else iTantraBlack)
+                    .background(if (allCoreDownloaded) iTantraCardAlt else iTantraBlack)
                     .border(
                         width = 1.5.dp,
-                        color = if (allDownloaded) iTantraBorder else iTantraBlack,
+                        color = if (allCoreDownloaded) iTantraBorder else iTantraBlack,
                         shape = RoundedCornerShape(26.dp)
                     )
                     .padding(22.dp)
@@ -149,54 +155,79 @@ fun DownloadsScreen(viewModel: MainViewModel) {
                                 modifier = Modifier
                                     .size(36.dp)
                                     .clip(CircleShape)
-                                    .background(if (allDownloaded) iTantraBlack else iTantraWhite),
+                                    .background(if (allCoreDownloaded) iTantraBlack else iTantraWhite),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
-                                    imageVector = if (allDownloaded) Icons.Filled.CheckCircle else Icons.Filled.Download,
+                                    imageVector = if (allCoreDownloaded) Icons.Filled.CheckCircle else Icons.Filled.Download,
                                     contentDescription = null,
-                                    tint = if (allDownloaded) iTantraWhite else iTantraBlack,
+                                    tint = if (allCoreDownloaded) iTantraWhite else iTantraBlack,
                                     modifier = Modifier.size(20.dp)
                                 )
                             }
                             Spacer(Modifier.width(10.dp))
                             Column {
                                 Text(
-                                    text = if (allDownloaded) "All Engines Active" else "Download Neural Stack",
+                                    text = "Download the Pack",
                                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                                    color = if (allDownloaded) iTantraBlack else iTantraWhite
+                                    color = if (allCoreDownloaded) iTantraBlack else iTantraWhite
                                 )
                                 Text(
-                                    text = if (allDownloaded) "VAD, Conformer STT, Parler TTS & NLP Verified" else "Compulsory for Radio & Assistant ($coreTotalMb MB)",
+                                    text = if (allCoreDownloaded) "All 10 Language Models Installed" else "Compulsory · All 10 Indian Languages & STT",
                                     style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                                    color = if (allDownloaded) iTantraSuccess else Color(0xFFD4D4D4)
+                                    color = if (allCoreDownloaded) iTantraSuccess else Color(0xFFD4D4D4)
                                 )
                             }
                         }
+
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(if (allCoreDownloaded) iTantraWhite else Color(0x33FFFFFF))
+                                .padding(horizontal = 10.dp, vertical = 5.dp)
+                        ) {
+                            Text(
+                                text = if (allCoreDownloaded) "INSTALLED" else "COMPULSORY",
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 10.sp
+                                ),
+                                color = if (allCoreDownloaded) iTantraBlack else iTantraWhite
+                            )
+                        }
                     }
 
-                    Spacer(Modifier.height(16.dp))
+                    Spacer(Modifier.height(14.dp))
 
-                    if (allDownloaded) {
+                    Text(
+                        text = "Installs complete bundle: Silero VAD (2.3MB), AI4Bharat IndicConformer STT (197MB), FastText Language Auto-Detector (0.9MB), and real espeak-ng-phonemized Voice Packs for Hindi, Gujarati, Malayalam, Bengali and English — the only languages with a verified free offline TTS source today. Kannada, Tamil, Telugu, Marathi and Odia have no known source yet and aren't offered.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (allCoreDownloaded) iTantraBlack60 else Color(0xFFCCCCCC)
+                    )
+
+                    Spacer(Modifier.height(18.dp))
+
+                    if (allCoreDownloaded) {
                         Row(
-                            verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(14.dp))
-                                .background(Color(0x1A15803D))
-                                .padding(12.dp)
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(iTantraWhite)
+                                .border(1.dp, iTantraBorder, RoundedCornerShape(16.dp))
+                                .padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
                             Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = iTantraSuccess, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(8.dp))
                             Text(
-                                text = "All on-device models verified with SHA-256 integrity.",
+                                text = "All 10 language models and neural transceiver are fully active.",
                                 style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
                                 color = iTantraBlack
                             )
                         }
                     } else {
                         Button(
-                            onClick = { viewModel.downloadAll(essentialPacks) },
+                            onClick = { viewModel.downloadAll(corePacks) },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(50.dp),
@@ -209,7 +240,7 @@ fun DownloadsScreen(viewModel: MainViewModel) {
                             Icon(Icons.Filled.Download, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(8.dp))
                             Text(
-                                text = if (anyDownloading) "Downloading Engines…" else "Download All Engines ($coreTotalMb MB)",
+                                text = if (anyCoreDownloading) "Downloading Core Pack…" else "Download the Pack ($coreTotalMb MB)",
                                 style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
                             )
                         }
@@ -218,23 +249,93 @@ fun DownloadsScreen(viewModel: MainViewModel) {
             }
         }
 
-        // ── Core Engines List ─────────────────────────────────────
+        // ── Compulsory Models List ──────────────────────────────────
         item {
             Text(
-                text = "Essential Neural Engines (${essentialPacks.size})",
+                text = "Compulsory Language & Transceiver Packs (${corePacks.size})",
                 style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
                 color = iTantraBlack,
                 modifier = Modifier.padding(top = 8.dp)
             )
         }
 
-        items(essentialPacks, key = { it.name }) { pack ->
+        items(corePacks, key = { it.name }) { pack ->
             ModelPackRowItem(
                 pack = pack,
                 state = downloadStates[pack] ?: DownloadState.NotDownloaded,
                 onDownload = { viewModel.downloadModel(pack) },
                 onDelete = { viewModel.deleteModel(pack) }
             )
+        }
+
+        // ── Optional Section: AI Assistant (Hidden / Collapsible) ─────
+        item {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(iTantraCardAlt)
+                    .border(1.dp, iTantraBorder, RoundedCornerShape(20.dp))
+                    .clickable { showOptionalAssistant = !showOptionalAssistant }
+                    .padding(16.dp)
+            ) {
+                Column {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Filled.SmartToy, contentDescription = null, tint = iTantraBlack60, modifier = Modifier.size(20.dp))
+                            Spacer(Modifier.width(10.dp))
+                            Column {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        text = "Optional: Phi-3 Mini GGUF",
+                                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                        color = iTantraBlack
+                                    )
+                                    Spacer(Modifier.width(8.dp))
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(iTantraBorder)
+                                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                                    ) {
+                                        Text(
+                                            text = "OPTIONAL",
+                                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                                            color = iTantraBlack60
+                                        )
+                                    }
+                                }
+                                Text(
+                                    text = "2.39 GB · Heavy LLM weights (Assistant already works without this)",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = iTantraBlack60
+                                )
+                            }
+                        }
+
+                        Icon(
+                            imageVector = if (showOptionalAssistant) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                            contentDescription = null,
+                            tint = iTantraBlack
+                        )
+                    }
+
+                    AnimatedVisibility(visible = showOptionalAssistant) {
+                        Column(modifier = Modifier.padding(top = 16.dp)) {
+                            ModelPackRowItem(
+                                pack = ModelPack.AI_ASSISTANT,
+                                state = downloadStates[ModelPack.AI_ASSISTANT] ?: DownloadState.NotDownloaded,
+                                onDownload = { viewModel.downloadModel(ModelPack.AI_ASSISTANT) },
+                                onDelete = { viewModel.deleteModel(ModelPack.AI_ASSISTANT) }
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -269,21 +370,21 @@ private fun ModelPackRowItem(
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(40.dp)
+                            .size(36.dp)
                             .clip(CircleShape)
                             .background(iTantraCardAlt),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            imageVector = when (pack) {
-                                ModelPack.VAD_MODEL -> Icons.Filled.Memory
-                                ModelPack.STT_INDIC_CONFORMER -> Icons.Filled.Translate
-                                ModelPack.TTS_INDIC_MODEL -> Icons.Filled.RecordVoiceOver
-                                ModelPack.AI_ASSISTANT -> Icons.Filled.SmartToy
+                            imageVector = when {
+                                pack.name.contains("VAD") -> Icons.Filled.Memory
+                                pack.name.contains("STT") -> Icons.Filled.Translate
+                                pack.name.contains("TTS") -> Icons.Filled.RecordVoiceOver
+                                else -> Icons.Filled.Storage
                             },
                             contentDescription = null,
                             tint = iTantraBlack,
-                            modifier = Modifier.size(20.dp)
+                            modifier = Modifier.size(18.dp)
                         )
                     }
                     Spacer(Modifier.width(12.dp))
@@ -307,9 +408,9 @@ private fun ModelPackRowItem(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(
                                 Icons.Filled.CheckCircle,
-                                contentDescription = "Verified & Active",
+                                contentDescription = "Downloaded",
                                 tint = iTantraSuccess,
-                                modifier = Modifier.size(22.dp)
+                                modifier = Modifier.size(20.dp)
                             )
                             Spacer(Modifier.width(6.dp))
                             IconButton(
@@ -318,9 +419,9 @@ private fun ModelPackRowItem(
                             ) {
                                 Icon(
                                     Icons.Filled.Delete,
-                                    contentDescription = "Delete Model",
+                                    contentDescription = "Delete",
                                     tint = iTantraBlack40,
-                                    modifier = Modifier.size(16.dp)
+                                    modifier = Modifier.size(18.dp)
                                 )
                             }
                         }
@@ -328,75 +429,68 @@ private fun ModelPackRowItem(
                     is DownloadState.Downloading -> {
                         Text(
                             text = "${state.progressPercent.toInt()}%",
-                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
                             color = iTantraBlack
                         )
                     }
                     is DownloadState.Queued -> {
                         Text(
-                            text = "Queued",
+                            text = "Queued…",
                             style = MaterialTheme.typography.labelSmall,
                             color = iTantraBlack60
                         )
                     }
-                    is DownloadState.Failed -> {
+                    else -> {
                         Button(
                             onClick = onDownload,
-                            shape = RoundedCornerShape(12.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = Color(0xFFFEE2E2),
-                                contentColor = Color(0xFFDC2626)
-                            ),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                            modifier = Modifier.height(32.dp)
-                        ) {
-                            Text("Retry", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold))
-                        }
-                    }
-                    is DownloadState.NotDownloaded -> {
-                        Button(
-                            onClick = onDownload,
-                            shape = RoundedCornerShape(12.dp),
+                            shape = RoundedCornerShape(16.dp),
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = iTantraBlack,
                                 contentColor = iTantraWhite
                             ),
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                            modifier = Modifier.height(32.dp)
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
                         ) {
                             Icon(Icons.Filled.Download, contentDescription = null, modifier = Modifier.size(14.dp))
-                            Spacer(Modifier.width(4.dp))
+                            Spacer(Modifier.width(6.dp))
                             Text("Get", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold))
                         }
                     }
                 }
             }
 
-            // Progress bar if downloading
+            // Progress bar when downloading
             if (state is DownloadState.Downloading) {
                 val animatedProgress by animateFloatAsState(
                     targetValue = state.progressPercent / 100f,
                     animationSpec = tween(150),
-                    label = "model_progress"
+                    label = "dl_progress"
                 )
-                LinearProgressIndicator(
-                    progress = { animatedProgress },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(4.dp)
-                        .clip(RoundedCornerShape(2.dp)),
-                    color = iTantraBlack,
-                    trackColor = iTantraBorder,
-                )
-            }
-
-            // Error notice
-            if (state is DownloadState.Failed) {
-                Text(
-                    text = state.reason,
-                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
-                    color = Color(0xFFDC2626)
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    LinearProgressIndicator(
+                        progress = { animatedProgress },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(6.dp)
+                            .clip(RoundedCornerShape(3.dp)),
+                        color = iTantraBlack,
+                        trackColor = iTantraBorder
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "${state.downloadedBytes / (1024 * 1024)} MB of ${state.totalBytes / (1024 * 1024)} MB",
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                            color = iTantraBlack60
+                        )
+                        Text(
+                            text = "${state.progressPercent.toInt()}%",
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, fontWeight = FontWeight.Bold),
+                            color = iTantraBlack
+                        )
+                    }
+                }
             }
         }
     }

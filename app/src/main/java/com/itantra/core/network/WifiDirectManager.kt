@@ -68,7 +68,10 @@ class WifiDirectManager(
             @Suppress("UnspecifiedRegisterReceiverFlag")
             context.registerReceiver(receiver, intentFilter)
         }
-        startDiscovery()
+        // Deliberately NOT calling startDiscovery() here — MeshHardwareManager already runs its
+        // own discoverPeers() loop for the UI radar, and two independent channels both issuing
+        // discovery collide (confirmed on-device: "Discovery failed: reason=2"/BUSY). This
+        // channel only needs to be ready to connect() and to react to connection-state changes.
     }
 
     fun unregister() {
@@ -99,11 +102,19 @@ class WifiDirectManager(
     }
 
     fun connectToPeer(device: WifiP2pDevice) {
+        connectToPeerAddress(device.deviceAddress, device.deviceName)
+    }
+
+    /**
+     * Connect by MAC address alone — used when the caller only has a [com.itantra.domain.model.PeerDevice]
+     * DTO (e.g. from [MeshHardwareManager]'s discovery), not a raw [WifiP2pDevice].
+     */
+    fun connectToPeerAddress(address: String, label: String = address) {
         val ch = channel ?: return
-        val config = WifiP2pConfig().apply { deviceAddress = device.deviceAddress }
+        val config = WifiP2pConfig().apply { deviceAddress = address }
         manager.connect(ch, config, object : WifiP2pManager.ActionListener {
             override fun onSuccess() {
-                Log.d(TAG, "Connection initiated to ${device.deviceName}")
+                Log.d(TAG, "Connection initiated to $label")
                 reconnectAttempts = 0
             }
             override fun onFailure(reason: Int) {
