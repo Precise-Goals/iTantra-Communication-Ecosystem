@@ -109,6 +109,7 @@ fun AIAssistantScreen(
     val isRecordingVoice by viewModel.isRecordingVoice.collectAsState()
     val isUsingRealLlm by viewModel.isUsingRealLlm.collectAsState()
     val selectedLanguage by viewModel.selectedLanguage.collectAsState()
+    val voiceUnavailableNotice by viewModel.voiceUnavailableNotice.collectAsState()
     val listState = rememberLazyListState()
     var textInput by remember { mutableStateOf("") }
 
@@ -159,6 +160,13 @@ fun AIAssistantScreen(
                     style = MaterialTheme.typography.labelSmall,
                     color = if (isRecordingVoice) Color(0xFFDC2626) else if (isSpeaking) Color(0xFF2563EB) else iTantraSuccess
                 )
+                if (voiceUnavailableNotice != null) {
+                    Text(
+                        text = voiceUnavailableNotice ?: "",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color(0xFFB45309)
+                    )
+                }
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 // Local AudioTrack TTS Mute / Unmute

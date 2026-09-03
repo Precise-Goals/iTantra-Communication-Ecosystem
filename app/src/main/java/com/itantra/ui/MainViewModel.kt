@@ -144,6 +144,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _isSpeaking = MutableStateFlow(false)
     val isSpeaking: StateFlow<Boolean> = _isSpeaking.asStateFlow()
 
+    /**
+     * Set when [speakAiResponse] can't produce audio (language has no voice model, or the pack
+     * isn't downloaded) — previously this failed silently (logged only), which read as "TTS is
+     * broken" rather than "this language has no offline voice yet". Cleared on the next
+     * successful synthesis attempt.
+     */
+    private val _voiceUnavailableNotice = MutableStateFlow<String?>(null)
+    val voiceUnavailableNotice: StateFlow<String?> = _voiceUnavailableNotice.asStateFlow()
+
     private val _isVoiceMuted = MutableStateFlow(false)
     val isVoiceMuted: StateFlow<Boolean> = _isVoiceMuted.asStateFlow()
 
@@ -171,9 +180,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _isSpeaking.value = true
             val waveform = ttsModule.synthesize(text, lang)
             if (waveform != null && waveform.isNotEmpty()) {
+                _voiceUnavailableNotice.value = null
                 audioPlayback.play(waveform)
             } else {
                 _isSpeaking.value = false
+                _voiceUnavailableNotice.value = "Voice not available offline for '$lang' — showing text only"
             }
         }
     }
