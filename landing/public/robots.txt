@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://itantra.isro.gov.in/sitemap.xml

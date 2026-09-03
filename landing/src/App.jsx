@@ -123,8 +123,137 @@ function Scorecard() {
   );
 }
 
+/* ─── Visual Sitemap & System Index Section ─── */
+function SitemapSection() {
+  const sitemapCategories = [
+    {
+      title: '01 · SYSTEM OVERVIEW',
+      links: [
+        { label: 'Hero Viewport & Mandate', href: '#' },
+        { label: 'Live STT Waveform Monitor', href: '#' },
+        { label: 'System Performance Strip', href: '#' },
+        { label: 'Indic Multilingual Marquee', href: '#languages' },
+      ],
+    },
+    {
+      title: '02 · MANIFESTO & VIDEO',
+      links: [
+        { label: 'Chapter 01 — Blackout Crisis', href: '#manifesto' },
+        { label: 'Chapter 02 — On-Device Stream', href: '#manifesto' },
+        { label: 'Chapter 03 — P2P Radio Mesh', href: '#manifesto' },
+        { label: 'Field Demonstration Video', href: '#manifesto' },
+      ],
+    },
+    {
+      title: '03 · INDIC LANGUAGE MATRIX',
+      links: [
+        { label: 'Hindi & Marathi Models', href: '#languages' },
+        { label: 'Gujarati & Odia Models', href: '#languages' },
+        { label: 'Kannada, Tamil, Telugu, Malayalam', href: '#languages' },
+        { label: 'Bengali & English Models', href: '#languages' },
+      ],
+    },
+    {
+      title: '04 · BENCHMARKS & SPECS',
+      links: [
+        { label: 'Accuracy & WER Metrics', href: '#metrics' },
+        { label: 'RAM & CPU Resource Efficiency', href: '#metrics' },
+        { label: 'End-to-End Voice Latency', href: '#metrics' },
+        { label: 'Distress Alert Override Delta', href: '#metrics' },
+      ],
+    },
+  ];
+
+  return (
+    <section id="sitemap" className="sitemap-section">
+      <div className="section-inner">
+        <div className="sitemap-header">
+          <p className="section-label">CHAPTER 08 · SITEMAP & SYSTEM INDEX</p>
+          <h2 className="section-heading">Complete Navigation Index</h2>
+        </div>
+
+        <div className="sitemap-grid font-mono">
+          {sitemapCategories.map((cat, idx) => (
+            <div key={idx} className="sitemap-col">
+              <h3 className="sitemap-cat-title">{cat.title}</h3>
+              <ul className="sitemap-link-list">
+                {cat.links.map((link, i) => (
+                  <li key={i}>
+                    <a href={link.href} className="sitemap-link">
+                      <span className="sitemap-arrow">→</span> {link.label}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 /* ─── Main App ─── */
 export default function App() {
+  const manifestoVideoRef = useRef(null);
+  const hasPlayedUnmutedRef = useRef(false);
+
+  useEffect(() => {
+    const video = manifestoVideoRef.current;
+    if (!video) return;
+
+    // Pre-unlock audio policy on any user gesture (scroll, click, touch)
+    const unlockAudio = () => {
+      if (video && video.muted) {
+        video.muted = false;
+      }
+    };
+    window.addEventListener('pointerdown', unlockAudio, { once: true });
+    window.addEventListener('keydown', unlockAudio, { once: true });
+
+    const handleIntersection = (entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          // First time entering section: play from start with audio
+          if (!hasPlayedUnmutedRef.current) {
+            hasPlayedUnmutedRef.current = true;
+            video.currentTime = 0;
+          }
+          video.muted = false;
+          const playPromise = video.play();
+          if (playPromise !== undefined) {
+            playPromise.catch((err) => {
+              console.log('Unmuted playback policy catch, retrying muted fallback:', err);
+              video.muted = true;
+              video.play();
+              const enableSound = () => {
+                video.muted = false;
+                window.removeEventListener('click', enableSound);
+                window.removeEventListener('touchstart', enableSound);
+                window.removeEventListener('scroll', enableSound);
+              };
+              window.addEventListener('click', enableSound, { once: true });
+              window.addEventListener('touchstart', enableSound, { once: true });
+              window.addEventListener('scroll', enableSound, { once: true });
+            });
+          }
+        } else {
+          video.pause();
+        }
+      });
+    };
+
+    const observer = new IntersectionObserver(handleIntersection, { threshold: 0.25 });
+    const manifestoSec = document.getElementById('manifesto');
+    if (manifestoSec) observer.observe(manifestoSec);
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('pointerdown', unlockAudio);
+      window.removeEventListener('keydown', unlockAudio);
+    };
+  }, []);
+
   const languages = [
     { num: '01', native: 'हिन्दी', eng: 'HINDI' },
     { num: '02', native: 'ગુજરાતી', eng: 'GUJARATI' },
@@ -151,7 +280,7 @@ export default function App() {
           <a href="#manifesto">MANIFESTO</a>
           <a href="#languages">LANGUAGES</a>
           <a href="#metrics">METRICS</a>
-          <a href="#team">TEAM</a>
+          <a href="#sitemap">SITEMAP</a>
         </div>
         <div className="nav-right">
           <span className="nav-status"><span className="status-dot"></span> OFFLINE — V1.0</span>
@@ -213,20 +342,66 @@ export default function App() {
       {/* ── MANIFESTO ── */}
       <section id="manifesto" className="manifesto-section">
         <div className="section-inner">
-          <p className="section-label">THE MANIFESTO</p>
-          <h2 className="section-heading manifesto-h2">Three chapters. One conviction.</h2>
+          <div className="manifesto-header">
+            <div>
+              <p className="section-label">THE MANIFESTO</p>
+              <h2 className="section-heading manifesto-h2">Three chapters. One conviction.</h2>
+            </div>
+            <span className="manifesto-badge font-mono">
+              <span className="status-dot"></span> HIGH-RELIABILITY ARCHITECTURE
+            </span>
+          </div>
 
-          {/* Video Placeholder */}
-          <div className="video-placeholder">
-            <div className="video-placeholder-inner">
-              <div className="video-play-icon">
-                <svg width="64" height="64" viewBox="0 0 64 64" fill="none">
-                  <circle cx="32" cy="32" r="31" stroke="#ccc" strokeWidth="2"/>
-                  <path d="M26 20L46 32L26 44V20Z" fill="#ccc"/>
-                </svg>
+          <div className="manifesto-grid">
+            {/* Left: Video Player */}
+            <div className="manifesto-video-container">
+              <video 
+                ref={manifestoVideoRef}
+                className="manifesto-video"
+                src="/dd.mp4" 
+                controls 
+                loop 
+                playsInline
+              />
+              <div className="video-overlay-tag font-mono">
+                ISRO PS-26173 · FIELD DEMONSTRATION
               </div>
-              <p className="video-placeholder-label">VIDEO — COMING SOON</p>
-              <p className="video-placeholder-sub">Drop your video file here to replace this placeholder</p>
+            </div>
+
+            {/* Right: The 3 Chapters */}
+            <div className="manifesto-chapters">
+              <div className="manifesto-chapter-card">
+                <div className="chapter-card-header font-mono">
+                  <span className="chapter-num">CHAPTER 01</span>
+                  <span className="chapter-tag">BLACKOUT CRISIS</span>
+                </div>
+                <h3 className="chapter-title">Infrastructure Blackout</h3>
+                <p className="chapter-desc">
+                  When disaster strikes, cellular towers and power grids go dark. Traditional voice communication collapses instantly.
+                </p>
+              </div>
+
+              <div className="manifesto-chapter-card">
+                <div className="chapter-card-header font-mono">
+                  <span className="chapter-num">CHAPTER 02</span>
+                  <span className="chapter-tag">LOCAL INFERENCE</span>
+                </div>
+                <h3 className="chapter-title">On-Device Neural Stream</h3>
+                <p className="chapter-desc">
+                  AI4Bharat STT & sherpa-onnx TTS convert heavy audio into micro 200-byte Protobuf payloads, 100% on-device.
+                </p>
+              </div>
+
+              <div className="manifesto-chapter-card">
+                <div className="chapter-card-header font-mono">
+                  <span className="chapter-num">CHAPTER 03</span>
+                  <span className="chapter-tag font-mono">P2P RADIO MESH</span>
+                </div>
+                <h3 className="chapter-title">Decentralized Mesh Relay</h3>
+                <p className="chapter-desc">
+                  Phone-to-phone Wi-Fi Direct & Bluetooth Classic mesh nodes relay distress signals across miles without internet.
+                </p>
+              </div>
             </div>
           </div>
         </div>
@@ -263,6 +438,9 @@ export default function App() {
       {/* ── SCORECARD ── */}
       <Scorecard />
 
+      {/* ── SITEMAP ── */}
+      <SitemapSection />
+
       {/* ── FOOTER ── */}
       <footer className="site-footer">
         <div className="footer-inner">
@@ -279,3 +457,4 @@ export default function App() {
     </div>
   );
 }
+
