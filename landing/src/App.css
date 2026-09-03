@@ -21,12 +21,15 @@
   font-weight: 700;
   font-size: 15px;
   letter-spacing: 0.5px;
+  flex: 1;
 }
 .nav-logo-icon { font-size: 13px; color: #555; }
 .nav-logo-text { font-family: 'SeasonMix', sans-serif; font-weight: 800; letter-spacing: 1px; }
 
 .nav-center {
   display: flex;
+  justify-content: center;
+  flex: 2;
   gap: 32px;
 }
 .nav-center a {
@@ -42,6 +45,8 @@
 .nav-right {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
+  flex: 1;
   gap: 20px;
 }
 

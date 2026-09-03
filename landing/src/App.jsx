@@ -284,7 +284,7 @@ export default function App() {
         </div>
         <div className="nav-right">
           <span className="nav-status"><span className="status-dot"></span> OFFLINE — V1.0</span>
-          <button className="btn-cta">PUSH TO TALK</button>
+          <a href="https://github.com/Precise-Goals/iTantra-Communication-Ecosystem/releases/download/android-app/iTantra.apk" className="btn-cta">DOWNLOAD APK</a>
         </div>
       </nav>
 
@@ -307,7 +307,7 @@ export default function App() {
             internet. No literacy required.
           </p>
           <div className="hero-actions">
-            <button className="btn-cta large">TRY THE LIVE SIMULATOR</button>
+            <a href="https://github.com/Precise-Goals/iTantra-Communication-Ecosystem/releases/download/android-app/iTantra.apk" className="btn-cta large">DOWNLOAD APK</a>
             <a href="#manifesto" className="hero-link">READ THE MANIFESTO ↓</a>
           </div>
         </div>
