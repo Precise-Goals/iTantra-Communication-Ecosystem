@@ -1,10 +1,12 @@
 package com.itantra.core.service
 
+import android.annotation.SuppressLint
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.bluetooth.BluetoothManager
 import android.content.Intent
 import android.os.Binder
 import android.os.Build
@@ -361,6 +363,34 @@ class ITantraForegroundService : Service() {
     fun connectToPeer(deviceAddress: String) {
         _networkStateFlow.value = "CONNECTING"
         wifiDirectManager.connectToPeerAddress(deviceAddress)
+    }
+
+    /** Already-paired Bluetooth devices, for a UI picker — BluetoothRFCOMMManager.connectToDevice
+     * needs a real BluetoothDevice, which only bonded-device enumeration can supply without a
+     * fresh discovery scan. */
+    @SuppressLint("MissingPermission")
+    fun getBondedBluetoothDevices(): List<PeerDevice> {
+        val adapter = (getSystemService(BluetoothManager::class.java))?.adapter ?: return emptyList()
+        if (!adapter.isEnabled) return emptyList()
+        return adapter.bondedDevices.map { device ->
+            PeerDevice(
+                deviceId = device.address,
+                deviceName = device.name ?: device.address,
+                connectionType = ConnectionType.BLUETOOTH,
+                isConnected = false
+            )
+        }
+    }
+
+    /** Connect to an already-paired Bluetooth device by MAC address. */
+    @SuppressLint("MissingPermission")
+    fun connectToBluetoothPeer(deviceAddress: String) {
+        val adapter = (getSystemService(BluetoothManager::class.java))?.adapter ?: return
+        val device = adapter.bondedDevices.firstOrNull { it.address == deviceAddress } ?: run {
+            Log.w(TAG, "connectToBluetoothPeer: $deviceAddress is not a bonded device")
+            return
+        }
+        bluetoothManager.connectToDevice(device)
     }
 
     fun setSTTLanguage(lang: String) { sttLanguage = lang; audioCaptureModule.currentLanguage = lang }

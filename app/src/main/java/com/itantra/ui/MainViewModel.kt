@@ -83,6 +83,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         foregroundService?.connectToPeer(deviceAddress)
     }
 
+    /** Already-paired Bluetooth devices — a plain on-demand read (bonded devices rarely change
+     * mid-session), not a StateFlow. */
+    fun bondedBluetoothDevices(): List<PeerDevice> = foregroundService?.getBondedBluetoothDevices() ?: emptyList()
+
+    /** Connect to an already-paired Bluetooth device by MAC address. */
+    fun connectToBluetoothPeer(deviceAddress: String) {
+        foregroundService?.connectToBluetoothPeer(deviceAddress)
+    }
+
     // ── Device Profile State ──────────────────────────────────────────
     val deviceProfile: StateFlow<DeviceProfile?> = profileRepo.profileFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)

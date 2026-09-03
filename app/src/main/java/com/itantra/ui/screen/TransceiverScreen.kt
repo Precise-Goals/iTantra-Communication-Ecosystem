@@ -1,5 +1,10 @@
 package com.itantra.ui.screen
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.LinearEasing
@@ -46,6 +51,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -59,9 +65,11 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import com.itantra.domain.model.ConnectionType
 import com.itantra.domain.model.DownloadState
 import com.itantra.domain.model.ModelPack
@@ -95,6 +103,24 @@ fun TransceiverScreen(
     val peers by viewModel.knownPeers.collectAsState()
     val detectedLanguage by viewModel.detectedLanguage.collectAsState()
     val isAutoDetect by viewModel.isAutoDetectEnabled.collectAsState()
+
+    // ── Paired Bluetooth devices (BluetoothRFCOMMManager.connectToDevice needs a real
+    // BluetoothDevice, which only bonded-device enumeration can supply without a scan) ──
+    val context = LocalContext.current
+    var bondedBtDevices by remember { mutableStateOf<List<PeerDevice>>(emptyList()) }
+    fun refreshBondedBtDevices() { bondedBtDevices = viewModel.bondedBluetoothDevices() }
+    val btPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted -> if (granted) refreshBondedBtDevices() }
+    LaunchedEffect(Unit) {
+        val hasBtConnect = Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
+            ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
+        if (hasBtConnect) {
+            refreshBondedBtDevices()
+        } else {
+            btPermissionLauncher.launch(Manifest.permission.BLUETOOTH_CONNECT)
+        }
+    }
 
     val corePacks = ModelPack.coreTransceiverPacks()
     val coreReady = corePacks.all { downloadStates[it] is DownloadState.Downloaded }
@@ -377,6 +403,44 @@ fun TransceiverScreen(
                             }
                         }
                     }
+
+                    // ── Paired Bluetooth Devices ─────────────────────────
+                    if (bondedBtDevices.isNotEmpty()) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Paired Bluetooth (${bondedBtDevices.size})",
+                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                color = iTantraBlack
+                            )
+                            Text(
+                                text = "tap to connect",
+                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                color = iTantraBlack60
+                            )
+                        }
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(minOf(bondedBtDevices.size * 72, 216).dp),
+                            contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 8.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            items(bondedBtDevices, key = { it.deviceId }) { peer ->
+                                PeerRowItemWhite(
+                                    peer = peer,
+                                    onClick = { viewModel.connectToBluetoothPeer(peer.deviceId) },
+                                    onAuthorize = { viewModel.authorizePeer(peer.deviceId) },
+                                    onRevoke = { viewModel.revokePeer(peer.deviceId) }
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -447,7 +511,10 @@ private fun PeerRowItemWhite(
                 if (peer.isConnected) iTantraSuccess.copy(alpha = 0.5f) else iTantraBorder,
                 RoundedCornerShape(14.dp)
             )
-            .clickable(enabled = peer.isConnected, onClick = onClick)
+            // Previously `enabled = peer.isConnected` disabled tapping entirely for an
+            // unconnected peer — meaning "tap to connect" never actually fired a connect
+            // attempt. Always clickable now; onClick itself branches on isConnected.
+            .clickable(onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 10.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically
