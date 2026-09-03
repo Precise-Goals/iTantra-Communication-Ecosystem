@@ -1,7 +1,12 @@
 package com.itantra.ui
 
 import android.app.Application
+import android.content.ComponentName
+import android.content.Intent
+import android.content.ServiceConnection
+import android.os.IBinder
 import android.util.Log
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.itantra.core.ai.LanguageDetector
@@ -14,6 +19,7 @@ import com.itantra.core.audio.TTSModule
 import com.itantra.core.audio.VADModule
 import com.itantra.core.download.ModelDownloadManager
 import com.itantra.core.network.MeshHardwareManager
+import com.itantra.core.service.ITantraForegroundService
 import com.itantra.data.DeviceProfileRepository
 import com.itantra.data.PeerRegistryRepository
 import com.itantra.domain.contracts.AudioCallbacks
@@ -38,6 +44,44 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val peerRegistry = PeerRegistryRepository(application)
     val downloadManager = ModelDownloadManager(application)
     private val meshHardwareManager = MeshHardwareManager(application)
+
+    // ── Real PTT transport (ITantraForegroundService) ───────────────────
+    // The service holds the real audio-capture→STT→transmit pipeline (WifiDirectManager,
+    // SocketTransport, BluetoothRFCOMMManager) — previously declared in the manifest but never
+    // started or bound anywhere, so PTT had nothing to call. Bound here since AndroidViewModel
+    // already has an Application context; peer discovery/hosting stays on meshHardwareManager
+    // above (already real and working) — this only wires up the transmit half.
+    private var foregroundService: ITantraForegroundService? = null
+    private val serviceConnection = object : ServiceConnection {
+        override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
+            foregroundService = (binder as? ITantraForegroundService.ITantraBinder)?.getService()
+        }
+        override fun onServiceDisconnected(name: ComponentName?) {
+            foregroundService = null
+        }
+    }
+
+    init {
+        val intent = Intent(application, ITantraForegroundService::class.java)
+            .setAction(ITantraForegroundService.ACTION_START)
+        ContextCompat.startForegroundService(application, intent)
+        application.bindService(intent, serviceConnection, 0)
+    }
+
+    /** Start real PTT capture (hold) — no-op if the service hasn't finished binding yet. */
+    fun startTransceiverPtt() {
+        foregroundService?.startPTT()
+    }
+
+    /** Stop PTT capture (release) — flushes to STT and attempts to transmit. */
+    fun stopTransceiverPtt() {
+        foregroundService?.stopPTT()
+    }
+
+    /** Initiate a real Wi-Fi Direct connection to a peer discovered via [meshHardwareManager]. */
+    fun connectToPeer(deviceAddress: String) {
+        foregroundService?.connectToPeer(deviceAddress)
+    }
 
     // ── Device Profile State ──────────────────────────────────────────
     val deviceProfile: StateFlow<DeviceProfile?> = profileRepo.profileFlow
@@ -319,6 +363,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     override fun onCleared() {
         super.onCleared()
+        runCatching { getApplication<Application>().unbindService(serviceConnection) }
         meshHardwareManager.release()
         ttsModule.release()
         llmModule.release()

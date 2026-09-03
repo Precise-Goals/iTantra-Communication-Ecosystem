@@ -179,8 +179,18 @@ class VADModule(
 
             speechProb
         } catch (e: Exception) {
-            Log.e(TAG, "VAD process error: ${e.message}")
-            0f
+            // A session can load successfully but still fail at run() time — e.g. the bundled
+            // model's real input signature not matching what this code assumes (confirmed
+            // on-device: "expected [1,3) found 4" from a 4-input h/c-state call against a model
+            // that doesn't take that shape). Silently returning 0f here means capture would stay
+            // permanently deaf for the rest of this instance's life, with speech never detected.
+            // Demote to the same honest BASIC_ENERGY fallback used when the model never loaded at
+            // all, so capture keeps working instead of going silent.
+            Log.e(TAG, "VAD run() failed — demoting to BASIC_ENERGY backend: ${e.message}")
+            session?.close()
+            session = null
+            activeBackend = VadBackend.BASIC_ENERGY
+            process(audioChunk)
         }
     }
 

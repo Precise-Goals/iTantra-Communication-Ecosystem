@@ -357,10 +357,10 @@ class ITantraForegroundService : Service() {
         }
     }
 
-    /** Connect to a discovered Wi-Fi Direct peer */
+    /** Connect to a discovered Wi-Fi Direct peer by MAC address */
     fun connectToPeer(deviceAddress: String) {
-        // WifiDirectManager handles connection via WifiP2pDevice
         _networkStateFlow.value = "CONNECTING"
+        wifiDirectManager.connectToPeerAddress(deviceAddress)
     }
 
     fun setSTTLanguage(lang: String) { sttLanguage = lang; audioCaptureModule.currentLanguage = lang }

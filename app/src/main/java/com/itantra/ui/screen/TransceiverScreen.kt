@@ -265,8 +265,10 @@ fun TransceiverScreen(
                                         detectTapGestures(
                                             onPress = {
                                                 isPttActive = true
+                                                viewModel.startTransceiverPtt()
                                                 tryAwaitRelease()
                                                 isPttActive = false
+                                                viewModel.stopTransceiverPtt()
                                             }
                                         )
                                     },
@@ -365,7 +367,10 @@ fun TransceiverScreen(
                             items(peers, key = { it.deviceId }) { peer ->
                                 PeerRowItemWhite(
                                     peer = peer,
-                                    onClick = { if (peer.isConnected) onPeerSelected(peer.deviceId) },
+                                    onClick = {
+                                        if (peer.isConnected) onPeerSelected(peer.deviceId)
+                                        else viewModel.connectToPeer(peer.deviceId)
+                                    },
                                     onAuthorize = { viewModel.authorizePeer(peer.deviceId) },
                                     onRevoke = { viewModel.revokePeer(peer.deviceId) }
                                 )
