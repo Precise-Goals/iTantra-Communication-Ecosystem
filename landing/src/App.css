@@ -476,6 +476,146 @@
     aspect-ratio: 16 / 9;
   }
 }
+/* ─────────────────────────────
+   APP SHOWCASE — FULL WIDTH FAN
+───────────────────────────── */
+
+/* Section: full-width dark stage, no text */
+.fan-section {
+  background: #060606;
+  border-top: 1px solid #111;
+  border-bottom: 1px solid #111;
+  padding: 80px 0 0;
+  overflow: hidden;
+}
+
+/* The phone row — flex, bottom-aligned so center rises above */
+.fan-stage {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 20px;
+  perspective: 1600px;
+  padding: 0 24px;
+}
+
+/* ── Base phone wrapper ── */
+.fan-phone {
+  flex-shrink: 0;
+  opacity: 0;
+  transition:
+    opacity 0.65s cubic-bezier(0.22, 1, 0.36, 1) var(--d, 0ms),
+    transform 0.65s cubic-bezier(0.22, 1, 0.36, 1) var(--d, 0ms);
+}
+
+/* ── Widths, overlaps & starting transforms ── */
+
+.fp-center {
+  width: 220px;
+  z-index: 5;
+  transform: translateY(50px);
+}
+
+.fp-left,
+.fp-right {
+  width: 210px;
+  z-index: 4;
+  transform: translateY(50px);
+}
+
+.fp-far-left,
+.fp-far-right {
+  width: 170px;
+  z-index: 3;
+  transform: translateY(50px);
+}
+
+.fp-far-left  { transform: translateY(50px) rotateY(18deg);  }
+.fp-far-right { transform: translateY(50px) rotateY(-18deg); }
+.fp-left      { transform: translateY(50px) rotateY(8deg);   }
+.fp-right     { transform: translateY(50px) rotateY(-8deg);  }
+
+/* ── Revealed state ── */
+.fan-visible .fan-phone { opacity: 1; }
+
+/* center: fully upright, rises highest */
+.fan-visible .fp-center {
+  transform: translateY(-30px);
+}
+
+/* left/right: slightly down, mild tilt */
+.fan-visible .fp-left  { transform: translateY(30px) rotateY(8deg);   }
+.fan-visible .fp-right { transform: translateY(30px) rotateY(-8deg);  }
+
+/* far: lowest, more tilt, faded */
+.fan-visible .fp-far-left  {
+  opacity: 0.65;
+  transform: translateY(60px) rotateY(18deg);
+}
+.fan-visible .fp-far-right {
+  opacity: 0.65;
+  transform: translateY(60px) rotateY(-18deg);
+}
+
+/* ── Phone frame ── */
+.fan-frame {
+  width: 100%;
+  aspect-ratio: 9 / 19.5;
+  background: #111;
+  border-radius: 36px;
+  border: 6px solid #222;
+  overflow: hidden;
+  position: relative;
+  box-shadow:
+    0 0 0 1px rgba(255,255,255,0.06),
+    0 40px 80px rgba(0,0,0,0.6),
+    0 16px 32px rgba(0,0,0,0.4);
+}
+
+/* Pill notch */
+.fan-frame::before {
+  content: '';
+  position: absolute;
+  top: 9px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 52px;
+  height: 6px;
+  background: #000;
+  border-radius: 99px;
+  z-index: 2;
+}
+
+.fan-frame img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+/* ── Responsive ── */
+@media (max-width: 1200px) {
+  .fp-center        { width: 190px; }
+  .fp-left, .fp-right { width: 178px; }
+  .fp-far-left, .fp-far-right { width: 140px; }
+}
+
+@media (max-width: 900px) {
+  .fan-stage { gap: 10px; }
+  .fp-center        { width: 155px; }
+  .fp-left, .fp-right { width: 140px; }
+  .fp-far-left, .fp-far-right { width: 110px; }
+}
+
+@media (max-width: 700px) {
+  .fan-section { padding: 60px 0 0; }
+  .fan-stage { gap: 8px; }
+  .fp-center        { width: 140px; }
+  .fp-left, .fp-right { width: 115px; }
+  .fp-far-left, .fp-far-right { display: none; }
+}
 
 
 .chapter {
