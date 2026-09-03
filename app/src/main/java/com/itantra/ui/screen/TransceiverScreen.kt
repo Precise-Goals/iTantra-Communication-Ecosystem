@@ -394,8 +394,16 @@ fun TransceiverScreen(
                                 PeerRowItemWhite(
                                     peer = peer,
                                     onClick = {
-                                        if (peer.isConnected) onPeerSelected(peer.deviceId)
-                                        else viewModel.connectToPeer(peer.deviceId)
+                                        when {
+                                            peer.isConnected -> onPeerSelected(peer.deviceId)
+                                            // MeshHardwareManager's Bluetooth discovery surfaces
+                                            // devices here that may not be paired yet — this
+                                            // route was previously always attempting a Wi-Fi
+                                            // Direct connect regardless of the peer's real type.
+                                            peer.connectionType == ConnectionType.BLUETOOTH ->
+                                                viewModel.pairAndConnectBluetoothPeer(peer.deviceId)
+                                            else -> viewModel.connectToPeer(peer.deviceId)
+                                        }
                                     },
                                     onAuthorize = { viewModel.authorizePeer(peer.deviceId) },
                                     onRevoke = { viewModel.revokePeer(peer.deviceId) }

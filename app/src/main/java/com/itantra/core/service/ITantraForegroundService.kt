@@ -6,8 +6,12 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.os.Binder
 import android.os.Build
 import android.os.IBinder
@@ -391,6 +395,55 @@ class ITantraForegroundService : Service() {
             return
         }
         bluetoothManager.connectToDevice(device)
+    }
+
+    /**
+     * Connect to a Bluetooth peer discovered but not yet paired (e.g. via
+     * MeshHardwareManager's discovery scan) — resolves a real BluetoothDevice for any known MAC
+     * address (works even unpaired), triggers real Android pairing via [BluetoothDevice.createBond],
+     * and connects automatically once bonding succeeds. Real pairing means the OS may show its own
+     * PIN/passkey confirmation UI on both devices — this call only initiates it.
+     */
+    @SuppressLint("MissingPermission")
+    fun pairAndConnectBluetoothPeer(deviceAddress: String) {
+        val adapter = (getSystemService(BluetoothManager::class.java))?.adapter ?: return
+        val device = adapter.getRemoteDevice(deviceAddress)
+
+        if (device.bondState == BluetoothDevice.BOND_BONDED) {
+            bluetoothManager.connectToDevice(device)
+            return
+        }
+
+        val receiver = object : BroadcastReceiver() {
+            @SuppressLint("MissingPermission")
+            override fun onReceive(ctx: Context, intent: Intent) {
+                val changedDevice = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java)
+                } else {
+                    @Suppress("DEPRECATION")
+                    intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
+                }
+                if (changedDevice?.address != deviceAddress) return
+
+                when (intent.getIntExtra(BluetoothDevice.EXTRA_BOND_STATE, BluetoothDevice.BOND_NONE)) {
+                    BluetoothDevice.BOND_BONDED -> {
+                        Log.d(TAG, "Paired with ${changedDevice.address}, connecting")
+                        runCatching { unregisterReceiver(this) }
+                        bluetoothManager.connectToDevice(changedDevice)
+                    }
+                    BluetoothDevice.BOND_NONE -> {
+                        Log.w(TAG, "Pairing failed/cancelled for ${changedDevice.address}")
+                        runCatching { unregisterReceiver(this) }
+                        serviceScope.launch {
+                            _errorFlow.emit(AppResult.Error(ErrorCode.BLUETOOTH_UNAVAILABLE, "Pairing failed for $deviceAddress"))
+                        }
+                    }
+                }
+            }
+        }
+        registerReceiver(receiver, IntentFilter(BluetoothDevice.ACTION_BOND_STATE_CHANGED))
+        Log.d(TAG, "Initiating pairing with $deviceAddress")
+        device.createBond()
     }
 
     fun setSTTLanguage(lang: String) { sttLanguage = lang; audioCaptureModule.currentLanguage = lang }

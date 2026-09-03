@@ -92,6 +92,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         foregroundService?.connectToBluetoothPeer(deviceAddress)
     }
 
+    /** Pair with (if needed) and connect to a Bluetooth peer discovered via [meshHardwareManager]'s
+     * scan, which may not be bonded yet. */
+    fun pairAndConnectBluetoothPeer(deviceAddress: String) {
+        foregroundService?.pairAndConnectBluetoothPeer(deviceAddress)
+    }
+
     // ── Device Profile State ──────────────────────────────────────────
     val deviceProfile: StateFlow<DeviceProfile?> = profileRepo.profileFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
