@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useRef } from 'react';
 import { motion, useInView } from 'framer-motion';
 
 const CHAPTERS = [
@@ -20,60 +20,8 @@ const CHAPTERS = [
 ];
 
 export default function ManifestoSection() {
-  const manifestoVideoRef = useRef(null);
-  const hasPlayedUnmutedRef = useRef(false);
   const headerRef = useRef(null);
   const headerInView = useInView(headerRef, { once: true, margin: '-60px' });
-
-  useEffect(() => {
-    const video = manifestoVideoRef.current;
-    if (!video) return;
-
-    const unlockAudio = () => { if (video && video.muted) video.muted = false; };
-    window.addEventListener('pointerdown', unlockAudio, { once: true });
-    window.addEventListener('keydown', unlockAudio, { once: true });
-
-    const handleIntersection = (entries) => {
-      entries.forEach((entry) => {
-        if (entry.isIntersecting) {
-          if (!hasPlayedUnmutedRef.current) {
-            hasPlayedUnmutedRef.current = true;
-            video.currentTime = 0;
-          }
-          video.muted = false;
-          const playPromise = video.play();
-          if (playPromise !== undefined) {
-            playPromise.catch((err) => {
-              console.log('Unmuted playback policy catch:', err);
-              video.muted = true;
-              video.play();
-              const enableSound = () => {
-                video.muted = false;
-                window.removeEventListener('click', enableSound);
-                window.removeEventListener('touchstart', enableSound);
-                window.removeEventListener('scroll', enableSound);
-              };
-              window.addEventListener('click', enableSound, { once: true });
-              window.addEventListener('touchstart', enableSound, { once: true });
-              window.addEventListener('scroll', enableSound, { once: true });
-            });
-          }
-        } else {
-          video.pause();
-        }
-      });
-    };
-
-    const observer = new IntersectionObserver(handleIntersection, { threshold: 0.25 });
-    const manifestoSec = document.getElementById('manifesto');
-    if (manifestoSec) observer.observe(manifestoSec);
-
-    return () => {
-      observer.disconnect();
-      window.removeEventListener('pointerdown', unlockAudio);
-      window.removeEventListener('keydown', unlockAudio);
-    };
-  }, []);
 
   return (
     <section id="manifesto" className="manifesto-section">
@@ -106,12 +54,13 @@ export default function ManifestoSection() {
             transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
           >
             <video
-              ref={manifestoVideoRef}
               className="manifesto-video"
               src="/dd.mp4"
+              poster="/thumbnail.png"
               controls
               loop
               playsInline
+              preload="metadata"
             />
             <div className="video-overlay-tag font-mono">
               ISRO PS-26173 · FIELD DEMONSTRATION
