@@ -163,6 +163,9 @@ class ITantraForegroundService : Service() {
         }
 
         override fun onTextReceived(message: TransceiverMessage) {
+            // Previously silent — made visible so a future two-device test can confirm receipt
+            // from logcat alone, matching the visibility already present on the send side.
+            Log.d(TAG, "Received from ${message.senderId}: '${message.text.take(80)}' [${message.type}]")
             appendMessage(message.copy(direction = Direction.RECEIVED))
             // Handle ALERT messages specially
             if (message.type == MessageType.ALERT) {
