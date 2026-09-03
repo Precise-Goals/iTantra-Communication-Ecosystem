@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Network Security Config for iTantra.
+  All internet traffic is BLOCKED. iTantra is 100% peer-to-peer offline.
+  No INTERNET permission is declared in AndroidManifest.xml.
+-->
+<network-security-config>
+    <!-- Block all cleartext traffic -->
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <!-- Only system CAs — but since no internet permission, this is moot -->
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

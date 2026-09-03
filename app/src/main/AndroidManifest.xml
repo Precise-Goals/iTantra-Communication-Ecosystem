@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- ==================== AUDIO ==================== -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
+    <!-- ==================== WI-FI DIRECT ==================== -->
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES" tools:targetApi="tiramisu" />
+
+    <!-- ==================== BLUETOOTH ==================== -->
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
+
+    <!-- ==================== BACKGROUND & BATTERY ==================== -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <!-- ==================== NOTIFICATIONS / WAKE ==================== -->
+    <uses-permission android:name="android.permission.MANAGE_NOTIFICATION_POLICY" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+
+    <!-- ==================== HARDWARE FEATURES ==================== -->
+    <uses-feature android:name="android.hardware.microphone" android:required="true" />
+    <uses-feature android:name="android.hardware.wifi" android:required="false" />
+    <uses-feature android:name="android.hardware.bluetooth" android:required="false" />
+
+    <!-- INTERNET: Only used for one-time model downloads from HuggingFace Hub.
+         All P2P communication is local Wi-Fi Direct / Bluetooth — no internet required post-download. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <application
+        android:name=".ITantraApplication"
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.iTantra"
+        android:networkSecurityConfig="@xml/network_security_config"
+        android:requestLegacyExternalStorage="false"
+        tools:targetApi="31">
+
+        <!-- ==================== APP METADATA ==================== -->
+        <meta-data android:name="com.itantra.problem_statement.id" android:value="26173" />
+        <meta-data android:name="com.itantra.problem_statement.title" android:value="iTantra - Indian Multilingual TTS &amp; STT Aided Neural Transceiver Radio Access for low bitrate links" />
+        <meta-data android:name="com.itantra.event" android:value="Smart India Hackathon 2026" />
+        <meta-data android:name="com.itantra.version" android:value="2.0.0" />
+        <meta-data android:name="com.itantra.architecture.stt" android:value="AI4Bharat IndicConformer ONNX INT8" />
+        <meta-data android:name="com.itantra.architecture.tts" android:value="AI4Bharat IndicTTS VITS ONNX" />
+        <meta-data android:name="com.itantra.architecture.vad" android:value="Silero VAD v4" />
+        <meta-data android:name="com.itantra.architecture.lid" android:value="FastText Language ID lid.176" />
+        <meta-data android:name="com.itantra.architecture.ai" android:value="Phi-3 Mini 3.8B Q4 Quantized" />
+        <meta-data android:name="com.itantra.network.primary" android:value="Wi-Fi Direct P2P (High-Throughput Mesh)" />
+        <meta-data android:name="com.itantra.network.fallback" android:value="Bluetooth RFCOMM (Ultra-Low-Power)" />
+        <meta-data android:name="com.itantra.target.ram" android:value="4GB+ RAM (Low/Mid-range smartphones)" />
+
+        <!-- Main Activity -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:theme="@style/Theme.iTantra"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- iTantra Foreground Service — persistent background engine -->
+        <service
+            android:name=".core.service.ITantraForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="microphone"
+            android:stopWithTask="false" />
+
+    </application>
+
+</manifest>

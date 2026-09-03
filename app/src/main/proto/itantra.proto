@@ -1,0 +1,44 @@
+syntax = "proto3";
+
+package itantra;
+
+option java_package = "com.itantra.core.proto";
+option java_outer_classname = "TransceiverProto";
+option java_multiple_files = false;
+
+// TransceiverMessage is the single wire-format message for all P2P communication.
+// It is serialized as Protocol Buffers v3 binary (~50–300 bytes per message).
+// This is ~3x more compact than equivalent JSON, optimized for low-bitrate BT links.
+message TransceiverMessage {
+
+  enum MessageType {
+    SPEECH = 0;   // Normal STT-transcribed speech content
+    ALERT  = 1;   // Emergency/distress broadcast — triggers max-volume TTS override
+    ACK    = 2;   // Acknowledgment frame
+    PING   = 3;   // Heartbeat / latency probe
+  }
+
+  // Message classification
+  MessageType type = 1;
+
+  // The transcribed or alert text payload (UTF-8 encoded, supports all Indic scripts)
+  string text = 2;
+
+  // Source language in BCP-47 format: hi, gu, mr, kn, ml, ta, te, or, bn, en
+  string src_lang = 3;
+
+  // Destination language for TTS synthesis on the receiver (can differ from src_lang)
+  string dst_lang = 4;
+
+  // Sender device UUID (for traceability in multi-node mesh)
+  string sender_id = 5;
+
+  // Unix epoch milliseconds at the moment STT inference completed (used for RTF measurement)
+  int64 timestamp = 6;
+
+  // STT model confidence score [0.0–1.0]; 0.0 for ALERT/ACK/PING types
+  float confidence = 7;
+
+  // Sequence number for duplicate detection and ordering
+  uint32 sequence = 8;
+}

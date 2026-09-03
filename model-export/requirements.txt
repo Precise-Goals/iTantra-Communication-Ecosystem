@@ -1,0 +1,28 @@
+# iTantra Model Export — Python Dependencies
+
+# PyTorch (CPU-only for export workstation)
+torch==2.3.1
+torchvision==0.18.1
+
+# ONNX and ONNX Runtime
+onnx==1.16.1
+onnxruntime==1.18.0
+onnxruntime-tools==1.7.0
+
+# AI4Bharat NeMo (STT)
+# Install separately — NeMo has complex dependencies:
+# pip install nemo_toolkit[asr]
+# Or: pip install git+https://github.com/NVIDIA/NeMo.git#egg=nemo_toolkit[asr]
+
+# Audio processing
+soundfile==0.12.1
+numpy==1.26.4
+
+# WER computation
+jiwer==3.0.4
+
+# Silero VAD
+# Loaded via torch.hub, no pip install required
+
+# IndicTTS (Coqui TTS based)
+# TTS==0.22.0  # Install separately if using Coqui TTS
