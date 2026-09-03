@@ -316,7 +316,43 @@
   padding: 100px 0;
   border-bottom: 1px solid #e5e5e5;
 }
-.manifesto-h2 { margin-bottom: 80px; }
+.manifesto-h2 { margin-bottom: 48px; }
+
+.video-placeholder {
+  border: 2px dashed #d0d0d0;
+  border-radius: 12px;
+  background: #fafafa;
+  overflow: hidden;
+  aspect-ratio: 16 / 9;
+  max-width: 900px;
+  transition: border-color 0.2s, background 0.2s;
+  cursor: pointer;
+}
+.video-placeholder:hover {
+  border-color: #aaa;
+  background: #f3f3f3;
+}
+.video-placeholder-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 16px;
+}
+.video-play-icon { opacity: 0.5; }
+.video-placeholder-label {
+  font-family: monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  color: #bbb;
+}
+.video-placeholder-sub {
+  font-size: 13px;
+  color: #ccc;
+}
+
 
 .chapter {
   display: grid;

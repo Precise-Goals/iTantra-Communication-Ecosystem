@@ -145,13 +145,11 @@ export default function App() {
       <nav className="navbar">
         <div className="nav-logo">
           <span className="nav-logo-icon">((•))</span>
-          <span className="nav-logo-text">VĀK-10</span>
+          <span className="nav-logo-text">iTantra</span>
         </div>
         <div className="nav-center">
           <a href="#manifesto">MANIFESTO</a>
           <a href="#languages">LANGUAGES</a>
-          <a href="#pipeline">PIPELINE</a>
-          <a href="#simulator">SIMULATOR</a>
           <a href="#metrics">METRICS</a>
           <a href="#team">TEAM</a>
         </div>
@@ -174,7 +172,7 @@ export default function App() {
             DON<span className="red-apos">'</span>T.
           </h1>
           <p className="hero-p">
-            VĀK-10 turns any low-end Android phone into an offline voice lifeline —
+            iTantra turns any low-end Android phone into an offline voice lifeline —
             on-device speech-to-text and text-to-speech for <span className="red-text">10 Indian languages</span>,
             streamed phone-to-phone over <span className="blue-text">Wi-Fi Direct</span> or <span className="blue-text">Bluetooth</span>. No towers. No
             internet. No literacy required.
@@ -218,59 +216,17 @@ export default function App() {
           <p className="section-label">THE MANIFESTO</p>
           <h2 className="section-heading manifesto-h2">Three chapters. One conviction.</h2>
 
-          {/* Chapter 01 */}
-          <div className="chapter">
-            <div className="chapter-num-col">
-              <div className="chapter-big-num">01</div>
-              <div className="chapter-tag">THE PROBLEM</div>
-            </div>
-            <div className="chapter-content">
-              <h3 className="chapter-h3">When towers fall, voices disappear.</h3>
-              <p className="chapter-p">
-                Floods, earthquakes, blackouts — the moment communication matters most is the
-                moment networks collapse. And when a message finally gets through, it arrives as
-                text: useless to the 25+ crore Indians who cannot read it, and too slow for someone
-                trapped, injured, or afraid. Voice is the most inclusive interface ever built. It is also
-                the first casualty of every disaster.
-              </p>
-              <div className="chapter-img-placeholder">
-                <span>Chapter Image</span>
+          {/* Video Placeholder */}
+          <div className="video-placeholder">
+            <div className="video-placeholder-inner">
+              <div className="video-play-icon">
+                <svg width="64" height="64" viewBox="0 0 64 64" fill="none">
+                  <circle cx="32" cy="32" r="31" stroke="#ccc" strokeWidth="2"/>
+                  <path d="M26 20L46 32L26 44V20Z" fill="#ccc"/>
+                </svg>
               </div>
-            </div>
-          </div>
-
-          {/* Chapter 02 */}
-          <div className="chapter">
-            <div className="chapter-num-col">
-              <div className="chapter-big-num">02</div>
-              <div className="chapter-tag">THE INSIGHT</div>
-            </div>
-            <div className="chapter-content">
-              <h3 className="chapter-h3">Speech carries more than a screen full of text ever can.</h3>
-              <p className="chapter-p">
-                Voice is data-heavy, which is exactly why it struggles on the low-bandwidth links
-                that survive in a disaster. But in an alert or distress situation, a spoken message
-                reaches everyone — literate or not, in the language they actually speak. Text is
-                efficient to move. Voice is the one that includes everybody. This system is built to
-                move voice — with no internet in between.
-              </p>
-            </div>
-          </div>
-
-          {/* Chapter 03 */}
-          <div className="chapter">
-            <div className="chapter-num-col">
-              <div className="chapter-big-num">03</div>
-              <div className="chapter-tag">THE PROOF</div>
-            </div>
-            <div className="chapter-content">
-              <h3 className="chapter-h3">Proof runs on a ₹6,000 phone, entirely offline.</h3>
-              <p className="chapter-p">
-                Every model is quantized under 12 MB. Every recognition and synthesis step runs
-                on-device. The relay is peer-to-peer — Wi-Fi Direct or Bluetooth, no router required.
-                The entire pipeline — mic to spoken translation — completes in roughly 240 milliseconds.
-                No cloud. No subscription. No signal required.
-              </p>
+              <p className="video-placeholder-label">VIDEO — COMING SOON</p>
+              <p className="video-placeholder-sub">Drop your video file here to replace this placeholder</p>
             </div>
           </div>
         </div>
@@ -312,7 +268,7 @@ export default function App() {
         <div className="footer-inner">
           <div className="footer-logo">
             <span className="nav-logo-icon">((•))</span>
-            <span className="nav-logo-text">VĀK-10</span>
+            <span className="nav-logo-text">iTantra</span>
           </div>
           <p className="footer-tagline">
             Built for the moment everything else fails.
