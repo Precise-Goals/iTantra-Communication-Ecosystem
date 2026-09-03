@@ -23,13 +23,14 @@
   letter-spacing: 0.5px;
 }
 .nav-logo-icon { font-size: 13px; color: #555; }
-.nav-logo-text { font-weight: 800; letter-spacing: 1px; }
+.nav-logo-text { font-family: 'SeasonMix', sans-serif; font-weight: 800; letter-spacing: 1px; }
 
 .nav-center {
   display: flex;
   gap: 32px;
 }
 .nav-center a {
+  font-family: 'SeasonSans', sans-serif;
   font-size: 10px;
   font-weight: 600;
   letter-spacing: 1.5px;
@@ -68,6 +69,7 @@
 }
 
 .btn-cta {
+  font-family: 'SeasonSans', sans-serif;
   background: #000;
   color: #fff;
   border: none;
@@ -109,9 +111,10 @@
 .badge-icon { font-size: 13px; }
 
 .hero-h1 {
+  font-family: 'SeasonMix', sans-serif;
   font-size: clamp(52px, 6.5vw, 96px);
-  font-weight: 900;
-  letter-spacing: -3px;
+  font-weight: 800;
+  letter-spacing: -2px;
   line-height: 0.95;
   text-transform: uppercase;
   margin-bottom: 36px;
@@ -119,8 +122,9 @@
 .red-apos { color: #cc0000; }
 
 .hero-p {
-  font-size: 16px;
-  line-height: 1.65;
+  font-family: 'SeasonSans', sans-serif;
+  font-size: 17px;
+  line-height: 1.7;
   color: #444;
   max-width: 560px;
   margin-bottom: 40px;
@@ -246,7 +250,8 @@
 }
 .stat-item:last-child { border-right: none; }
 .stat-val {
-  font-size: 26px;
+  font-family: 'SeasonMix', sans-serif;
+  font-size: 28px;
   font-weight: 800;
   letter-spacing: -0.5px;
   margin-bottom: 8px;
@@ -303,6 +308,7 @@
   margin-bottom: 14px;
 }
 .section-heading {
+  font-family: 'SeasonMix', sans-serif;
   font-size: clamp(32px, 3.5vw, 52px);
   font-weight: 800;
   letter-spacing: -1.5px;
@@ -377,13 +383,15 @@
   color: #aaa;
 }
 .chapter-h3 {
+  font-family: 'SeasonMix', sans-serif;
   font-size: 28px;
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: -0.5px;
   margin-bottom: 20px;
   line-height: 1.2;
 }
 .chapter-p {
+  font-family: 'SeasonSans', sans-serif;
   font-size: 17px;
   line-height: 1.7;
   color: #555;
@@ -446,6 +454,7 @@
   margin-bottom: 16px;
 }
 .lang-card-native {
+  font-family: 'SeasonMix', sans-serif;
   font-size: 30px;
   font-weight: 700;
   line-height: 1.1;
@@ -522,11 +531,12 @@
   color: #bbb;
 }
 .sc-label {
+  font-family: 'SeasonSans', sans-serif;
   font-size: 17px;
   font-weight: 600;
 }
 .sc-val {
-  font-family: monospace;
+  font-family: 'SeasonMix', sans-serif;
   font-size: 15px;
   font-weight: 700;
   color: #cc0000;
