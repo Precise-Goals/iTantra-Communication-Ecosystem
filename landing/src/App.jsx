@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useEffect } from 'react';
+import { Routes, Route, useLocation } from 'react-router-dom';
 import './App.css';
 
 import Navbar           from './components/Navbar';
@@ -11,12 +12,23 @@ import LanguagesSection from './components/LanguagesSection';
 import Scorecard        from './components/Scorecard';
 import Footer           from './components/Footer';
 import { PreHeroSection } from './components/PreHeroSection';
+import ResearchPaperPage from './pages/ResearchPaperPage';
 
-export default function App() {
+function LandingPage() {
+  const location = useLocation();
+
+  useEffect(() => {
+    if (location.hash) {
+      const elem = document.querySelector(location.hash);
+      if (elem) {
+        elem.scrollIntoView({ behavior: 'smooth' });
+      }
+    }
+  }, [location]);
+
   return (
-    <div className="app">
-      <Navbar />
-      <PreHeroSection/>
+    <>
+      <PreHeroSection />
       <HeroSection />
       <StatsStrip />
       <Marquee />
@@ -24,6 +36,20 @@ export default function App() {
       <AppScreenshots />
       <LanguagesSection />
       <Scorecard />
+    </>
+  );
+}
+
+export default function App() {
+  return (
+    <div className="app">
+      <Navbar />
+      <Routes>
+        <Route path="/" element={<LandingPage />} />
+        <Route path="/research-paper-article" element={<ResearchPaperPage />} />
+        {/* Fallback for any unknown route */}
+        <Route path="*" element={<LandingPage />} />
+      </Routes>
       <Footer />
     </div>
   );

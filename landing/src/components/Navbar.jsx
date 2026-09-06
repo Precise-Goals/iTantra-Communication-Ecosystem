@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Link, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 
 const APK_URL =
@@ -6,6 +7,10 @@ const APK_URL =
 
 export default function Navbar() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const location = useLocation();
+  const isHome = location.pathname === '/';
+
+  const getSectionHref = (hash) => (isHome ? hash : `/${hash}`);
 
   return (
     <header className="navbar-wrapper">
@@ -17,27 +22,35 @@ export default function Navbar() {
       >
         <div className="navbar-container">
           {/* Logo on Left */}
-          <a href="#" className="nav-logo">
+          <Link to="/" className="nav-logo" aria-label="iTantra Home">
             <span className="nav-logo-text">iTantra.</span>
-          </a>
+          </Link>
 
           {/* Center Nav Links */}
           <div className="nav-links-center">
-            <a href="#app-preview" className="nav-link-item">
+            <a href={getSectionHref('#app-preview')} className="nav-link-item">
               Products
             </a>
-            <a href="#metrics" className="nav-link-item">
+            <a href={getSectionHref('#metrics')} className="nav-link-item">
               Developers
             </a>
-            <a href="#languages" className="nav-link-item">
+            <a href={getSectionHref('#languages')} className="nav-link-item">
               Resources
             </a>
-            <a href="#sitemap" className="nav-link-item">
+            <Link
+              to="/research-paper-article"
+              className={`nav-link-item ${
+                location.pathname === '/research-paper-article' ? 'nav-link-active' : ''
+              }`}
+            >
+              Research Paper
+            </Link>
+            <a href={getSectionHref('#sitemap')} className="nav-link-item">
               Company
             </a>
           </div>
 
-          {/* Right Action Buttons: Log In & Contact Us */}
+          {/* Right Action Buttons: Download APK */}
           <div className="nav-actions-right">
             <a
               href={APK_URL}
@@ -75,28 +88,37 @@ export default function Navbar() {
           >
             <div className="mobile-nav-links">
               <a
-                href="#app-preview"
+                href={getSectionHref('#app-preview')}
                 className="mobile-nav-item"
                 onClick={() => setMobileMenuOpen(false)}
               >
                 Products
               </a>
               <a
-                href="#metrics"
+                href={getSectionHref('#metrics')}
                 className="mobile-nav-item"
                 onClick={() => setMobileMenuOpen(false)}
               >
                 Developers
               </a>
               <a
-                href="#languages"
+                href={getSectionHref('#languages')}
                 className="mobile-nav-item"
                 onClick={() => setMobileMenuOpen(false)}
               >
                 Resources
               </a>
+              <Link
+                to="/research-paper-article"
+                className={`mobile-nav-item ${
+                  location.pathname === '/research-paper-article' ? 'nav-link-active' : ''
+                }`}
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                Research Paper
+              </Link>
               <a
-                href="#sitemap"
+                href={getSectionHref('#sitemap')}
                 className="mobile-nav-item"
                 onClick={() => setMobileMenuOpen(false)}
               >
@@ -110,10 +132,10 @@ export default function Navbar() {
                   className="nav-btn-login mobile"
                   onClick={() => setMobileMenuOpen(false)}
                 >
-                  Log In
+                  Download the Apk
                 </a>
                 <a
-                  href="#sitemap"
+                  href={getSectionHref('#sitemap')}
                   className="nav-btn-contact mobile"
                   onClick={() => setMobileMenuOpen(false)}
                 >

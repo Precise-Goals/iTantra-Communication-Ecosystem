@@ -1,4 +1,5 @@
 import React from 'react';
+import { Link, useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
 
 const GITHUB_REPO =
@@ -7,6 +8,16 @@ const APK_URL =
   'https://github.com/Precise-Goals/iTantra-Communication-Ecosystem/releases/download/android-app/iTantra.apk';
 
 export default function Footer() {
+  const location = useLocation();
+  const isHome = location.pathname === '/';
+
+  const resolveHref = (href) => {
+    if (href.startsWith('#')) {
+      return isHome ? href : `/${href}`;
+    }
+    return href;
+  };
+
   const sitemapColumns = [
     {
       title: 'PRODUCTS',
@@ -34,6 +45,7 @@ export default function Footer() {
     {
       title: 'RESOURCES',
       links: [
+        { label: 'Research Paper', href: '/research-paper-article' },
         { label: 'Blogs & Manifesto', href: '#manifesto' },
         { label: 'Events & Demos', href: '#manifesto' },
         { label: 'Customer Stories', href: '#app-preview' },
@@ -75,9 +87,9 @@ export default function Footer() {
         <div className="sarvam-footer-top">
           {/* Left Column: Brand, Tagline, Certifications, Socials, Address */}
           <div className="sarvam-footer-brand-col">
-            <a href="#" className="sarvam-footer-logo">
+            <Link to="/" className="sarvam-footer-logo">
               iTantra.
-            </a>
+            </Link>
             <p className="sarvam-footer-tagline">AI for all from India</p>
 
             {/* Compliance Badges: ISO 27001 & AICPA SOC 2 TYPE 1 */}
@@ -218,18 +230,32 @@ export default function Footer() {
               <div key={idx} className="sarvam-sitemap-col">
                 <h4 className="sarvam-col-title">{col.title}</h4>
                 <ul className="sarvam-col-links">
-                  {col.links.map((link, i) => (
-                    <li key={i}>
-                      <a
-                        href={link.href}
-                        target={link.external ? '_blank' : '_self'}
-                        rel={link.external ? 'noopener noreferrer' : undefined}
-                        className="sarvam-link"
-                      >
-                        {link.label}
-                      </a>
-                    </li>
-                  ))}
+                  {col.links.map((link, i) => {
+                    const targetHref = resolveHref(link.href);
+                    const isInternal =
+                      targetHref.startsWith('/') &&
+                      !link.external &&
+                      !targetHref.startsWith('/#');
+
+                    return (
+                      <li key={i}>
+                        {isInternal ? (
+                          <Link to={targetHref} className="sarvam-link">
+                            {link.label}
+                          </Link>
+                        ) : (
+                          <a
+                            href={targetHref}
+                            target={link.external ? '_blank' : '_self'}
+                            rel={link.external ? 'noopener noreferrer' : undefined}
+                            className="sarvam-link"
+                          >
+                            {link.label}
+                          </a>
+                        )}
+                      </li>
+                    );
+                  })}
                 </ul>
               </div>
             ))}
