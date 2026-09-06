@@ -282,25 +282,49 @@ gives **~17 dBi**. +15 dB = **5.6× range**; on both ends, +30 dB.
 **The core answer to "what extends range to what extent."** Each row assumes everything above
 it is in place.
 
-| Step | Addition | Per hop | End-to-end | Evidence |
-| --- | --- | --- | --- | --- |
-| 0 | **Today** (BT Classic / Wi-Fi Direct) | 10–200 m | **200 m** | ✅ measured |
-| 1 | + A1 BLE Coded PHY | 150–250 m | **250 m** | 📚 cited |
-| 2 | + A8 Wi-Fi cheap wins | 250–300 m | **300 m** | 📐 |
-| 3 | + A2 flood relay (10 hops) | 250 m | **2.5 km** | 🔬 needs density |
-| 4 | + A3/A4 compression + repetition | 350 m | **3.5 km** | 🔬 |
-| 5 | + A6 Wi-Fi SD tier | 400 m–1 km | **4–10 km** | 🔬 **unmeasured** |
-| 6 | + A5 DTN carriers | — | **unbounded** (min–hrs) | 📚 principle |
-| 7 | + F1 kite relay | 2–3 km | **2–3 km single hop** | 📐 |
-| 8 | + F2 foil reflectors | 5–8 km | **5–8 km single hop** | 📐 |
-| 9 | + A7 satellite (2027) | global | **global** | 📚 |
+⚠️ **Read the two right-hand columns before quoting any range figure.** Several rows reach
+kilometres only because other people are standing in between, or because something is holding a
+phone in the air. A range number without its precondition is not a claim you can defend.
+
+| Step | Addition | Per hop | Hops | End-to-end | **Requires beyond 2 phones** | Evidence |
+| --- | --- | --- | --- | --- | --- | --- |
+| 0 | **Today** (BT Classic / Wi-Fi Direct) | 10–200 m | 1 | **200 m** | **nothing** | ✅ measured |
+| 1 | + A1 BLE Coded PHY | 150–250 m | 1 | **250 m** | **nothing** | 📚 cited |
+| 2 | + A8 Wi-Fi cheap wins | 250–300 m | 1 | **300 m** | **nothing** | 📐 |
+| 3 | + A2 flood relay | 250 m | **10** | **2.5 km** | **9 more people** with phones, spaced ≤250 m along the route | 🔬 |
+| 4 | + A3/A4 compression + repetition | 350 m | **10** | **3.5 km** | same 9 people | 🔬 |
+| 5 | + A6 Wi-Fi SD tier | 400 m–1 km | **10** | **4–10 km** | same 9 people | 🔬 **unmeasured** |
+| 6 | + A5 DTN carriers | — | 0 relay | **unbounded** (min–hrs) | **1 person or vehicle travelling the route** | 📚 principle |
+| 7 | + F1 kite relay | 2–3 km | 1 | **2–3 km** | kite/balloon + **a third phone aloft** | 📐 |
+| 8 | + F2 foil reflectors | 5–8 km | 1 | **5–8 km** | kite + 2 foil dishes, **aimed and fixed** | 📐 |
+| 9 | + A7 satellite | global | 1 | **global** | Starlink D2C **service, compatible handset, subscription** — India ~2027 | 📚 |
+
+### The same table, read by what you actually have
+
+This is the more useful direction, and the one to rehearse for questions:
+
+| What you have on hand | Range achievable | Which steps |
+| --- | --- | --- |
+| **2 phones, nothing else** | **300 m** | 0–2 |
+| 2 phones + 1 person walking the route | **unbounded**, minutes–hours latency | 0–2, 6 |
+| **10 phones spread along a 3 km line** | **3.5 km**, near real-time | 0–4 |
+| 2 phones + kite + spare phone | **2–3 km**, single hop | 0–2, 7 |
+| 2 phones + kite + kitchen foil | **5–8 km**, single hop, fixed aim | 0–2, 7–8 |
+| A phone under a D2C constellation | **global** | 9 |
 
 ### Reading this honestly
 
-- **Steps 1–4 are software only, no extra hardware, and reach ~3.5 km** given node density.
-- **Step 6 is what makes 5–10 km robust** in a *sparse* deployment — it trades latency for
-  distance and never fails outright.
-- **Steps 7–8 reach 5–8 km on a single hop** with a kite and kitchen foil.
+- **Only steps 0–2 are truly "two phones and nothing else."** That ceiling is **~300 m**, and no
+  software reaches past it on a single ground-level hop.
+- **Steps 3–5 are not free range — they are range bought with people.** 2.5 km needs ten
+  devices along the route. In an NDRF search line that is a realistic formation; for two
+  isolated users it is unavailable.
+- **Step 6 is the only unbounded option needing no extra devices** — but it requires *motion*.
+  In a fully static, sparse network it adds nothing over the flood mesh.
+- **Steps 7–8 need physical support** — something to hold a phone at height, and dishes aimed
+  and held steady. Excellent for a fixed camp-to-camp link, useless for people moving.
+- **Step 9 depends on infrastructure that does not exist in India yet** (~2027) and on the user
+  having a compatible handset and subscription.
 - 📐 All calculated figures assume genuine line of sight. Expect to keep **60–70%** of
   theoretical gain after imperfect aiming, kite movement, rain and battery-saver throttling.
 - **Step 5 is the largest uncertainty in this table.** It could be the best channel available or

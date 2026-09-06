@@ -295,16 +295,23 @@ Every number traceable to a specific test. Stronger than a bare "10 km."
 
 ## 9. Roadmap
 
-| Phase | Work | Range | Status |
-| --- | --- | --- | --- |
-| 0 | Wi-Fi Direct + BT Classic | 30–200 m | ✅ **Shipping** |
-| 1 | `MeshLink` abstraction | — | 🔨 In progress |
-| 2 | AFSK modem + HDLC framing + CI channel sim | — | 🔨 In progress |
-| 3 | `AfskRadioLink` (AudioRecord/AudioTrack) | **3–6 km** licence-free — *requires a paired handheld* | Planned |
-| 4 | TTL + dedup flood relay | × hop count | Planned |
-| 5 | Payload compression + published codebook | Enables SF/low-SNR margin | Planned |
-| 6 | BLE Coded PHY link | 150–250 m/hop, no extra hardware | Planned |
-| 7 | Room-backed DTN, Spray-and-Wait | Unbounded w/ carriers | Planned |
+⚠️ **Never quote a range from this table without its precondition.** Some figures are reached
+only because other people are relaying, or because hardware is paired. See
+[`RANGE_IMPLEMENTATION.md`](RANGE_IMPLEMENTATION.md) §5 for the full breakdown.
+
+| Phase | Work | Range | **Requires beyond 2 phones** | Status |
+| --- | --- | --- | --- | --- |
+| 0 | Wi-Fi Direct + BT Classic | 30–200 m | **nothing** | ✅ **Shipping** |
+| 1 | `MeshLink` abstraction | — | — | 🔨 In progress |
+| 2 | AFSK modem + HDLC + CI channel sim | — | — | 🔨 In progress |
+| 3 | `AfskRadioLink` (AudioRecord/AudioTrack) | **3–6 km** | a paired handheld + USB-C audio adapter **per node** | Planned |
+| 4 | TTL + dedup flood relay | × hop count | **one device per hop** along the route | Planned |
+| 5 | Payload compression + published codebook | enables repetition | nothing | Planned |
+| 6 | BLE Coded PHY link | 150–250 m/hop | **nothing** | Planned |
+| 7 | Room-backed DTN, Spray-and-Wait | unbounded | **a person or vehicle in motion** | Planned |
+
+**The phone-only, nothing-else ceiling is phases 0 + 6 ≈ 300 m.** Everything past that is bought
+with either people (phase 4), motion (phase 7), or hardware (phase 3).
 
 Phases 1–3 are the demo-critical path: they make the repo match its problem statement.
 
