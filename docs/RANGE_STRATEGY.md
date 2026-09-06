@@ -154,6 +154,29 @@ Both tones (1200 Hz mark / 2200 Hz space) sit inside the 300–3000 Hz voice pas
 radio carries them as if they were speech. **No firmware change, no data port, no modification.
 The radio never knows it is carrying data.**
 
+### Division of labour — read this before answering any range question
+
+**The phone never transmits at 446 MHz. It cannot.** All RF is done by the handheld.
+
+| | Android phone | PMR446 handheld |
+| --- | --- | --- |
+| Role | **The brain** | **The transmitter** |
+| Does | STT, translation, TTS, compression, AFSK modem | All RF: 0.5 W @ 446 MHz |
+| Transmits on | 2.4 GHz only (Wi-Fi ~32 mW, BLE ~6 mW) | 446 MHz |
+| Range contributed | ~200 m | **3–6 km** |
+
+This is not a software limitation that could be lifted. A phone has **no 446 MHz hardware** — no
+antenna cut for that band, no power amplifier, no RF filter — and its baseband firmware is
+locked besides. Even the phone's strongest transmitter (cellular, ~200 mW) is on licensed
+cellular bands and is not reachable from an app.
+
+> **Why the design works:** we never ask the phone to do something it cannot. We ask it to make
+> a *sound*, and let a purpose-built transmitter carry that sound 5 km. The audio cable between
+> them carries audio, not data.
+
+**Consequence:** kilometre-scale range **requires the handheld. It is not optional.** Phone-only
+configurations top out at 150–250 m per hop (§4 Tier 1).
+
 **Why this reuses what we already built:** the modem runs at 16 kHz mono PCM — the exact format
 `AudioCaptureModule` already captures and `AudioPlaybackManager` already plays. A two-tone
 correlator is simpler DSP than the 80-bin mel-spectrogram already shipping in `STTModule`.
@@ -180,8 +203,9 @@ have done it.**
 | 865–868 MHz (SRD) | 25 mW / 500 mW / 2 W ERP by class | SRD Rules, 2021 |
 | 2.4 GHz | Low power | Wi-Fi / BT — what we use today |
 
-📚 **What 0.5 W at 446 MHz actually delivers:** 0.5–2 km urban, **3–6 km open terrain**, with a
-documented 27 km ridge-to-ridge test from high ground.
+📚 **What a 0.5 W handheld at 446 MHz delivers** (the *radio's* range, not the phone's — see §5):
+0.5–2 km urban, **3–6 km open terrain**, with a documented 27 km ridge-to-ridge test from high
+ground.
 
 ### Licensed options
 
@@ -276,7 +300,7 @@ Every number traceable to a specific test. Stronger than a bare "10 km."
 | 0 | Wi-Fi Direct + BT Classic | 30–200 m | ✅ **Shipping** |
 | 1 | `MeshLink` abstraction | — | 🔨 In progress |
 | 2 | AFSK modem + HDLC framing + CI channel sim | — | 🔨 In progress |
-| 3 | `AfskRadioLink` (AudioRecord/AudioTrack) | **3–6 km** licence-free | Planned |
+| 3 | `AfskRadioLink` (AudioRecord/AudioTrack) | **3–6 km** licence-free — *requires a paired handheld* | Planned |
 | 4 | TTL + dedup flood relay | × hop count | Planned |
 | 5 | Payload compression + published codebook | Enables SF/low-SNR margin | Planned |
 | 6 | BLE Coded PHY link | 150–250 m/hop, no extra hardware | Planned |
@@ -292,6 +316,12 @@ Phases 1–3 are the demo-critical path: they make the repo match its problem st
 We claim what we measured. Licence-free 446 MHz gives 3–6 km in open terrain, demonstrated.
 5–10 km requires agency or amateur power levels, validated with a licensed operator and backed
 by a link budget. We separate measured from projected in every figure.
+
+**"Does the phone itself transmit 5 km?"**
+No, and it never could — a phone has no 446 MHz hardware and a locked baseband, and its
+strongest radio is ~32 mW on 2.4 GHz. The phone is the brain: STT, translation, TTS and the
+modem. The handheld does all the RF. We connect them with an audio cable, because the modem's
+output is literally sound. See §5.
 
 **"Isn't this just a walkie-talkie?"**
 A walkie-talkie carries one language, needs 64 kbps of clear audio, and fails in noise. iTantra
