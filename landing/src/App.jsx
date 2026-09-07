@@ -12,6 +12,7 @@ import LanguagesSection from './components/LanguagesSection';
 import Scorecard        from './components/Scorecard';
 import Footer           from './components/Footer';
 import { PreHeroSection } from './components/PreHeroSection';
+import RangeBentoSection from './components/RangeBentoSection';
 import ResearchPaperPage from './pages/ResearchPaperPage';
 
 function LandingPage() {
@@ -34,6 +35,7 @@ function LandingPage() {
       <Marquee />
       <ManifestoSection />
       <AppScreenshots />
+      <RangeBentoSection />
       <LanguagesSection />
       <Scorecard />
     </>

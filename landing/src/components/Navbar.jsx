@@ -31,6 +31,9 @@ export default function Navbar() {
             <a href={getSectionHref('#app-preview')} className="nav-link-item">
               Products
             </a>
+            <a href={getSectionHref('#range-architecture')} className="nav-link-item">
+              Range Architecture
+            </a>
             <a href={getSectionHref('#metrics')} className="nav-link-item">
               Developers
             </a>
@@ -93,6 +96,13 @@ export default function Navbar() {
                 onClick={() => setMobileMenuOpen(false)}
               >
                 Products
+              </a>
+              <a
+                href={getSectionHref('#range-architecture')}
+                className="mobile-nav-item"
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                Range Architecture
               </a>
               <a
                 href={getSectionHref('#metrics')}

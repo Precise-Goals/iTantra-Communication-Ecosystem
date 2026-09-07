@@ -20,6 +20,12 @@ const SCORECARD_DATA = {
     { num: '03', label: 'P2P packet delivery', val: '≈ 25 ms', note: 'Wi-Fi Direct, <10m range' },
     { num: '04', label: 'Alert trigger to playback', val: 'instant', note: 'Bypasses OS audio focus' },
   ],
+  'RANGE & MESH': [
+    { num: '01', label: 'Ground 2-phone baseline', val: '10–200 m', note: 'Wi-Fi Direct + BT RFCOMM, hardware-verified' },
+    { num: '02', label: '10-Node flood relay (A1+A2)', val: '2.5 km', note: 'BLE Coded PHY + 100–500ms random jitter' },
+    { num: '03', label: 'Codebook frame compression', val: '60 Bytes', note: '50–300 B → 60 B, 4096-entry disaster corpus' },
+    { num: '04', label: 'DTN physical carrier range', val: 'Unbounded', note: 'Spray-and-Wait 8 copies; 600 KB for 10k bundles' },
+  ],
   'E2E DELTA': [
     { num: '01', label: 'Voice to voice (full pipeline)', val: '≈ 240 ms', note: 'Sentence spoken → voice note playing' },
     { num: '02', label: 'Best case (short utterance)', val: '≈ 180 ms', note: '< 5 words, English' },
@@ -45,8 +51,8 @@ const rowVariants = {
 };
 
 export default function Scorecard() {
-  const tabs = ['EFFICIENCY', 'ACCURACY', 'LATENCY', 'E2E DELTA'];
-  const weights = { 'EFFICIENCY': '20%', 'ACCURACY': '48%', 'LATENCY': '20%', 'E2E DELTA': '--' };
+  const tabs = ['EFFICIENCY', 'ACCURACY', 'LATENCY', 'RANGE & MESH', 'E2E DELTA'];
+  const weights = { 'EFFICIENCY': '20%', 'ACCURACY': '40%', 'LATENCY': '20%', 'RANGE & MESH': '20%', 'E2E DELTA': '--' };
   const [active, setActive] = useState('ACCURACY');
 
   return (

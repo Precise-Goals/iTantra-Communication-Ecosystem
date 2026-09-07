@@ -5,10 +5,11 @@ import { ScrollTrigger } from 'gsap/ScrollTrigger';
 gsap.registerPlugin(ScrollTrigger);
 
 const STATS = [
-  { end: 10,    suffix: '',      label: 'INDIAN LANGUAGES' },
-  { end: 12,    suffix: ' MB',   label: 'PER STT MODEL', red: true },
-  { end: 0,     suffix: '',      label: 'INTERNET REQUIRED', red: true },
-  { end: 240,   suffix: ' ms',   label: 'VOICE TO VOICE' },
+  { end: 200,  label: 'VERIFIED 2-PHONE BASE', display: '200 m' },
+  { end: 2500, label: '10-NODE FLOOD MESH',   display: '2.5 km' },
+  { end: 10,   label: 'INDIAN LANGUAGES',      display: '10' },
+  { end: 12,   label: 'PER STT MODEL',         display: '<12 MB', red: true },
+  { end: 0,    label: 'INTERNET REQUIRED',     display: '0',      red: true },
 ];
 
 export default function StatsStrip() {
@@ -25,7 +26,7 @@ export default function StatsStrip() {
         { val: 0 },
         {
           val: stat.end,
-          duration: 1.8,
+          duration: 1.6,
           ease: 'power2.out',
           scrollTrigger: {
             trigger: el,
@@ -33,16 +34,21 @@ export default function StatsStrip() {
             once: true,
           },
           onUpdate: () => {
-            el.textContent =
-              (stat.end < 1 ? '' : stat.end === 0 ? '0' : Math.round(obj.val)) +
-              (i === 1 ? '<' : i === 0 ? '' : i === 3 ? '≈' : '') + stat.suffix;
+            if (i === 0) {
+              el.textContent = Math.round(obj.val) + ' m';
+            } else if (i === 1) {
+              const km = (obj.val / 1000).toFixed(1);
+              el.textContent = km + ' km';
+            } else if (i === 2) {
+              el.textContent = String(Math.round(obj.val));
+            } else if (i === 3) {
+              el.textContent = '<' + Math.round(obj.val) + ' MB';
+            } else if (i === 4) {
+              el.textContent = '0';
+            }
           },
           onComplete: () => {
-            // Set final display value
-            if (i === 0) el.textContent = '10';
-            else if (i === 1) el.textContent = '<12 MB';
-            else if (i === 2) el.textContent = '0';
-            else if (i === 3) el.textContent = '≈240 ms';
+            el.textContent = stat.display;
           },
         }
       );
@@ -58,7 +64,7 @@ export default function StatsStrip() {
             className="stat-val"
             ref={el => (numRefs.current[i] = el)}
           >
-            {i === 1 ? '<12 MB' : i === 3 ? '≈240 ms' : String(s.end)}
+            {s.display}
           </div>
           <div className={`stat-label${s.red ? ' stat-red' : ''}`}>{s.label}</div>
         </div>

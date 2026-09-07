@@ -1635,3 +1635,633 @@ h1.herotxt::after {
   }
 }
 
+/* ─────────────────────────────
+   RANGE BENTO GRID & GAP ANALYSIS
+   Design: Minimalistic Light Bento
+───────────────────────────── */
+.range-bento-section {
+  padding: 100px 0;
+  background: #f8f9fa;
+  border-bottom: 1px solid #e5e5e5;
+}
+
+.range-bento-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  margin-bottom: 48px;
+  gap: 40px;
+}
+
+.section-label-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+
+.section-label-row .section-label {
+  margin-bottom: 0;
+}
+
+.live-audit-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  color: #15803d;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  padding: 3px 10px;
+  border-radius: 9999px;
+}
+
+.audit-dot {
+  width: 6px;
+  height: 6px;
+  background: #16a34a;
+  border-radius: 50%;
+  display: inline-block;
+  animation: pulse-green 2s infinite ease-in-out;
+}
+
+@keyframes pulse-green {
+  0% { transform: scale(0.9); opacity: 0.8; }
+  50% { transform: scale(1.3); opacity: 1; }
+  100% { transform: scale(0.9); opacity: 0.8; }
+}
+
+.range-heading {
+  margin-bottom: 0;
+  font-size: clamp(30px, 3.2vw, 48px);
+}
+
+.range-header-desc {
+  max-width: 440px;
+  font-size: 15px;
+  color: #555555;
+  line-height: 1.6;
+}
+
+/* 12-Column Responsive Bento Grid */
+.range-bento-grid {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 24px;
+}
+
+.bento-card {
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 20px;
+  padding: 32px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.03);
+  transition: all 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+  display: flex;
+  flex-direction: column;
+}
+
+.bento-card:hover {
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.06);
+  border-color: #d1d5db;
+}
+
+.bento-hero-card {
+  grid-column: span 8;
+}
+
+.bento-fresnel-card {
+  grid-column: span 4;
+}
+
+.bento-audit-card {
+  grid-column: span 6;
+}
+
+.bento-diet-card {
+  grid-column: span 6;
+}
+
+.bento-roadmap-card {
+  grid-column: span 12;
+}
+
+.card-top-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  gap: 12px;
+}
+
+.bento-card-category {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  color: #6b7280;
+}
+
+.evidence-tag {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  padding: 4px 10px;
+  border-radius: 9999px;
+  border: 1px solid transparent;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.interactive-selector-wrapper {
+  margin-bottom: 24px;
+}
+
+.selector-title {
+  display: block;
+  font-size: 10px;
+  font-weight: 700;
+  color: #9ca3af;
+  margin-bottom: 10px;
+  letter-spacing: 1px;
+}
+
+.scenario-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.scenario-pill {
+  background: #f3f4f6;
+  color: #374151;
+  border: 1px solid transparent;
+  padding: 7px 14px;
+  border-radius: 9999px;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.scenario-pill:hover {
+  background: #e5e7eb;
+  color: #111827;
+}
+
+.scenario-pill.active {
+  background: #111827;
+  color: #ffffff;
+  border-color: #111827;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.scenario-display-box {
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 16px;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+}
+
+.scenario-display-main {
+  display: grid;
+  grid-template-columns: 1.1fr 1.9fr;
+  gap: 24px;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.scenario-reach-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.scenario-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: #9ca3af;
+  letter-spacing: 1.5px;
+  margin-bottom: 4px;
+}
+
+.scenario-reach-val {
+  font-family: var(--font-display);
+  font-size: clamp(30px, 3.2vw, 42px);
+  font-weight: 800;
+  color: #111827;
+  line-height: 1.05;
+}
+
+.scenario-submultiplier {
+  font-size: 11px;
+  font-weight: 700;
+  color: #2563eb;
+  margin-top: 6px;
+  letter-spacing: 0.5px;
+}
+
+.scenario-telemetry-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 14px;
+}
+
+.telemetry-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.t-label {
+  font-size: 9.5px;
+  font-weight: 700;
+  color: #9ca3af;
+  letter-spacing: 1px;
+}
+
+.t-val {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #1f2937;
+}
+
+.t-channel {
+  color: #2563eb;
+}
+
+.range-bar-wrapper {
+  margin-bottom: 20px;
+}
+
+.range-bar-track {
+  width: 100%;
+  height: 7px;
+  background: #e5e7eb;
+  border-radius: 99px;
+  overflow: hidden;
+}
+
+.range-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #16a34a, #2563eb, #7c3aed);
+  border-radius: 99px;
+}
+
+.range-bar-scale {
+  display: flex;
+  justify-content: space-between;
+  font-size: 9.5px;
+  color: #9ca3af;
+  margin-top: 6px;
+}
+
+.scenario-footer-callout {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-left: 3px solid #111827;
+  border-radius: 10px;
+  padding: 12px 16px;
+  font-size: 13px;
+  color: #374151;
+  line-height: 1.5;
+}
+
+.callout-icon {
+  color: #111827;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.callout-sub {
+  font-size: 12px;
+  color: #6b7280;
+  margin-top: 4px;
+}
+
+.bento-card-title {
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 800;
+  color: #111827;
+  margin-bottom: 8px;
+  letter-spacing: -0.3px;
+}
+
+.bento-card-desc {
+  font-size: 13.5px;
+  color: #4b5563;
+  line-height: 1.55;
+  margin-bottom: 20px;
+}
+
+.fresnel-abstract-container {
+  background: #f9fafb;
+  border: 1px solid #f3f4f6;
+  border-radius: 14px;
+  padding: 16px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.fresnel-svg {
+  width: 100%;
+  height: auto;
+  max-height: 140px;
+}
+
+.physics-formula-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.formula-pill {
+  background: #f3f4f6;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 11px;
+  color: #1f2937;
+}
+
+.formula-sym {
+  font-weight: 800;
+  color: #2563eb;
+}
+
+.audit-toggle-btns {
+  display: flex;
+  background: #f3f4f6;
+  border-radius: 9999px;
+  padding: 2px;
+}
+
+.audit-tab-btn {
+  border: none;
+  background: transparent;
+  padding: 4px 10px;
+  font-size: 10.5px;
+  font-weight: 600;
+  border-radius: 9999px;
+  color: #6b7280;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.audit-tab-btn.active {
+  background: #ffffff;
+  color: #111827;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+}
+
+.code-audit-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.audit-item {
+  border: 1px solid #f3f4f6;
+  background: #f9fafb;
+  border-radius: 12px;
+  padding: 14px 16px;
+  transition: border-color 0.15s ease;
+}
+
+.audit-item:hover {
+  border-color: #e5e7eb;
+}
+
+.audit-item.gap-item {
+  border-left: 3px solid #7c3aed;
+}
+
+.audit-item-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.audit-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: #111827;
+}
+
+.audit-range {
+  font-size: 11px;
+  font-weight: 700;
+  color: #16a34a;
+  background: rgba(22, 163, 74, 0.08);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.audit-gain {
+  font-size: 11px;
+  font-weight: 700;
+  color: #7c3aed;
+  background: rgba(124, 58, 237, 0.08);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.audit-file {
+  font-size: 11px;
+  color: #6b7280;
+  margin-bottom: 4px;
+}
+
+.audit-desc {
+  font-size: 12.5px;
+  color: #4b5563;
+  line-height: 1.45;
+}
+
+.diet-comparison-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.diet-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.diet-row-header {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  font-weight: 700;
+  color: #6b7280;
+}
+
+.diet-val-raw {
+  color: #ef4444;
+}
+
+.diet-val-opt {
+  color: #16a34a;
+}
+
+.diet-bar-track {
+  width: 100%;
+  height: 8px;
+  background: #f3f4f6;
+  border-radius: 99px;
+  overflow: hidden;
+}
+
+.diet-bar-fill.raw {
+  height: 100%;
+  background: #ef4444;
+  border-radius: 99px;
+}
+
+.diet-bar-fill.opt {
+  height: 100%;
+  background: #16a34a;
+  border-radius: 99px;
+}
+
+.diet-notes {
+  font-size: 10px;
+  color: #9ca3af;
+}
+
+.repetition-box {
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 12px;
+  padding: 14px 16px;
+}
+
+.rep-stat {
+  font-size: 11.5px;
+  font-weight: 800;
+  color: #15803d;
+  margin-bottom: 4px;
+}
+
+.rep-desc {
+  font-size: 12.5px;
+  color: #166534;
+  line-height: 1.45;
+}
+
+.rep-desc code {
+  font-weight: 700;
+  background: rgba(22, 163, 74, 0.12);
+  padding: 1px 4px;
+  border-radius: 4px;
+}
+
+.phases-flow-grid {
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.phase-card {
+  flex: 1;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+}
+
+.phase-badge {
+  font-size: 9.5px;
+  font-weight: 800;
+  color: #2563eb;
+  letter-spacing: 1px;
+  margin-bottom: 8px;
+}
+
+.phase-title {
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 800;
+  color: #111827;
+  margin-bottom: 6px;
+  letter-spacing: -0.2px;
+}
+
+.phase-desc {
+  font-size: 12.5px;
+  color: #4b5563;
+  line-height: 1.45;
+  flex: 1;
+  margin-bottom: 12px;
+}
+
+.phase-result {
+  font-size: 11px;
+  font-weight: 700;
+  color: #111827;
+  border-top: 1px solid #e5e7eb;
+  padding-top: 8px;
+}
+
+.phase-arrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #9ca3af;
+}
+
+@media (max-width: 1080px) {
+  .bento-hero-card {
+    grid-column: span 12;
+  }
+  .bento-fresnel-card {
+    grid-column: span 12;
+  }
+  .bento-audit-card {
+    grid-column: span 12;
+  }
+  .bento-diet-card {
+    grid-column: span 12;
+  }
+  .phases-flow-grid {
+    flex-direction: column;
+  }
+  .phase-arrow {
+    transform: rotate(90deg);
+    padding: 6px 0;
+  }
+}
+
+@media (max-width: 768px) {
+  .range-bento-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 16px;
+  }
+  .scenario-display-main {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+  .bento-card {
+    padding: 20px;
+  }
+}
+
+
