@@ -56,24 +56,53 @@ These are requirements in the PS text. Failing one can disqualify you regardless
 
 ---
 
-## 3. Closing the TTS gap is a download-manifest change, not a research project
+## 3. Closing the TTS gap is a conversion job, not a URL change
 
-This is the best news in the plan. The sherpa-onnx `tts-models` release ships Meta **MMS-TTS VITS voices converted to ONNX** for exactly the five missing languages — Marathi (`mar`), Kannada (`kan`), Tamil (`tam`), Telugu (`tel`), Odia (`ory`) — in precisely the `model.onnx` + `tokens.txt` layout that `TTSModule.getOrLoadTts()` already consumes.
+> **Corrected 2026-09-21.** An earlier draft of this section claimed the five missing voices could be added by pasting URLs from the sherpa-onnx `tts-models` release. **That was wrong.** The release was queried directly: of its 645 assets, the only MMS voice is `vits-mms-eng.tar.bz2`. There is no `mar`, `kan`, `tam`, `tel` or `ory`. The comments already in `ModelRegistry.kt` lines 19–25 were correct.
 
-Sources: [sherpa-onnx TTS model index](https://k2-fsa.github.io/sherpa/onnx/tts/all/) · [sherpa-onnx MMS documentation](https://k2-fsa.github.io/sherpa/onnx/tts/mms.html) · [sherpa-onnx VITS pretrained models](https://k2-fsa.github.io/sherpa/onnx/tts/pretrained_models/vits.html)
+What actually exists in that release for Indic languages:
 
-**What this means in practice:** `ModelRegistry` currently has five stub entries with `fileName = ""`, `downloadUrl = ""`, `sizeBytes = 0L`. Fill them in, add the language codes to `TTSModule.LANGUAGE_TO_PACK`, and you go from 5/10 to 10/10. No training, no export pipeline, no new inference code.
+| Language | Prebuilt voice available |
+| --- | --- |
+| Hindi | Yes — `vits-piper-hi_IN-*` (3 speakers) |
+| Malayalam | Yes — `vits-piper-ml_IN-*` (2 speakers) |
+| Gujarati | Yes — `vits-mimic3-gu_IN-cmu-indic_low` |
+| Bengali | Yes — `vits-coqui-bn-custom_female` |
+| English | Yes — many |
+| **Marathi, Kannada, Tamil, Telugu, Odia** | **No. None.** |
 
-### One licensing caveat you must handle
+### The real path
 
-MMS-TTS is released under **CC-BY-NC 4.0 — non-commercial**. It is open-source and satisfies the "no proprietary SDK" restriction, but the NC clause is a real term. Two options:
+Upstream checkpoints exist as `facebook/mms-tts-{mar,kan,tam,tel,ory}`, and sherpa-onnx documents an official conversion script. So the work is:
 
-1. **Use MMS now, declare it plainly** in your compliance table as CC-BY-NC 4.0, non-commercial research use. Fast, honest, and defensible for a hackathon. A judge who notices will respect the disclosure far more than a silent omission.
-2. **Migrate to [AI4Bharat Indic-TTS](https://github.com/AI4Bharat/Indic-TTS)** (13 Indian languages) or [IndicF5](https://github.com/AI4Bharat/IndicF5) (11 languages) for a cleaner licence and better Indic prosody. This needs an ONNX export step, so it is a week, not a day.
+1. Convert each of the five with sherpa-onnx's [MMS conversion procedure](https://k2-fsa.github.io/sherpa/onnx/tts/mms.html).
+2. Package each as a `.tar.bz2` mirroring an existing voice's layout.
+3. Host them (your own Hugging Face repo is fine) and record real sizes and hashes.
+4. Point `ModelRegistry` at your host, not at `k2-fsa`.
 
-**Recommendation: do (1) this sprint to reach 10/10, and treat (2) as a stretch goal.** Shipping ten mediocre voices scores far better than five good ones, because the rubric multiplies across languages. Quality per voice is a tiebreaker; coverage is a gate.
+**Effort: ~2 days, not 1.** Step-by-step detail is in [`IMPLEMENTATION_SPEC.md`](IMPLEMENTATION_SPEC.md) T17b.
 
-For Odia STT, check whether AI4Bharat publishes an IndicConformer Odia checkpoint; if not, say so explicitly in your submission rather than leaving a silent hole.
+### A verified size win you get for free
+
+The release also publishes **int8 variants of every Piper voice**, which the registry is not using. Confirmed sizes:
+
+| Voice | Current | int8 | Saving |
+| --- | --- | --- | --- |
+| Hindi pratham | 67.2 MB | 21.0 MB | 46.2 MB |
+| Malayalam arjun | 67.2 MB | 20.8 MB | 46.4 MB |
+| English lessac | 67.1 MB | 21.1 MB | 46.0 MB |
+
+**138.6 MB saved by changing three strings.** Gujarati and Bengali have no int8 variant. See `IMPLEMENTATION_SPEC.md` T17a.
+
+### Licensing
+
+MMS-TTS is **CC-BY-NC 4.0 — non-commercial**. It is open-source and satisfies the "no proprietary SDK" restriction, but the NC clause is a real term: declare it in your compliance table rather than letting a judge find it. If you want a cleaner licence and better Indic prosody, [AI4Bharat Indic-TTS](https://github.com/AI4Bharat/Indic-TTS) (13 languages) or [IndicF5](https://github.com/AI4Bharat/IndicF5) (11 languages) are the alternatives — both also need an export step, so budget a week rather than two days.
+
+**Recommendation: convert MMS now to reach 10/10, treat AI4Bharat as a stretch goal.** Ten adequate voices score better than five good ones — coverage is a gate, per-voice quality is a tiebreaker.
+
+### Odia STT
+
+Already investigated and correctly documented in `ModelRegistry.kt`: the source repo has no Odia model, only Assamese (`as/`). Do not substitute it. State 9/10 with the reason in the submission.
 
 ---
 

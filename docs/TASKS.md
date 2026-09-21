@@ -14,12 +14,14 @@
 | --- | --- | --- | --- |
 | 0 | Stop work / clear the decks | 4 | 0 / 4 |
 | 1 | Make it fast, make it measurable | 12 | 0 / 12 |
-| 2 | Close the language gap | 6 | 0 / 6 |
+| 2 | Close the language gap | 7 | 0 / 7 |
 | 3 | Accuracy — the 40% week | 14 | 0 / 14 |
 | 4 | PS compliance + remaining latency | 11 | 0 / 11 |
 | 5 | Quality and headroom | 8 | 0 / 8 |
 | 6 | The dossier | 6 | 0 / 6 |
-| — | **Total** | **61** | **0 / 61** |
+| — | **Total** | **62** | **0 / 62** |
+
+> **Code-level specs** for the most error-prone tasks — exact before/after text, verify commands and explicit guardrails — are in [`IMPLEMENTATION_SPEC.md`](IMPLEMENTATION_SPEC.md). Hand that file to any agent doing the edits.
 
 ---
 
@@ -111,17 +113,21 @@ Nothing after this week can be evaluated until this week lands.
 
 The PS mandates 10 languages. You ship 9 STT and 5 TTS.
 
-- [ ] **T17 · Fill the five TTS stubs in `ModelRegistry`** — *G · ACC/REQ · 1d*
-  `core/download/ModelRegistry.kt` — `TTS_MARATHI`, `TTS_KANNADA`, `TTS_TAMIL`, `TTS_TELUGU`, `TTS_ODIA` currently have `fileName=""`, `downloadUrl=""`, `sizeBytes=0L`. Fill from the sherpa-onnx `tts-models` release (MMS VITS ONNX, already in the `model.onnx` + `tokens.txt` layout `TTSModule` loads).
-  **Done when:** all five download, verify, and extract.
+- [ ] **T17a · Swap the three Piper voices to int8** — *G · EFF · 2h*
+  `core/download/ModelRegistry.kt`. The release publishes `-int8.tar.bz2` variants the registry isn't using: Hindi 67.2→21.0 MB, Malayalam 67.2→20.8 MB, English 67.1→21.1 MB. **Verified saving: 138.6 MB for three string changes.** Must update `sizeBytes` and `sha256` too — the old hash belongs to the old file. Gujarati and Bengali have no int8 variant.
+  **Done when:** all three re-download, verify and synthesize. Spec: `IMPLEMENTATION_SPEC.md` T17a.
+
+- [ ] **T17b · Convert the five missing TTS voices from MMS** — *G · ACC/REQ · 2d*
+  ⚠️ **These do not exist as prebuilt downloads.** The sherpa-onnx release was queried directly: of 645 assets the only MMS voice is `vits-mms-eng`. You must convert `facebook/mms-tts-{mar,kan,tam,tel,ory}` yourself using sherpa-onnx's documented script, package as `.tar.bz2`, host them, and point `ModelRegistry` at your host.
+  **Done when:** all five download, extract and synthesize. Spec: `IMPLEMENTATION_SPEC.md` T17b.
 
 - [ ] **T18 · Register the five codes in `TTSModule`** — *G · ACC/REQ · 1h*
-  `LANGUAGE_TO_PACK` map: `mr`, `kn`, `ta`, `te`, `or`.
+  `LANGUAGE_TO_PACK` map: `mr`, `kn`, `ta`, `te`, `or`. Depends on T17b.
   **Done when:** `synthesize()` returns audio for all 10 languages.
 
-- [ ] **T19 · Source or document Odia STT** — *G · REQ · 4h*
-  No Odia IndicConformer entry exists in `ModelRegistry`. Find a checkpoint, or state the gap explicitly in the submission.
-  **Done when:** 10/10 STT, or a written reason for 9/10.
+- [ ] **T19 · Document the Odia STT gap** — *G · REQ · 2h*
+  Already investigated: `ModelRegistry.kt` lines 118–119 record that the source repo has no Odia model, only Assamese (`as/`). Do **not** substitute it. Either find another checkpoint or state 9/10 with the reason.
+  **Done when:** the submission states the position explicitly.
 
 - [ ] **T20 · Rework `coreTransceiverPacks()` to one language pair** — *G · EFF · 4h*
   `domain/model/ModelManifest.kt` — currently forces all 17 packs (2.18 GB). Make the compulsory set VAD + espeak-ng + the chosen pair.
