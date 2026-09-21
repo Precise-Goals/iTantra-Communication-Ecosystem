@@ -174,7 +174,7 @@ Two fixes, both worth arguing on stage:
 
 ### 5.4 Idle listening CPU
 
-`initializeModules()` calls `startCapture()` at service start and it is never stopped, so idle listening means a permanent `AudioRecord` loop, the energy VAD, and a permanently held wake lock.
+`initializeModules()` starts capture only when `connectionMode == PHONE_MODE`; the default is `PUSH_TO_TALK`, so nothing runs at boot. But "CPU usage during idle listening" is exactly the PHONE_MODE case, and there capture never stops: a permanent `AudioRecord` loop, the energy VAD, and a permanently held wake lock. (See §7.7 — PHONE_MODE is currently unreachable from the UI, which is a separate problem.)
 
 The arithmetic is cheap; the overheads are not:
 
@@ -244,6 +244,16 @@ The README describes an "adaptive, field-tested energy-based detector". The code
 ### 7.6 The README's core-bundle size is wrong
 
 Stated as "~169 MB"; actually ~2.18 GB (§5.2). Correct this before judging.
+
+### 7.7 Phone mode is unreachable
+
+`ConnectionMode.PHONE_MODE` exists in `AppState.kt` and `ITantraForegroundService.setConnectionMode()` handles it, but `setConnectionMode` is **never called from anywhere in `ui/`**. The app is permanently in `PUSH_TO_TALK`.
+
+The problem statement requires the opposite behaviour explicitly: *"it should work like a walkie talkie using push to talk feature, if turned off it should work like a phone."* This is a hard requirement, not a scored point. Wiring the toggle is small — the service side already exists.
+
+### 7.8 Concurrent messages produce overlapping audio
+
+`AudioPlaybackManager.play()` launches a fresh coroutine and builds a new `AudioTrack` on every call, with no queue and no mutex. Two messages arriving close together play simultaneously and garble each other. For a walkie-talkie under realistic traffic this is a visible defect. Add a single-consumer playback queue, with ALERT messages able to pre-empt the queue head.
 
 ---
 
