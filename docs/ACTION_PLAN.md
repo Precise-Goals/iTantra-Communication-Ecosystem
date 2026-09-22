@@ -1,9 +1,21 @@
 # iTantra — Action Plan to Compete for a Top-5 Placement
 
 > Smart India Hackathon 2026 · Problem Statement PS-26173
-> As of 2026-09-21 · Companion to [`IMPROVEMENT_PLAN.md`](IMPROVEMENT_PLAN.md), which is the technical audit
+> As of 2026-09-22
 >
 > **Assumption:** ~6 working weeks and two people (Gaurav on engine, Sarthak on shell). If the real window is shorter, cut from the bottom of §7 — the order is already by value.
+
+### The document set
+
+| Document | What it is | When to open it |
+| --- | --- | --- |
+| [`IMPROVEMENT_PLAN.md`](IMPROVEMENT_PLAN.md) | Technical audit — what is wrong and why | Understanding a finding |
+| **This file** | Strategy, scorecard, six-week plan | Planning and prioritising |
+| [`TASKS.md`](TASKS.md) | 62 tickable tasks, T01–T61 | Daily execution and tracking |
+| [`IMPLEMENTATION_SPEC.md`](IMPLEMENTATION_SPEC.md) | Code-level detail, part 1 | Hand to whoever writes the code |
+| [`IMPLEMENTATION_SPEC_2.md`](IMPLEMENTATION_SPEC_2.md) | Code-level detail, part 2 | Same |
+
+Task IDs (T01–T61) are the shared key across all five. **Never hand `TASKS.md` to a coding agent on its own** — the one-line summaries are for humans; the specs carry the exact anchors that stop a model inventing code.
 
 ---
 
@@ -43,8 +55,8 @@ These are requirements in the PS text. Failing one can disqualify you regardless
 
 | PS requirement | Status | Fix cost |
 | --- | --- | --- |
-| STT for 10 languages | **9/10** — Odia missing | ~1 day |
-| TTS for 10 languages | **5/10** — Marathi, Kannada, Tamil, Telugu, Odia missing | ~1–2 days (see §3) |
+| STT for 10 languages | **9/10** — no Odia model exists upstream; investigated and documented | Cannot be closed with current sources — declare it |
+| TTS for 10 languages | **5/10** — Marathi, Kannada, Tamil, Telugu, Odia missing | **~2 days** — conversion job, not a URL change (see §3) |
 | "if turned off it should work like a phone" | **Unreachable** — `PHONE_MODE` exists in the service, never called from the UI | ~1 day |
 | Alert messages "non-interruptible", highest volume | Mostly done (`USAGE_ALARM`, `FLAG_AUDIBILITY_ENFORCED`, max volume, `AUDIOFOCUS_GAIN`) | ~2 hours to harden |
 | Voice notes must not overlap | **Broken** — no playback queue, concurrent messages garble | ~0.5 day |
@@ -173,70 +185,80 @@ Each week ends with a measurement run. No week is complete until the scorecard i
 
 The point of week 1 is that **every subsequent week can be evaluated.**
 
-| Task | Owner | Ref |
-| --- | --- | --- |
-| Radix-2 FFT-512 + precomputed sparse filterbank + pooled buffers | Gaurav | IMPROVEMENT_PLAN §2 |
-| Timing instrumentation: `captureEnd`/`featureDone`/`inferDone`/`tx`/`rx`/`ttsDone`/`firstAudioFrame`, CSV to `filesDir` | Gaurav | §6 |
-| RTF computed and logged per utterance, split feature vs inference | Gaurav | §6 |
-| Delete `resampleTo16k`, play at native 22050 Hz | Gaurav | §3.5 |
-| ABI split to arm64-v8a; drop duplicate ONNX Runtime; exclude llama.cpp from judged build | Sarthak | §5.1 |
-| Acquire the target budget phone; take the first full baseline | Both | §5 |
+| Task | Owner | Effort | Spec |
+| --- | --- | --- | --- |
+| **T05–T07** Radix-2 FFT-512 + precomputed sparse filterbank + pooled buffers | Gaurav | 1d | SPEC T05 |
+| **T08–T10, T12** Telemetry object, send/receive stamping, RTF, CSV to `filesDir` | Gaurav | 1d | SPEC2 T08 |
+| **T11** Peer clock offset from the ping loop, for the cross-device number | Gaurav | 2h | SPEC2 T11 |
+| **T13** Delete `resampleTo16k`, play at native 22050 Hz | Gaurav | 1h | SPEC T13 |
+| **T02, T14, T15** ABI split to arm64-v8a; drop duplicate ONNX Runtime; exclude llama.cpp | Sarthak | 6h | SPEC T14 |
+| **T03, T16** Acquire the budget phone; take the first full baseline | Both | 4h | SPEC2 T56 |
 
 **Exit criteria:** RTF measured and below 0.5. APK under 80 MB. A CSV with real rows in it.
 
+> **Do T08–T12 before or alongside T05.** If you optimise first and instrument second, you have no "before" column and the 43.6× result becomes an assertion rather than a measurement.
+
 ### Week 2 — Close the language gap
 
-| Task | Owner | Ref |
-| --- | --- | --- |
-| Fill the five `ModelRegistry` stubs with sherpa-onnx MMS voice URLs, hashes, sizes | Gaurav | §3 |
-| Register the five codes in `TTSModule.LANGUAGE_TO_PACK` | Gaurav | §3 |
-| Source or document the Odia STT checkpoint | Gaurav | §2 |
-| Rework `coreTransceiverPacks()` to a chosen language pair, not all nine | Gaurav | IMPROVEMENT_PLAN §5.2 |
-| Downloads screen: per-language selection, honest size display | Sarthak | §5.2 |
-| Licence table in the README covering MMS CC-BY-NC | Sarthak | §3 |
+| Task | Owner | Effort | Spec |
+| --- | --- | --- | --- |
+| **T17a** Swap the three Piper voices to their int8 variants — 138.6 MB saved | Gaurav | 2h | SPEC T17a |
+| **T17b** Convert Marathi/Kannada/Tamil/Telugu/Odia from `facebook/mms-tts-*`, package, host, register — **these are not downloadable; you must convert them** | Gaurav | 2d | SPEC T17b |
+| **T18** Register the five codes in `TTSModule.LANGUAGE_TO_PACK` | Gaurav | 1h | SPEC T17b |
+| **T19** Document the Odia STT gap — already investigated, no model exists upstream. Do not substitute Assamese | Gaurav | 2h | §3 |
+| **T20** Rework `coreTransceiverPacks()` to a chosen language pair, not all nine | Gaurav | 4h | SPEC2 T20 |
+| **T21** Downloads screen: per-language selection, sizes computed from `ModelRegistry` | Sarthak | 1d | SPEC2 T21 |
+| **T22** Licence table in the README, including MMS CC-BY-NC | Sarthak | 3h | SPEC2 T22 |
 
-**Exit criteria:** 10/10 TTS, 10/10 STT or a documented reason. Bundle for one pair under 250 MB.
+**Exit criteria:** 10/10 TTS, 9/10 STT with the Odia gap documented. Bundle for one pair under 250 MB.
 
 ### Week 3 — Accuracy
 
 This is the 40% week. Treat it as the most important one.
 
-| Task | Owner | Ref |
-| --- | --- | --- |
-| Extract `cfg.preprocessor` from the NeMo checkpoint; match preemphasis, slaney norm, n_fft, centering, window | Gaurav | IMPROVEMENT_PLAN §3.1 |
-| Golden-reference test: NeMo features in Python vs Kotlin output, assert to 1e-3 | Gaurav | §3.1 |
-| WER harness over a public Indic test set, per language, CSV out | Gaurav | §5 |
-| VAD pre-roll ring buffer + adaptive noise floor + hysteresis | Gaurav | §3.3 |
-| Switch to `VOICE_RECOGNITION` audio source | Gaurav | §3.4 |
-| Text normalization before TTS: numbers, abbreviations, Latin tokens | Sarthak | §3.6 |
+| Task | Owner | Effort | Spec |
+| --- | --- | --- | --- |
+| **T23** Extract `cfg.preprocessor` from the NeMo checkpoint — the config wins over any table in these docs | Gaurav | 4h | SPEC2 T23 🔬 |
+| **T24–T28** Apply preemphasis, Slaney norm, n_fft 512, periodic Hann, log guard | Gaurav | 6h | SPEC T24 |
+| **T29** Golden-reference test: NeMo features in Python vs Kotlin, assert to 1e-3 | Gaurav | 1d | SPEC2 T29 🔬 |
+| **T30** WER harness over a public Indic test set, per language, CSV out | Gaurav | 1d | SPEC2 T30 🔬 |
+| **T31, T32** VAD pre-roll ring buffer + adaptive noise floor with hysteresis | Gaurav | 1d | SPEC T31 · SPEC2 T32 |
+| **T33, T34** `VOICE_RECOGNITION` source, DC blocker, platform NS/AGC | Gaurav | 4h | SPEC2 T33 |
+| **T35** Text normalization before TTS: numbers, abbreviations, Latin tokens | Sarthak | 1d | — |
+| **T36** Re-measure WER after the above; record the delta | Gaurav | 3h | SPEC2 T30 |
 
 **Exit criteria:** WER measured per language and within 3 points of published. Golden test green in CI.
 
+> **T23 before T24–T28.** The parameter table in `IMPROVEMENT_PLAN.md` §3.1 lists NeMo *defaults*; this checkpoint may override them. Read the real config first and let it win.
+
 ### Week 4 — PS compliance and the remaining latency
 
-| Task | Owner | Ref |
-| --- | --- | --- |
-| Wire `setConnectionMode` to a UI toggle; PTT off = phone mode | Sarthak | §7.7 |
-| Single-consumer playback queue; ALERT pre-empts | Gaurav | §7.8 |
-| Streaming TTS on sentence/clause boundaries | Gaurav | §4.3 |
-| Adaptive endpointing to replace the fixed 800 ms | Gaurav | §4.1 |
-| Honour `message.dstLang`; softmax the confidence score | Gaurav | §7.1, §7.4 |
-| Warm the configured language pair at service start | Gaurav | §4.4 |
-| LRU model cache; RAM metric switched to total PSS | Gaurav | §5.3 |
+| Task | Owner | Effort | Spec |
+| --- | --- | --- | --- |
+| **T37** Wire `setConnectionMode` to a UI toggle; PTT off = phone mode | Sarthak | 1d | SPEC T37 🎨 |
+| **T38, T39** Single-consumer playback queue; ALERT pre-empts and cannot be ducked | Gaurav | 7h | SPEC T38 |
+| **T40** Streaming TTS on sentence/clause boundaries, danda-aware | Gaurav | 1d | SPEC2 T40 |
+| **T41** Adaptive endpointing to replace the fixed 800 ms | Gaurav | 4h | SPEC2 T41 |
+| **T42** Sentence formation — punctuation and terminators after CTC | Gaurav | 4h | SPEC2 T42 |
+| **T43, T44** Honour `message.dstLang`; softmax the confidence score | Gaurav | 2h | SPEC T43 |
+| **T45** Warm the configured language pair at service start | Gaurav | 3h | SPEC2 T45 |
+| **T46, T47** LRU model cache; RAM metric switched to total PSS | Gaurav | 6h | SPEC2 T46 · SPEC T47 |
 
 **Exit criteria:** every §2 compliance row green. End-to-end sentence→audio under 2 s.
 
 ### Week 5 — Quality and headroom
 
-| Task | Owner | Ref |
-| --- | --- | --- |
-| CTC prefix beam search, optional per-language KenLM | Gaurav | §3.2 |
-| Streaming/chunked STT inference | Gaurav | §4.2 |
-| Idle-listening power pass: buffer reuse, longer wakeups | Gaurav | §5.4 |
-| Informal TTS listening test, 5 native speakers per language | Sarthak | §5 |
-| Re-export STT INT8 CTC-only; measure size and WER delta | Gaurav | §5.2 |
+| Task | Owner | Effort | Spec |
+| --- | --- | --- | --- |
+| **T48, T49** CTC prefix beam search behind a flag; optional per-language KenLM | Gaurav | 3d | SPEC2 T48 🔬 |
+| **T50** Streaming/chunked STT inference — **only if WER degrades < 1 point** | Gaurav | 3d | SPEC2 T50 🔬 |
+| **T51–T53** Idle-listening power: buffer reuse, running totals, longer wakeups | Gaurav | 4h | SPEC2 T51 |
+| **T54** Informal TTS listening test, 5 native speakers per language | Sarthak | 2d | — |
+| **T55** Re-export STT INT8 CTC-only; measure size and WER delta | Gaurav | 2d | — |
 
 **Exit criteria:** stretch targets attempted. Nothing regressed.
+
+> Week 5 is the only week where a task can be **abandoned on its measurement**. T50 in particular: IndicConformer is a non-streaming architecture, so if chunking costs more than a point of WER, keep batch inference. Losing 40%-weighted accuracy to win 20%-weighted latency is a bad trade.
 
 ### Week 6 — The dossier
 
