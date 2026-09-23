@@ -28,7 +28,9 @@ These were checked against the real GitHub release asset list, not recalled. Tre
 | Indic voices that **exist** in that release | Hindi (`hi_IN` pratham/priyamvada/rohan), Malayalam (`ml_IN` arjun/meera), Gujarati (`gu_IN` mimic3), Bengali (`vits-coqui-bn-custom_female`), English (many) |
 | MMS voices in that release | **Only `vits-mms-eng.tar.bz2`** — no `mar`, `kan`, `tam`, `tel`, or `ory` |
 | Marathi / Kannada / Tamil / Telugu / Odia TTS | **No prebuilt asset exists.** Must be converted from `facebook/mms-tts-*` yourself (T17b) |
-| Odia STT | No Odia model in `parismitaglobalsolutions/indicconformer-sherpa-onnx`; it has `as/` (Assamese) only |
+| Odia STT | No Odia model in `parismitaglobalsolutions/indicconformer-sherpa-onnx` (it has `as/` Assamese only). **But AI4Bharat publishes one:** `ai4bharat/indicconformer_stt_or_hybrid_ctc_rnnt_large` — export it yourself (T64, `IMPLEMENTATION_SPEC_2.md` Group G). *Corrected 2026-09-23.* |
+| Silero VAD | The downloaded file is the **v5+** model (inputs `input`, `state [2,1,128]`, `sr`), despite the local name `silero_vad_v4.onnx`. It needs a 64-sample context prefix per window (T62). *Added 2026-09-23.* |
+| Translation | **Not required by the PS** and not present in the code. The receiver's voice must match the language the text is written in (`srcLang`) — see the T43 correction. *Added 2026-09-23.* |
 | Piper voices have int8 variants | **Yes** — `-int8.tar.bz2` suffix, ~21 MB vs ~67 MB |
 
 **Correction to earlier planning documents:** `ACTION_PLAN.md` §3 originally claimed the five missing TTS voices could be added by pasting URLs from the sherpa-onnx release. **That is false** — the assets do not exist. The registry comments in `ModelRegistry.kt` lines 19–25 were correct all along. T17 below is split into the real two-part task.
@@ -612,6 +614,8 @@ Add `"mr"`, `"kn"`, `"ta"`, `"te"`, `"or"` mapped to their packs.
 **Files:** `ui/MainViewModel.kt`, `ui/screen/TransceiverScreen.kt`
 **Criterion:** REQ — the PS requires *"if turned off it should work like a phone"*
 
+> ⚠️ **Ship with T63 in the same PR (added 2026-09-23).** Phone mode keeps the microphone open while received messages play on the loudspeaker. Without T63's echo gate the phone transcribes its own playback and sends it back to the sender. T63 is in `IMPLEMENTATION_SPEC_2.md` Group G.
+
 `ConnectionMode.PHONE_MODE` and `ITantraForegroundService.setConnectionMode()` already exist and are correct. The only thing missing is that **nothing calls them.** Verified: `grep -rn "setConnectionMode" app/src/main/java/com/itantra/ui` returns nothing.
 
 ### Step 1 — `MainViewModel.kt`
@@ -741,16 +745,21 @@ Do not add a second `scope.launch` inside `play()`. The whole point is that exac
 
 ### REPLACEMENT
 
+> **Corrected 2026-09-23.** The first version of this task used `message.dstLang`. That is wrong: the sender fills `dstLang` from **its own** TTS setting, and there is no translation step anywhere (the PS does not ask for one). The text is always in the language that was spoken — `srcLang`. Voicing it with the `dstLang` voice reproduces exactly the Devanagari-into-a-Malayalam-voice bug this task exists to fix, whenever the two differ. Use `srcLang`.
+
 ```kotlin
-                // Speak the language the SENDER asked for, not this device's local setting.
-                // Using ttsLanguage here fed e.g. Devanagari text to a Malayalam voice.
-                val targetLang = message.dstLang.ifBlank { message.srcLang }
+                // Speak with the voice for the language the text is WRITTEN in (srcLang). There is
+                // no translation step, so any other voice reads the wrong script. Using the local
+                // ttsLanguage (or the sender's dstLang) fed e.g. Devanagari text to a Malayalam voice.
+                val targetLang = message.srcLang.ifBlank { ttsLanguage }
                 val synth = ttsModule.synthesize(message.text, targetLang)
 ```
 
+If no voice exists for `srcLang` yet (before T17b lands), `synthesize` returns null and reports a real error — that is the correct, honest behaviour. Do not fall back to a different language's voice.
+
 ### VERIFY
 
-Set phone A to send Hindi with `dstLang = "hi"`, set phone B's local TTS language to Malayalam, send a message. Phone B must speak Hindi.
+Phone A: STT language Hindi, TTS language Malayalam. Phone B: TTS language Malayalam. Speak Hindi on A. Phone B must speak **Hindi** (the text's language), not attempt it with the Malayalam voice.
 
 ---
 
@@ -905,8 +914,8 @@ These need judgement or external data and must **not** be attempted by an agent 
 | T23, T29 | Requires reading the real NeMo checkpoint config and running Python. A guessed config is worse than none. |
 | T30, T54 | Requires choosing a test set and running native-speaker evaluation. |
 | T48, T49, T50 | Beam search, KenLM and streaming inference are design work, not edits. Spec them separately before implementing. |
-| T55 | Model re-export; needs measurement to justify. |
-| T19 | Already investigated — no Odia STT exists in the current source. Document it; do not fabricate a substitute. |
+| T55 | Merged into T64 Step 6 (`IMPLEMENTATION_SPEC_2.md`). |
+| T19 | **Superseded by T64 (2026-09-23).** Odia STT does exist upstream at AI4Bharat; export it per `IMPLEMENTATION_SPEC_2.md` T64. Still never substitute another language's model. |
 
 ---
 

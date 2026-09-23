@@ -73,9 +73,9 @@ This project has been debugged against real phones over real Wi-Fi Direct and Bl
 | --- | --- |
 | Wi-Fi Direct + Bluetooth mesh transport (discovery, group formation, TCP :8765, reconnect backoff, RFCOMM fallback) | ✅ Verified |
 | Push-to-talk capture → STT → transmit, bound to a real foreground service | ✅ Verified |
-| On-device speech-to-text — AI4Bharat IndicConformer, 9 of 10 scheduled languages (no Odia source found) | ✅ Verified |
+| On-device speech-to-text — AI4Bharat IndicConformer, 9 of 10 scheduled languages (the download mirror has no Odia; AI4Bharat's Odia checkpoint is being exported) | ✅ Verified |
 | On-device text-to-speech — real espeak-ng phonemization, only 5 of 10 languages have a free offline voice | ⚠️ Partial |
-| Voice activity detection — bundled Silero neural model measured non-functional on real audio; energy-threshold fallback active instead | ⚠️ Fallback |
+| Voice activity detection — energy-threshold detector active. The Silero neural model was set aside after a test on non-speech signals only; it needs the v5 context prefix and a test on real speech before it can be re-enabled | ⚠️ Fallback |
 | On-device AI Tactical Assistant — real Phi-3 (llama.cpp) when downloaded + supported; honest keyword fallback otherwise, UI discloses which | ✅ Verified |
 | Model download / integrity pipeline — resumable OkHttp downloads, SHA-256 verification, tar.bz2 extraction | ✅ Verified |
 | Peer authorization whitelist — Room-persisted, survives app restarts | ✅ Verified |
@@ -87,7 +87,7 @@ This project has been debugged against real phones over real Wi-Fi Direct and Bl
 ## 5. Under the Hood
 
 **Speech & AI**
-IndicConformer STT (sherpa-onnx) · ONNX Runtime 1.18.0 · sherpa-onnx 1.13.7 · Piper / Coqui / Mimic3 voices · Silero VAD v4 (loaded, disabled) · Phi-3-mini-4k GGUF q4 · llama.cpp-kotlin 0.4.0
+IndicConformer STT (sherpa-onnx) · ONNX Runtime 1.18.0 · sherpa-onnx 1.13.7 · Piper / Coqui / Mimic3 voices · Silero VAD v5+ (loaded, not yet active) · Phi-3-mini-4k GGUF q4 · llama.cpp-kotlin 0.4.0
 
 **Mesh & Wire**
 WifiP2pManager · Bluetooth RFCOMM · Protobuf javalite 3.25.3 · TCP :8765 · OkHttp 4.12.0 · Commons Compress 1.26.2
@@ -138,7 +138,7 @@ Nine languages transcribe. Five speak back. Disclosed here the same way it's dis
 A sample of fixes pulled straight from commit history — the kind of thing that only surfaces once two physical phones try to actually talk to each other:
 
 - Made IndicConformer STT genuinely transcribe, instead of returning fabricated placeholder text.
-- Investigated the bundled neural VAD on real audio, found it non-functional, and honestly disabled it in favor of an energy-threshold fallback — rather than shipping a silently-broken model.
+- Kept the energy-threshold VAD active rather than ship a neural VAD that had not been shown to work — and, on re-audit, traced the neural model's flat output to a missing 64-sample context prefix, now scheduled as a fix.
 - Fixed model downloads silently stalling under OkHttp's default 5-connections-per-host cap once 17 packs queued in parallel.
 - Wired the real PTT walkie-talkie transport into the running app — the foreground service existed but was never started or bound.
 - Bounded LLM generation to a stop sequence and a 250-token cap after replies were observed running past 200 tokens with no natural stop.

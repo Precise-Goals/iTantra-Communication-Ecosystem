@@ -2,6 +2,7 @@
 
 > Continues [`IMPLEMENTATION_SPEC.md`](IMPLEMENTATION_SPEC.md). **Read §0 of Part 1 first — the rules contract applies here unchanged.**
 > Covers the tasks Part 1 left unspecified. As of 2026-09-22 · PS-26173
+> **Revised 2026-09-23:** Group G adds T62–T69 from the second audit; T33 and T50 are amended. See [`IMPROVEMENT_PLAN.md` §10](IMPROVEMENT_PLAN.md#10-addendum--second-audit-2026-09-23).
 
 ---
 
@@ -497,7 +498,9 @@ Reset both to `0f` in `stopCapture()`.
 
 ### DO NOT
 
-Do not attach `AcousticEchoCanceler`. This is a push-to-talk radio, not a speakerphone; AEC can attenuate the near-end speaker.
+Do not attach `AcousticEchoCanceler` in this task. For PTT it can attenuate the near-end speaker.
+
+> **Amended 2026-09-23.** The original note said "this is a push-to-talk radio, not a speakerphone". Once T37 wires phone mode, it **is** a speakerphone: the microphone stays open while received TTS plays on the loudspeaker, and the phone re-transmits what it hears. That is handled by the echo gate in **T63**, which must land with T37. `VOICE_RECOGNITION` stays correct for capture in both modes because T63 discards input during playback.
 
 ---
 
@@ -1071,6 +1074,8 @@ KenLM (T49) is only worth attempting once beam search is measured and landed.
 
 **Criterion:** LAT · **The largest structural latency win, and the riskiest task in the plan.**
 
+> **Amended 2026-09-23:** do **T65** (phrase-level pipelining) first. It sends each phrase at a natural pause while PTT is held, with no WER cost, and may remove the need for this task. Only start T50 if T65's measured cross-device delay still misses the target.
+
 Do not begin this until T05, T29 and T30 are all complete. You need a green golden test and a WER baseline, because streaming changes the feature context the encoder sees and **will** move WER. Without a baseline you cannot tell a bug from an expected regression.
 
 ### Design constraints
@@ -1086,6 +1091,1605 @@ Streaming is only adopted if WER degrades by **less than 1 point absolute** vers
 ### DO NOT
 
 Do not ship streaming without the WER comparison. A faster pipeline that transcribes worse loses more of the 40% than it gains of the 20%.
+
+---
+
+# Group G — Second-audit tasks (T62–T69)
+
+Added 2026-09-23. The findings behind each task are in [`IMPROVEMENT_PLAN.md` §10](IMPROVEMENT_PLAN.md#10-addendum--second-audit-2026-09-23).
+
+### How to use this group (read first, especially if you are a smaller model)
+
+- **Every rule in Part 1 §0 and in "Additional rules" above still applies.** Match on text, never on line numbers. If an ANCHOR does not match character for character, **stop and report**. Do not adapt the change to "similar-looking" code.
+- **Some anchors depend on earlier tasks.** Each task has a **Depends on** line. If a dependency is not done, do not start the task. Check whether a dependency is done by searching for the text its REPLACEMENT adds, e.g. `grep -n "playbackQueue" app/src/main/java/com/itantra/core/audio/AudioPlaybackManager.kt` for T38.
+- **File paths** are relative to `app/src/main/java/com/itantra/` unless they start with `app/`, `docs/` or `model-export/`.
+- **Fully qualified names** (e.g. `java.util.concurrent.atomic.AtomicInteger`) are used deliberately so that you do not need to add imports. If a snippet uses a short name that the file does not import yet, the task says which import to add.
+- **Build check after every task:** `./gradlew :app:compileDebugKotlin` (Windows: `.\gradlew.bat :app:compileDebugKotlin`). It must pass before you commit. Commit message starts with the task ID.
+
+### Recommended order
+
+```
+T69 (transport + dedup) ─┬─> T66 (SOS UI) ──> T68 (ESP32, stretch)
+                         │
+T37 (phone mode) + T63 (echo gate)   ← always in the same PR
+T62 (Silero VAD) ──> T41 ──> T65 (phrase pipelining)   (T65 also needs T38 on the receiver)
+T13 ──> T67 (voice notes)
+T64 (Odia + CTC re-export)            — Python/offline, can run in parallel with everything
+```
+
+---
+
+## T62 🔬 · Repair the Silero VAD and make it the primary detector
+
+**Files:** `core/audio/VADModule.kt`, `core/download/ModelRegistry.kt`
+**Criterion:** ACC (clean segmentation), EFF (idle CPU), LAT (reliable endpoints)
+**Depends on:** nothing. Do it **before** T32; T32 then becomes the fallback path.
+
+### Background you need
+
+- `VADModule.initialize()` forces the energy backend because the model returned ~0.001 for silence, a sine wave and white noise. **That is correct behaviour for a speech detector** — none of those is speech. The model was never tested on speech.
+- The model is downloaded from the Silero repo's `master` branch. Its inputs (`input`, `state [2,1,128]`, `sr`) identify it as the **v5+** model (the file name `silero_vad_v4.onnx` is only a local name — do not rename it, or existing downloads are orphaned).
+- The official v5 Python wrapper (`OnnxWrapper.__call__` in `silero_vad/utils_vad.py`) keeps the **last 64 samples** of the previous 512-sample window and **prepends** them, so each call receives `[1, 576]`. `VADModule` sends `[1, 512]` with no context. This is the most likely reason the output looked flat.
+
+### Step 1 — prove the diagnosis in Python before touching Kotlin
+
+1. Pull the exact model the app uses:
+
+   ```bash
+   adb shell run-as com.itantra.debug cat files/models/silero_vad_v4.onnx > silero_vad_v4.onnx
+   ```
+
+2. Record ~5 s of someone speaking, and ~5 s of room silence, as **16 kHz mono WAV**. Convert with `ffmpeg -i in.m4a -ac 1 -ar 16000 speech_16k.wav` if needed.
+
+3. Save this as `model-export/check_silero.py` and run it on both files:
+
+   ```python
+   """Checks the app's Silero model with and without the v5 64-sample context (T62)."""
+   import sys
+   import numpy as np
+   import onnxruntime as ort
+   import soundfile as sf
+
+   MODEL, WAV = sys.argv[1], sys.argv[2]
+   wav, sr = sf.read(WAV, dtype="float32")
+   assert sr == 16000 and wav.ndim == 1, "need 16 kHz mono"
+   sess = ort.InferenceSession(MODEL)
+
+   def run(with_context: bool):
+       state = np.zeros((2, 1, 128), dtype=np.float32)
+       ctx = np.zeros(64, dtype=np.float32)
+       probs = []
+       for i in range(0, len(wav) - 512, 512):
+           w = wav[i:i + 512]
+           x = np.concatenate([ctx, w]) if with_context else w
+           out, state = sess.run(None, {
+               "input": x[None, :].astype(np.float32),
+               "state": state,
+               "sr": np.array(16000, dtype=np.int64),
+           })
+           ctx = w[-64:]
+           probs.append(float(out[0][0]))
+       p = np.array(probs)
+       return p.max(), (p > 0.5).mean()
+
+   for flag in (False, True):
+       mx, frac = run(flag)
+       print(f"context={flag}: max={mx:.3f} fraction>0.5={frac:.2f}")
+   ```
+
+   `pip install onnxruntime soundfile numpy` if needed.
+
+4. **Decision:**
+
+   | Result on the speech file | Result on the silence file | Action |
+   | --- | --- | --- |
+   | `context=True` max ≥ 0.8 | `context=True` max < 0.3 | Diagnosis confirmed — do Step 2 |
+   | Both runs flat (< 0.3) on speech | — | **STOP.** Report both outputs. Keep the energy backend (T32) |
+   | `context=False` already works | — | Context is not the issue, but the model works — do Step 2 anyway (context is still correct per the official wrapper) |
+
+   Paste the printed lines into the PR description. They are the evidence for the slide.
+
+### Step 2 — Kotlin changes in `core/audio/VADModule.kt`
+
+**2a. Constants.** ANCHOR (in the companion object):
+
+```kotlin
+        private const val SILERO_WINDOW_SIZE = 512
+```
+
+REPLACEMENT:
+
+```kotlin
+        private const val SILERO_WINDOW_SIZE = 512
+        /** Samples of the previous window prepended to every Silero call. The official v5
+         *  wrapper (OnnxWrapper in silero_vad/utils_vad.py) does this; without it the model's
+         *  output is unreliable. See T62. */
+        private const val SILERO_CONTEXT_SIZE = 64
+        /** Release threshold for the neural backend. Silero's own recommended hysteresis is
+         *  "threshold - 0.15", which stops the detector chattering inside a word. */
+        private const val SPEECH_RELEASE_THRESHOLD = 0.35f
+```
+
+**2b. Context buffer.** ANCHOR:
+
+```kotlin
+    private var lastSpeechProb = 0f
+```
+
+REPLACEMENT:
+
+```kotlin
+    private var lastSpeechProb = 0f
+    /** Last SILERO_CONTEXT_SIZE samples of the previous window (T62). */
+    private val sileroContext = FloatArray(SILERO_CONTEXT_SIZE)
+```
+
+**2c. Turn the neural backend on.** ANCHOR (inside `initialize()`; the long comment above it stays — **do not delete it**):
+
+```kotlin
+            activeBackend = VadBackend.BASIC_ENERGY
+            session?.let {
+```
+
+REPLACEMENT:
+
+```kotlin
+            // UPDATE (T62): the test described above used only non-speech inputs, so ~0 output
+            // was the correct answer, not a malfunction. The real defect was the missing 64-sample
+            // context the v5 model expects (added in process()). Verified with
+            // model-export/check_silero.py on recorded speech before re-enabling.
+            activeBackend = if (session != null) VadBackend.NEURAL else VadBackend.BASIC_ENERGY
+            session?.let {
+```
+
+**2d. Feed the context.** ANCHOR (inside `process()`):
+
+```kotlin
+            pendingSamples.addAll(audioChunk.asIterable())
+            while (pendingSamples.size >= SILERO_WINDOW_SIZE) {
+                val window = FloatArray(SILERO_WINDOW_SIZE) { pendingSamples.removeFirst() }
+
+                val inputTensor = OnnxTensor.createTensor(
+                    env,
+                    FloatBuffer.wrap(window),
+                    longArrayOf(1, SILERO_WINDOW_SIZE.toLong())
+                )
+```
+
+REPLACEMENT:
+
+```kotlin
+            pendingSamples.addAll(audioChunk.asIterable())
+            var chunkMaxProb = -1f
+            while (pendingSamples.size >= SILERO_WINDOW_SIZE) {
+                val window = FloatArray(SILERO_WINDOW_SIZE) { pendingSamples.removeFirst() }
+
+                // v5+ Silero input is [previous 64 samples | current 512 samples] = 576 (T62).
+                val framed = FloatArray(SILERO_CONTEXT_SIZE + SILERO_WINDOW_SIZE)
+                sileroContext.copyInto(framed, destinationOffset = 0)
+                window.copyInto(framed, destinationOffset = SILERO_CONTEXT_SIZE)
+                window.copyInto(
+                    sileroContext,
+                    destinationOffset = 0,
+                    startIndex = SILERO_WINDOW_SIZE - SILERO_CONTEXT_SIZE,
+                    endIndex = SILERO_WINDOW_SIZE
+                )
+
+                val inputTensor = OnnxTensor.createTensor(
+                    env,
+                    FloatBuffer.wrap(framed),
+                    longArrayOf(1, framed.size.toLong())
+                )
+```
+
+**2e. Track the loudest window in the chunk.** One 100 ms chunk contains three 32 ms windows; keeping only the last one can miss a short word. ANCHOR:
+
+```kotlin
+                lastSpeechProb = outputVal[0][0]
+```
+
+REPLACEMENT:
+
+```kotlin
+                lastSpeechProb = outputVal[0][0]
+                if (lastSpeechProb > chunkMaxProb) chunkMaxProb = lastSpeechProb
+```
+
+**2f. Hysteresis and return value.** ANCHOR (the neural branch's tail — the energy branch uses `prob`, not `lastSpeechProb`, so this text is unique):
+
+```kotlin
+            val isCurrentSpeech = lastSpeechProb >= SPEECH_THRESHOLD
+            if (isCurrentSpeech != isSpeechActive) {
+                isSpeechActive = isCurrentSpeech
+                callbacks.onVADTriggered(isCurrentSpeech, lastSpeechProb)
+            }
+
+            lastSpeechProb
+```
+
+REPLACEMENT:
+
+```kotlin
+            // Loudest window in this chunk; falls back to the previous value if the chunk was too
+            // short to complete a window.
+            val chunkProb = if (chunkMaxProb >= 0f) chunkMaxProb else lastSpeechProb
+            val isCurrentSpeech = if (isSpeechActive) chunkProb >= SPEECH_RELEASE_THRESHOLD
+                                  else chunkProb >= SPEECH_THRESHOLD
+            if (isCurrentSpeech != isSpeechActive) {
+                isSpeechActive = isCurrentSpeech
+                callbacks.onVADTriggered(isCurrentSpeech, chunkProb)
+            }
+
+            // AudioCaptureModule compares this return value against a fixed 0.5, so return a
+            // value on the side of 0.5 that matches the hysteresis decision made above.
+            if (isCurrentSpeech) maxOf(chunkProb, SPEECH_THRESHOLD)
+            else minOf(chunkProb, SPEECH_THRESHOLD - 0.01f)
+```
+
+**2g. Reset the context.** ANCHOR (inside `resetState()`):
+
+```kotlin
+        pendingSamples.clear()
+        lastSpeechProb = 0f
+```
+
+REPLACEMENT:
+
+```kotlin
+        pendingSamples.clear()
+        lastSpeechProb = 0f
+        sileroContext.fill(0f)
+```
+
+### Step 3 — pin the model version in `core/download/ModelRegistry.kt`
+
+`master` can change between two users' downloads. Pin it.
+
+1. Run `git ls-remote --tags https://github.com/snakers4/silero-vad`. Pick the newest tag whose name starts with `v5` or `v6`. Call it `<TAG>`. **Use the real output; do not guess a tag.**
+2. Check the file exists at that tag: `curl -sIL https://raw.githubusercontent.com/snakers4/silero-vad/<TAG>/src/silero_vad/data/silero_vad.onnx | grep -i -E "^HTTP|content-length"` must show `200` and a length.
+3. Get its hash: `curl -sL <that URL> | sha256sum`.
+4. ANCHOR:
+
+   ```kotlin
+           "https://raw.githubusercontent.com/snakers4/silero-vad/master/src/silero_vad/data/silero_vad.onnx"
+   ```
+
+   REPLACEMENT: the same line with `master` replaced by `<TAG>`.
+5. In the `ModelPack.VAD_MODEL` entry, set `sizeBytes` to the content-length from step 2 and `sha256` to the hash from step 3 (lowercase hex string).
+6. Re-run Step 1 against the pinned file before committing.
+
+### VERIFY
+
+```bash
+./gradlew :app:compileDebugKotlin
+adb logcat -s VADModule:*
+```
+
+- Logcat on app start must show `VAD initialized — backend: NEURAL`.
+- Speak in a quiet room: speech is detected, and released within ~1 s of stopping.
+- Play traffic or fan noise from a second device at arm's length, stay silent: **no** detection. Then speak over it: detection.
+- If any of these fail, revert Step 2c only (the backend switch). The energy path is then used again and nothing else regresses.
+
+### DO NOT
+
+- Do not rename `silero_vad_v4.onnx`.
+- Do not change `CHUNK_SIZE` (1600) or `SILERO_WINDOW_SIZE` (512).
+- Do not delete the energy branch. It is the fallback when the model is missing or throws.
+
+---
+
+## T63 · Echo gate: never capture while this phone is playing
+
+**Files:** `core/audio/AudioPlaybackManager.kt`, `core/audio/AudioCaptureModule.kt`, `core/service/ITantraForegroundService.kt`
+**Criterion:** REQ — without it, phone mode (T37) transmits received messages back to the sender.
+**Depends on:** nothing. **Must be merged in the same PR as T37**, never after.
+
+### Why
+
+In phone mode the microphone is always on. When a message arrives, TTS plays through the loudspeaker, the microphone hears it, VAD fires, STT transcribes it, and the transcript is sent back. Two phones can loop one sentence forever. Nothing currently prevents this. The fix is to ignore microphone input while audio is playing, plus a short tail for room echo.
+
+### Step 1 — `AudioPlaybackManager.kt`: expose "is audio playing?"
+
+Both `playNormal()` and `playAlert()` call `requestAudioFocus(...)` before playing and `releaseAudioFocus()` in their `finally` block. Those two functions are therefore the exact start and end of every playback. Count there.
+
+**1a.** ANCHOR:
+
+```kotlin
+    private var savedVolume: Int = -1
+```
+
+REPLACEMENT:
+
+```kotlin
+    private var savedVolume: Int = -1
+
+    /** Tracks currently between requestAudioFocus() and releaseAudioFocus() (T63). */
+    private val activePlaybacks = java.util.concurrent.atomic.AtomicInteger(0)
+    /** System.nanoTime() of the most recent playback start and end (T63). */
+    @Volatile private var lastPlaybackStartNs: Long = 0L
+    @Volatile private var lastPlaybackEndNs: Long = 0L
+
+    /**
+     * True while this device is playing audio, or within [tailMs] after it stopped. Used by
+     * AudioCaptureModule as an echo gate so a received message played on the loudspeaker is not
+     * re-captured, transcribed and sent back (T63). The tail covers room reverberation and the
+     * AudioTrack drain after the last write.
+     *
+     * Stale guard: if a playback start was never matched by an end (e.g. AudioTrack.Builder
+     * threw between requestAudioFocus and the try block), stop gating after 60 s so the
+     * microphone can never be muted permanently. No single message plays that long.
+     */
+    fun isOutputActive(tailMs: Long = 250L): Boolean {
+        val now = System.nanoTime()
+        if (activePlaybacks.get() > 0) {
+            if (now - lastPlaybackStartNs < 60_000_000_000L) return true
+            activePlaybacks.set(0)
+        }
+        return lastPlaybackEndNs != 0L && now - lastPlaybackEndNs < tailMs * 1_000_000L
+    }
+```
+
+**1b.** ANCHOR:
+
+```kotlin
+    private fun requestAudioFocus(isAlert: Boolean) {
+```
+
+REPLACEMENT:
+
+```kotlin
+    private fun requestAudioFocus(isAlert: Boolean) {
+        lastPlaybackStartNs = System.nanoTime()
+        activePlaybacks.incrementAndGet()
+```
+
+**1c.** ANCHOR:
+
+```kotlin
+    private fun releaseAudioFocus() {
+```
+
+REPLACEMENT:
+
+```kotlin
+    private fun releaseAudioFocus() {
+        lastPlaybackEndNs = System.nanoTime()
+        activePlaybacks.updateAndGet { if (it > 0) it - 1 else 0 }
+```
+
+**Check before continuing:** `grep -n "requestAudioFocus(\|releaseAudioFocus()" app/src/main/java/com/itantra/core/audio/AudioPlaybackManager.kt`. You must see exactly two calls of each (one pair in `playNormal`, one in `playAlert`), plus the two definitions. If another task has changed that pairing, **stop and report**.
+
+### Step 2 — `AudioCaptureModule.kt`: drop input while gated
+
+**2a.** ANCHOR:
+
+```kotlin
+    var currentLanguage: String = "hi"
+```
+
+REPLACEMENT:
+
+```kotlin
+    var currentLanguage: String = "hi"
+
+    /**
+     * Echo gate (T63). When this returns true, captured audio is discarded instead of being fed
+     * to VAD/STT. The service wires it to AudioPlaybackManager.isOutputActive(). A lambda rather
+     * than a constructor parameter so the service's construction order does not change.
+     */
+    @Volatile var isSuppressed: () -> Boolean = { false }
+```
+
+**2b.** ANCHOR (inside the capture loop in `startCapture()`; only the comment line is matched because T51 renames the variable on the next line):
+
+```kotlin
+                // Run VAD
+```
+
+REPLACEMENT:
+
+```kotlin
+                // Echo gate (T63): while this phone is playing a received message, whatever the
+                // microphone hears is our own loudspeaker. Discard it and any half-built segment.
+                if (isSuppressed()) {
+                    synchronized(bufferLock) {
+                        speechBuffer.clear()
+                        silenceChunkCount = 0
+                    }
+                    continue
+                }
+
+                // Run VAD
+```
+
+If other tasks have added counters that must be reset whenever `speechBuffer.clear()` is called, reset them inside the same `synchronized` block too:
+
+| If this task is done | Also add inside the block |
+| --- | --- |
+| T31 | `preRoll.clear()` |
+| T41 | `speechChunkCount = 0` |
+| T52 | set the running-total counter T52 added to `0` |
+
+### Step 3 — `ITantraForegroundService.kt`: wire it
+
+ANCHOR (inside `initializeModules()`):
+
+```kotlin
+        // Initialize VAD on startup (always resident)
+```
+
+REPLACEMENT:
+
+```kotlin
+        // Echo gate (T63): never capture while this device is playing a received message.
+        audioCaptureModule.isSuppressed = { audioPlayback.isOutputActive() }
+
+        // Initialize VAD on startup (always resident)
+```
+
+### VERIFY
+
+1. `./gradlew :app:compileDebugKotlin`
+2. Two phones, both in phone mode (T37). Say one sentence on phone A. Phone B plays it. **Phone A must not receive anything back**, and B's logcat (`adb logcat -s AudioCapture:*`) must show no `Speech segment complete` while B is playing.
+3. After B finishes playing, speak on B: it must transmit normally (the gate releases).
+4. PTT mode: hold PTT while a message is playing. Speech during playback is dropped (half-duplex, like a radio). Speech after playback ends is sent. This is expected; mention it in the demo script.
+
+### DO NOT
+
+- Do not stop and restart `AudioRecord` to gate. Restarting costs 50–200 ms and can glitch on some devices.
+- Do not put the gate inside `VADModule`. VAD state should not be touched by playback.
+- Do not attach `AcousticEchoCanceler` as part of this task. The gate is deterministic; AEC quality varies by device. It can be evaluated later for barge-in.
+
+---
+
+## T64 🔬 · Odia STT, and a clean CTC-only export of all ten languages (merges T55)
+
+**Files:** new `model-export/export_ctc_int8.py`, `domain/model/ModelManifest.kt`, `core/download/ModelRegistry.kt`
+**Criterion:** REQ (10/10 languages), ACC, EFF (size)
+**Depends on:** a hosting location decided by a human (same one as T17b). **If no hosting URL has been given to you, do Steps 1–5, then stop and report.**
+
+### Background you need
+
+- The registry downloads STT from a third-party mirror, `parismitaglobalsolutions/indicconformer-sherpa-onnx`, which has no Odia.
+- AI4Bharat publishes Odia directly: `ai4bharat/indicconformer_stt_or_hybrid_ctc_rnnt_large`. Same family as the other nine: Conformer-Large, ~120 M parameters, hybrid CTC + RNNT decoders.
+- `STTModule` feeds **80-bin log-mel features** `[1, 80, T]` plus a length, and decodes CTC with the blank as the **last** vocabulary entry. The export must produce exactly that interface. NeMo's `export()` does not include the preprocessor by default, which is what we want.
+- **Do not use `model-export/export_indicconformer.py`.** It restores the checkpoint as `EncDecMultiTaskModel` (the wrong class) and exports a raw-audio graph.
+
+### Step 1 — environment
+
+Use Linux or Google Colab, Python 3.10. Open the model card at `https://huggingface.co/ai4bharat/indicconformer_stt_or_hybrid_ctc_rnnt_large` and **follow its installation instructions exactly** — AI4Bharat checkpoints may require their NeMo fork rather than stock `nemo_toolkit`. Record the exact install commands in the PR. Then `pip install onnx onnxruntime soundfile`.
+
+Download (you may need `huggingface-cli login` and to accept the model's terms on the website first):
+
+```bash
+huggingface-cli download ai4bharat/indicconformer_stt_or_hybrid_ctc_rnnt_large --local-dir ckpt_or
+ls ckpt_or   # note the .nemo file name
+```
+
+### Step 2 — inspect before exporting
+
+```python
+import nemo.collections.asr as nemo_asr
+m = nemo_asr.models.ASRModel.restore_from("ckpt_or/<FILE>.nemo", map_location="cpu")
+m.eval()
+print(type(m).__name__)          # expect a hybrid RNNT+CTC class
+print(m.cfg.preprocessor)        # SAVE this output: it is the input for T23
+print(m.cfg.decoder.keys() if "decoder" in m.cfg else "no decoder cfg")
+```
+
+Also run the model card's own transcription example on one Odia WAV and save the text. **If the card's example passes a `language_id` argument**, the checkpoint uses AI4Bharat's multi-softmax decoder and its CTC output covers a **shared multilingual vocabulary** — note this; Step 4 depends on it.
+
+### Step 3 — export CTC-only, then quantize
+
+Save as `model-export/export_ctc_int8.py`:
+
+```python
+"""Exports an AI4Bharat IndicConformer hybrid checkpoint as a CTC-only INT8 ONNX graph (T64).
+
+Output matches what STTModule expects: inputs = mel features [1, 80, T] + length,
+output = CTC log-probs [1, T', V], blank = last vocabulary id.
+"""
+import sys
+import nemo.collections.asr as nemo_asr
+from onnxruntime.quantization import quantize_dynamic, QuantType
+
+nemo_path, out_prefix = sys.argv[1], sys.argv[2]
+m = nemo_asr.models.ASRModel.restore_from(nemo_path, map_location="cpu")
+m.eval()
+
+# Select the CTC head for export. If this call fails, read the error and the installed NeMo's
+# docs for the hybrid model's export options -- do NOT guess another API.
+m.set_export_config({"decoder_type": "ctc"})
+m.export(f"{out_prefix}.fp32.onnx")
+
+quantize_dynamic(f"{out_prefix}.fp32.onnx", f"{out_prefix}.int8.onnx",
+                 weight_type=QuantType.QUInt8)
+print("done")
+```
+
+Run: `python model-export/export_ctc_int8.py ckpt_or/<FILE>.nemo or_model`
+
+Check the graph's interface:
+
+```python
+import onnxruntime as ort
+s = ort.InferenceSession("or_model.int8.onnx")
+print([(i.name, i.shape) for i in s.get_inputs()])   # expect a feature input with 80 channels + a length
+print([(o.name, o.shape) for o in s.get_outputs()])  # note the last dim = vocabulary size V
+```
+
+`STTModule.resolveIoNames()` accepts feature inputs named `audio_signal`, `x`, `features`, `input` or `waveform`, and lengths named `length`, `x_lens`, `input_length` or `x_length`. If the names differ, **stop and report** — do not rename graph nodes.
+
+### Step 4 — tokens.txt
+
+The file format `CtcDecoder.parseTokens` reads is one `<token> <id>` per line, ids `0..V-1`, with the blank as the last line. Generate it from the model, not by hand:
+
+```python
+vocab = m.ctc_decoder.vocabulary if hasattr(m, "ctc_decoder") else m.decoder.vocabulary
+with open("or_tokens.txt", "w", encoding="utf-8") as f:
+    for i, t in enumerate(vocab):
+        f.write(f"{t} {i}\n")
+    f.write(f"<blk> {len(vocab)}\n")
+```
+
+Then check: number of lines == `V` from Step 3. **If they differ, stop and report.** If Step 2 showed a `language_id` (multi-softmax) and `V` equals the line count of the mirror's shared root `tokens.txt` (5633 lines for the existing languages), the model uses the shared vocabulary — record this in the PR; the existing `STTModule` decodes it the same way it already decodes the other eight.
+
+### Step 5 — validate before shipping
+
+Compute features with **NeMo's own preprocessor** (`m.preprocessor`) on your Odia test WAV, run `or_model.int8.onnx` on them, greedy-decode (argmax per frame, merge repeats, drop blank = last id) with `or_tokens.txt`, and compare with the model card transcription from Step 2. They must match or differ only trivially. Record both strings and the file size of `or_model.int8.onnx` in the PR. **Expected size: ~120–135 MB.** If it is > 180 MB, say so.
+
+### Step 6 — the other nine (the old T55)
+
+Only if Step 5 passed and the size is clearly below the mirror's ~197 MB: repeat Steps 1–5 for `hi gu mr kn ml ta te bn` using `ai4bharat/indicconformer_stt_<code>_hybrid_ctc_rnnt_large`. **Keep English on the existing mirror** (there is no AI4Bharat IndicConformer for English). For each language record: size, the T30 WER before (mirror) and after (your export). Adopt the new export only for languages whose WER did not get worse by more than 0.5 points.
+
+### Step 7 — host (human decision)
+
+Upload `stt_<code>_int8.onnx` and `stt_<code>_tokens.txt` to the team's model repository (the same host as T17b). **You need the exact base URL from a human.** Record each file's real size (`ls -l`) and SHA-256 (`sha256sum`).
+
+### Step 8 — app changes
+
+**8a. `domain/model/ModelManifest.kt`** — add an Odia STT pack. ANCHOR:
+
+```kotlin
+    STT_ENGLISH(
+        "English STT Engine",
+        "IndicConformer (sherpa-onnx) — English speech recognition",
+        sizeMb = 188,
+        isRequired = false,
+        requiredFor = "Transceiver"
+    ),
+```
+
+REPLACEMENT:
+
+```kotlin
+    STT_ENGLISH(
+        "English STT Engine",
+        "IndicConformer (sherpa-onnx) — English speech recognition",
+        sizeMb = 188,
+        isRequired = false,
+        requiredFor = "Transceiver"
+    ),
+    STT_ODIA(
+        "Odia STT Engine",
+        "IndicConformer (AI4Bharat, self-exported CTC INT8) — Odia speech recognition",
+        sizeMb = 0, // SET to the real size in MB from Step 7
+        isRequired = false,
+        requiredFor = "Transceiver"
+    ),
+```
+
+Replace the `0` with the real size before committing.
+
+**8b.** If T20 is done, add Odia to `sttPackFor`. ANCHOR:
+
+```kotlin
+            "te" -> STT_TELUGU; "bn" -> STT_BENGALI;   "en" -> STT_ENGLISH
+            else -> null
+```
+
+(the first of the two `when` blocks — the one inside `sttPackFor`). REPLACEMENT:
+
+```kotlin
+            "te" -> STT_TELUGU; "bn" -> STT_BENGALI;   "en" -> STT_ENGLISH
+            "or" -> STT_ODIA
+            else -> null
+```
+
+If T20 is not done, instead add `STT_ODIA,` after `STT_ENGLISH,` in the `coreTransceiverPacks()` list.
+
+**8c. `core/download/ModelRegistry.kt`.** Add a helper beside `sttInfo` for self-hosted STT. ANCHOR:
+
+```kotlin
+    /** A sherpa-onnx `tts-models` release TTS voice bundle: real espeak-ng phonemization included. */
+```
+
+REPLACEMENT:
+
+```kotlin
+    /**
+     * Self-exported STT (T64): AI4Bharat IndicConformer checkpoint -> CTC-only INT8 ONNX, hosted
+     * by the team because the mirror behind SHERPA_BASE has no Odia model. Each language has its
+     * own tokens file on the host.
+     */
+    private fun hostedSttInfo(pack: ModelPack, lang: String, sizeBytes: Long, sha256: String, tokensSha256: String): ModelInfo =
+        ModelInfo(
+            pack = pack,
+            fileName = "stt_${lang}_int8.onnx",
+            downloadUrl = "$ITANTRA_MODELS_BASE/stt_${lang}_int8.onnx",
+            sha256 = sha256,
+            sizeBytes = sizeBytes,
+            auxFileName = "stt_${lang}_tokens.txt",
+            auxUrl = "$ITANTRA_MODELS_BASE/stt_${lang}_tokens.txt"
+        )
+
+    /** A sherpa-onnx `tts-models` release TTS voice bundle: real espeak-ng phonemization included. */
+```
+
+`tokensSha256` is recorded for the PR but `ModelInfo` has no field for an aux hash — leave the parameter out if the compiler warns it is unused, and write the hash in a comment on the registry entry instead. If T17b already added a base-URL constant for the team host, use that name instead of `ITANTRA_MODELS_BASE`. Otherwise add, beside `SHERPA_TTS_MODELS_BASE`:
+
+```kotlin
+    /** Team-hosted exports (T17b voices, T64 STT). Set by a human — never guess this URL. */
+    private const val ITANTRA_MODELS_BASE = "<BASE URL FROM STEP 7>"
+```
+
+Then add the registry entry beside the other STT lines. ANCHOR:
+
+```kotlin
+        ModelPack.STT_ENGLISH to sttInfo(ModelPack.STT_ENGLISH, "en", 197_595_500L),
+```
+
+REPLACEMENT:
+
+```kotlin
+        ModelPack.STT_ENGLISH to sttInfo(ModelPack.STT_ENGLISH, "en", 197_595_500L),
+        ModelPack.STT_ODIA to hostedSttInfo(ModelPack.STT_ODIA, "or", <SIZE_BYTES>L, "<SHA256>", "<TOKENS_SHA256>"),
+```
+
+with the real values from Step 7.
+
+**8d.** Update the class doc of `ModelRegistry.kt`: the sentence saying the source has no Odia STT should now say Odia STT is self-exported from `ai4bharat/indicconformer_stt_or_hybrid_ctc_rnnt_large` and hosted by the team. Keep the "Assamese is not substituted" sentence.
+
+### VERIFY
+
+- `./gradlew :app:compileDebugKotlin`
+- On device: select Odia, download, hold PTT and speak Odia. Logcat `STTModule` shows `STT('or') loaded` and a non-empty Odia transcription.
+- Add the Odia row to the T30 WER table.
+
+### DO NOT
+
+- Do not substitute the Assamese (`as/`) model for Odia.
+- Do not hand-write `tokens.txt`.
+- Do not invent the hosting URL, sizes or hashes.
+
+---
+
+## T65 · Phrase-level pipelining while PTT is held
+
+**Files:** `core/audio/STTModule.kt`, `core/audio/AudioCaptureModule.kt`, `core/service/ITantraForegroundService.kt`
+**Criterion:** LAT (cross-device delay), REQ ("after detecting pauses … form the sentences … instantly stream")
+**Depends on:** T41 (its getter is the anchor in Step 3), and T38 on the receiving side (so phrases queue instead of overlapping).
+
+### Background you need — what already exists, and what is broken
+
+- The capture loop already cuts a segment at 800 ms of silence **even while PTT is held**, and calls `onSpeechReady` → STT → transmit. So mid-hold phrases are already sent. Three things are wrong with it:
+  1. **Capture stalls during inference.** `onSpeechReady(...)` is called *inside* the capture loop and runs the whole STT inference. The loop stops reading the microphone for that time, while `AudioRecord`'s buffer holds only ~200 ms. Audio spoken during inference is lost.
+  2. **Concurrent inference corrupts features.** `stopPTT()` calls `sttModule.transcribe()` directly, possibly while a mid-hold segment is still being transcribed on another coroutine. After T05, `STTModule` reuses member scratch arrays (`fftRe`, `fftIm`, `powerSpectrum`) and a plain `HashMap` session cache, so two concurrent calls corrupt each other.
+  3. **Order is not guaranteed.** The release flush can overtake an earlier phrase.
+- The fix: one lock around inference, one queue that all segments go through (including the release flush), and a shorter cut while PTT is held.
+
+### Step 1 — `STTModule.kt`: serialise inference
+
+**1a.** Add the import. ANCHOR:
+
+```kotlin
+import kotlinx.coroutines.withContext
+```
+
+REPLACEMENT:
+
+```kotlin
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+```
+
+**1b.** ANCHOR:
+
+```kotlin
+    private val ioNamesCache = mutableMapOf<String, IoNames>()
+```
+
+REPLACEMENT:
+
+```kotlin
+    private val ioNamesCache = mutableMapOf<String, IoNames>()
+
+    /** One inference or model load at a time (T65). The feature extractor reuses member scratch
+     *  buffers and the caches are plain HashMaps, so concurrent calls corrupt each other. */
+    private val inferenceLock = kotlinx.coroutines.sync.Mutex()
+```
+
+**1c.** ANCHOR:
+
+```kotlin
+    suspend fun ensureLoaded(languageCode: String): Boolean = withContext(Dispatchers.Default) {
+```
+
+REPLACEMENT:
+
+```kotlin
+    suspend fun ensureLoaded(languageCode: String): Boolean =
+        inferenceLock.withLock { ensureLoadedUnlocked(languageCode) }
+
+    private suspend fun ensureLoadedUnlocked(languageCode: String): Boolean = withContext(Dispatchers.Default) {
+```
+
+**1d.** ANCHOR:
+
+```kotlin
+    suspend fun transcribe(
+        audioBuffer: FloatArray,
+        languageCode: String = "hi"
+    ): AppResult<String> = withContext(Dispatchers.Default) {
+```
+
+REPLACEMENT:
+
+```kotlin
+    suspend fun transcribe(
+        audioBuffer: FloatArray,
+        languageCode: String = "hi"
+    ): AppResult<String> = inferenceLock.withLock { transcribeUnlocked(audioBuffer, languageCode) }
+
+    private suspend fun transcribeUnlocked(
+        audioBuffer: FloatArray,
+        languageCode: String
+    ): AppResult<String> = withContext(Dispatchers.Default) {
+```
+
+The function bodies are unchanged; only their headers move. The existing `return@withContext` labels keep working. **Never call `ensureLoaded` or `transcribe` from inside the other while holding the lock** — `Mutex` is not re-entrant. Neither currently does.
+
+### Step 2 — `AudioCaptureModule.kt`: a single segment queue
+
+**2a.** ANCHOR:
+
+```kotlin
+    private var captureJob: Job? = null
+```
+
+REPLACEMENT:
+
+```kotlin
+    private var captureJob: Job? = null
+
+    /** One pending STT job (T65). [done] completes after onSpeechReady returns. */
+    private class Segment(
+        val audio: FloatArray,
+        val language: String,
+        val done: kotlinx.coroutines.CompletableDeferred<Unit>? = null
+    )
+
+    /**
+     * All finished speech goes through this queue and ONE consumer (T65). Previously
+     * onSpeechReady -- which runs the whole STT inference -- was called inline in the capture
+     * loop, so the loop stopped reading the microphone during inference and AudioRecord's small
+     * buffer overflowed. The queue keeps capture reading and keeps phrases in spoken order.
+     */
+    private val segmentQueue =
+        kotlinx.coroutines.channels.Channel<Segment>(kotlinx.coroutines.channels.Channel.UNLIMITED)
+
+    init {
+        scope.launch {
+            for (segment in segmentQueue) {
+                try {
+                    onSpeechReady(segment.audio, segment.language)
+                } catch (e: Exception) {
+                    Log.e(TAG, "segment processing failed: ${e.message}", e)
+                } finally {
+                    segment.done?.complete(Unit)
+                }
+            }
+        }
+    }
+
+    /** Queue [audio] behind any phrases already pending and suspend until it is processed. */
+    suspend fun submitAndAwait(audio: FloatArray, language: String) {
+        val done = kotlinx.coroutines.CompletableDeferred<Unit>()
+        segmentQueue.send(Segment(audio, language, done))
+        done.await()
+    }
+```
+
+`init` must come **after** the `segmentQueue` declaration (it does, if you paste the block as one piece). `scope` is declared above `captureJob`, so it is already initialised.
+
+**2b.** ANCHOR:
+
+```kotlin
+                readySegment?.let { combined ->
+                    Log.d(TAG, "Speech segment complete: ${combined.size} samples")
+                    onSpeechReady(combined, currentLanguage)
+                }
+```
+
+REPLACEMENT:
+
+```kotlin
+                readySegment?.let { combined ->
+                    Log.d(TAG, "Speech segment complete: ${combined.size} samples")
+                    // Hand off; never run inference on the capture loop (T65).
+                    segmentQueue.trySend(Segment(combined, currentLanguage))
+                }
+```
+
+### Step 3 — `AudioCaptureModule.kt`: shorter cut while PTT is held
+
+Holding the button already says "this is speech", so a shorter pause can safely end a phrase. ANCHOR (this is T41's REPLACEMENT; if it is not present, T41 is not done — **stop**):
+
+```kotlin
+    private val silenceChunksForEndOfSpeech: Int
+        get() = if (speechChunkCount >= confidentSpeechChunks) silenceChunksShort
+                else silenceChunksLong
+```
+
+REPLACEMENT:
+
+```kotlin
+    /** Set by the service while the PTT button is held (T65). */
+    @Volatile var pttHeld: Boolean = false
+    /** 400 ms: the phrase cut used while PTT is held and enough speech has been captured. */
+    private val silenceChunksPtt = 4
+
+    private val silenceChunksForEndOfSpeech: Int
+        get() = when {
+            pttHeld && speechChunkCount >= confidentSpeechChunks -> silenceChunksPtt
+            speechChunkCount >= confidentSpeechChunks -> silenceChunksShort
+            else -> silenceChunksLong
+        }
+```
+
+### Step 4 — `ITantraForegroundService.kt`: route the release flush through the queue
+
+**4a.** ANCHOR (the whole `startPTT` function):
+
+```kotlin
+    fun startPTT() {
+        if (!audioCaptureModule.isRunning) {
+            audioCaptureModule.startCapture()
+            _pipelineStage.value = PipelineStage.LISTENING
+        }
+    }
+```
+
+REPLACEMENT:
+
+```kotlin
+    fun startPTT() {
+        audioCaptureModule.pttHeld = true
+        if (!audioCaptureModule.isRunning) {
+            audioCaptureModule.startCapture()
+            _pipelineStage.value = PipelineStage.LISTENING
+        }
+    }
+```
+
+**4b.** ANCHOR (the whole `stopPTT` function):
+
+```kotlin
+    fun stopPTT() {
+        serviceScope.launch {
+            val buffer = audioCaptureModule.flushAndTranscribe()
+            if (buffer != null && buffer.isNotEmpty()) {
+                _pipelineStage.value = PipelineStage.TRANSCRIBING
+                sttModule.ensureLoaded(sttLanguage)
+                sttModule.transcribe(buffer, sttLanguage)
+                // onSTTResult (audioCallbacks) takes it from TRANSCRIBING through TRANSMITTING
+                // and back to IDLE; only reset here if transcription produced no result at all.
+                if (_pipelineStage.value == PipelineStage.TRANSCRIBING) _pipelineStage.value = PipelineStage.IDLE
+            } else {
+                _pipelineStage.value = PipelineStage.IDLE
+            }
+            audioCaptureModule.stopCapture()
+        }
+    }
+```
+
+REPLACEMENT:
+
+```kotlin
+    fun stopPTT() {
+        audioCaptureModule.pttHeld = false
+        serviceScope.launch {
+            val buffer = audioCaptureModule.flushAndTranscribe()
+            // Stop the microphone before waiting on STT, so nothing said after release is queued.
+            audioCaptureModule.stopCapture()
+            if (buffer != null && buffer.isNotEmpty()) {
+                _pipelineStage.value = PipelineStage.TRANSCRIBING
+                // Same queue as mid-hold phrases (T65): keeps spoken order, avoids concurrent
+                // inference, and goes through onSpeechReady so the flush gets telemetry too.
+                audioCaptureModule.submitAndAwait(buffer, sttLanguage)
+                // onSTTResult (audioCallbacks) takes it from TRANSCRIBING through TRANSMITTING
+                // and back to IDLE; only reset here if transcription produced no result at all.
+                if (_pipelineStage.value == PipelineStage.TRANSCRIBING) _pipelineStage.value = PipelineStage.IDLE
+            } else {
+                _pipelineStage.value = PipelineStage.IDLE
+            }
+        }
+    }
+```
+
+If your copy of `stopPTT` differs from the ANCHOR (for example because telemetry lines were added), **stop and report** rather than merging by hand.
+
+### VERIFY
+
+1. `./gradlew :app:compileDebugKotlin`
+2. Hold PTT on phone A and say two sentences with a clear half-second pause between them, **still holding**. Phone B must start speaking sentence 1 **before** A releases.
+3. Say one long sentence without pausing: exactly one message is sent, on release.
+4. The telemetry CSV shows one row per phrase. `adb logcat -s STTModule:*` shows inferences one after another, never overlapping.
+
+### DO NOT
+
+- Do not go below 400 ms (`silenceChunksPtt = 4`). Shorter cuts split words and cost accuracy.
+- Do not start T50 (streaming inference) until this is measured. It may make T50 unnecessary.
+
+---
+
+## T66 🎨 · SOS: send alerts from the UI, and show received alerts
+
+**Files:** `core/service/ITantraForegroundService.kt`, `ui/MainViewModel.kt`, `ui/screen/TransceiverScreen.kt`, the top-level Compose host (`MainActivity.kt`)
+**Criterion:** REQ — *"alert type messages will be announced at highest volume non-interruptible"* cannot be demonstrated today, because no UI sends an ALERT (`broadcastAlert()` has no caller) and no UI shows one (`alertFlow` has no collector).
+**Depends on:** T69 (Step 1 below calls its `transmit()` helper).
+
+### Step 1 — service: correct language on alerts, and "speak next message as alert"
+
+**1a.** Replace `broadcastAlert`. ANCHOR (the whole function):
+
+```kotlin
+    fun broadcastAlert(text: String) {
+        val alert = TransceiverMessage(
+            type = MessageType.ALERT,
+            text = text,
+            srcLang = sttLanguage,
+            dstLang = ttsLanguage,
+            senderId = deviceId,
+            timestamp = System.currentTimeMillis(),
+            sequence = ++sequenceCounter,
+            direction = Direction.SENT
+        )
+        appendMessage(alert)
+        if (isBluetoothFallbackActive) {
+            bluetoothManager.send(alert)
+        } else {
+            socketTransport.broadcast(alert)
+        }
+    }
+```
+
+(If T69 is done, the last five lines already read `transmit(alert)` — then the ANCHOR ends with `        transmit(alert)\n    }` instead. Either form is fine.)
+
+REPLACEMENT:
+
+```kotlin
+    /**
+     * Broadcast an ALERT. [lang] is the language [text] is written in: the receiver chooses its
+     * voice from srcLang (see T43), so a preset that fell back to English must say "en", not the
+     * sender's STT language.
+     */
+    fun broadcastAlert(text: String, lang: String = sttLanguage) {
+        val alert = TransceiverMessage(
+            type = MessageType.ALERT,
+            text = text,
+            srcLang = lang,
+            dstLang = lang,
+            senderId = deviceId,
+            timestamp = System.currentTimeMillis(),
+            sequence = ++sequenceCounter,
+            direction = Direction.SENT
+        )
+        appendMessage(alert)
+        transmit(alert)
+    }
+```
+
+**1b.** Add the flag. ANCHOR:
+
+```kotlin
+    fun setTTSLanguage(lang: String) { ttsLanguage = lang }
+```
+
+REPLACEMENT:
+
+```kotlin
+    fun setTTSLanguage(lang: String) { ttsLanguage = lang }
+
+    /** When true, the next STT result is sent as an ALERT instead of SPEECH, then resets (T66). */
+    @Volatile var sendNextAsAlert: Boolean = false
+```
+
+**1c.** Use it. ANCHOR (inside `onSTTResult`; appears exactly once in the file):
+
+```kotlin
+                    type = MessageType.SPEECH,
+```
+
+REPLACEMENT:
+
+```kotlin
+                    type = if (sendNextAsAlert) MessageType.ALERT else MessageType.SPEECH,
+```
+
+**1d.** Reset it after one use. ANCHOR:
+
+```kotlin
+                appendMessage(message)
+                // Transmit over network
+```
+
+REPLACEMENT:
+
+```kotlin
+                sendNextAsAlert = false
+                appendMessage(message)
+                // Transmit over network
+```
+
+### Step 2 — `MainViewModel.kt`
+
+**2a.** State. ANCHOR:
+
+```kotlin
+    val pipelineStage: StateFlow<ITantraForegroundService.PipelineStage> = _pipelineStage.asStateFlow()
+```
+
+REPLACEMENT:
+
+```kotlin
+    val pipelineStage: StateFlow<ITantraForegroundService.PipelineStage> = _pipelineStage.asStateFlow()
+
+    // ── SOS / alerts (T66) ──
+    /** The most recent received ALERT not yet acknowledged; null when none is showing. */
+    private val _incomingAlert = MutableStateFlow<AlertEvent?>(null)
+    val incomingAlert: StateFlow<AlertEvent?> = _incomingAlert.asStateFlow()
+
+    private val _alertArmed = MutableStateFlow(false)
+    /** True while the next spoken PTT message will be sent as an ALERT. */
+    val alertArmed: StateFlow<Boolean> = _alertArmed.asStateFlow()
+
+    fun dismissAlert() { _incomingAlert.value = null }
+
+    /** Send a preset alert. Uses [languageCode]'s text if the template has it, else English. */
+    fun sendPresetAlert(template: AlertTemplate, languageCode: String) {
+        val lang = if (template.templateText.containsKey(languageCode)) languageCode else "en"
+        val text = template.templateText.getValue(lang)
+        foregroundService?.broadcastAlert(text, lang)
+    }
+
+    /** Arm or disarm "send my next spoken message as an ALERT". */
+    fun setAlertArmed(armed: Boolean) {
+        _alertArmed.value = armed
+        foregroundService?.sendNextAsAlert = armed
+    }
+```
+
+Add imports if missing: `com.itantra.domain.model.AlertEvent`, `com.itantra.domain.model.AlertTemplate`.
+
+**2b.** Collect alerts from the service. ANCHOR:
+
+```kotlin
+                viewModelScope.launch { it.isBluetoothListening.collect { b -> _isBluetoothListening.value = b } }
+```
+
+REPLACEMENT:
+
+```kotlin
+                viewModelScope.launch { it.isBluetoothListening.collect { b -> _isBluetoothListening.value = b } }
+                viewModelScope.launch { it.alertFlow.collect { e -> _incomingAlert.value = e } }
+```
+
+**2c.** The armed flag resets itself in the service after one message; mirror that in the UI. In `stopTransceiverPtt()`, after `foregroundService?.stopPTT()`, add `_alertArmed.value = false`.
+
+### Step 3 — UI 🎨 (open the files and match their existing patterns; do not invent a new style)
+
+**Sender, `TransceiverScreen.kt`:**
+- An **SOS** button near the PTT button, using the same button component and shape the screen already uses for primary actions. It opens a dialog listing `AlertTemplate.entries` by `displayName`.
+- Tapping a template shows a confirmation ("Send '<displayName>' alert to all connected peers?"). On confirm: `viewModel.sendPresetAlert(template, <the current STT language code this screen already holds>)`.
+- A toggle labelled **"Next message is an ALERT"**, styled like the existing auto-detect toggle, bound to `alertArmed` / `setAlertArmed`.
+
+**Receiver, `MainActivity.kt` (top level, so it appears on every screen):**
+- Collect `viewModel.incomingAlert`. When non-null, show a full-screen `Dialog` (`DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false, usePlatformDefaultWidth = false)`) with: "ALERT", the message text in large type, the sender id, the time from `receivedAt`, and one **Acknowledge** button that calls `viewModel.dismissAlert()`.
+- Use the theme's existing colours. Do not add new colours.
+
+### Follow-up for a human (not for an agent)
+
+`AlertTemplate` has text only for `hi`, `en`, `ta`, `te`, `bn`. The other five languages fall back to English. Adding `gu`, `mr`, `kn`, `ml`, `or` text needs a native speaker to write and check it. **An agent must not generate these translations.**
+
+### VERIFY
+
+1. `./gradlew :app:compileDebugKotlin`
+2. Phone A: SOS → Medical Emergency → confirm. Phone B: alarm-volume speech **and** the full-screen alert, which stays until Acknowledge.
+3. Phone A: turn on "Next message is an ALERT", hold PTT, speak. Phone B treats it as an alert. The next PTT message is normal speech again.
+
+### DO NOT
+
+- Do not make the alert dialog dismissible by back or outside tap.
+- Do not split ALERT text for streaming TTS (see T40's DO NOT).
+
+---
+
+## T67 🎨 · Received speech is kept as a replayable voice note
+
+**Files:** new `core/audio/VoiceNoteStore.kt`, `core/service/ITantraForegroundService.kt`, `ui/MainViewModel.kt`, `ui/screen/TransceiverScreen.kt`
+**Criterion:** REQ — *"converted into intelligible speech which will be played as a voice note"*
+**Depends on:** T13 (the `play(samples, sampleRate, …)` signature). T13 is already in the working tree; commit it first.
+
+### Step 1 — create `core/audio/VoiceNoteStore.kt` exactly
+
+```kotlin
+package com.itantra.core.audio
+
+import android.content.Context
+import java.io.File
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
+
+/**
+ * Keeps each received message's synthesized speech as a 16-bit mono WAV, so it can be replayed
+ * like a voice note (T67). Files live in filesDir/voicenotes/, named by sender and sequence so the
+ * UI can find a message's note without any new field on TransceiverMessage.
+ *
+ * Only reads files written by [save]; this is not a general WAV parser.
+ */
+object VoiceNoteStore {
+
+    private const val DIR = "voicenotes"
+    /** Oldest notes are deleted beyond this count. ~200 KB each for a few seconds of speech. */
+    private const val MAX_NOTES = 200
+
+    fun fileFor(context: Context, senderId: String, sequence: Int): File {
+        val safeSender = senderId.replace(Regex("[^A-Za-z0-9_-]"), "_")
+        return File(File(context.filesDir, DIR), "${safeSender}_$sequence.wav")
+    }
+
+    fun save(context: Context, senderId: String, sequence: Int, samples: FloatArray, sampleRate: Int): File? =
+        runCatching {
+            val file = fileFor(context, senderId, sequence)
+            file.parentFile?.mkdirs()
+            val dataBytes = samples.size * 2
+            val buf = ByteBuffer.allocate(44 + dataBytes).order(ByteOrder.LITTLE_ENDIAN)
+            buf.put("RIFF".toByteArray(Charsets.US_ASCII)); buf.putInt(36 + dataBytes)
+            buf.put("WAVE".toByteArray(Charsets.US_ASCII))
+            buf.put("fmt ".toByteArray(Charsets.US_ASCII)); buf.putInt(16)
+            buf.putShort(1)                 // PCM
+            buf.putShort(1)                 // mono
+            buf.putInt(sampleRate)
+            buf.putInt(sampleRate * 2)      // byte rate
+            buf.putShort(2)                 // block align
+            buf.putShort(16)                // bits per sample
+            buf.put("data".toByteArray(Charsets.US_ASCII)); buf.putInt(dataBytes)
+            for (s in samples) buf.putShort((s.coerceIn(-1f, 1f) * Short.MAX_VALUE).toInt().toShort())
+            file.writeBytes(buf.array())
+            prune(context)
+            file
+        }.getOrNull()
+
+    /** Returns (samples, sampleRate) for a file written by [save], or null. */
+    fun load(file: File): Pair<FloatArray, Int>? = runCatching {
+        val bb = ByteBuffer.wrap(file.readBytes()).order(ByteOrder.LITTLE_ENDIAN)
+        val sampleRate = bb.getInt(24)
+        val n = bb.getInt(40) / 2
+        FloatArray(n) { i -> bb.getShort(44 + i * 2) / Short.MAX_VALUE.toFloat() } to sampleRate
+    }.getOrNull()
+
+    private fun prune(context: Context) {
+        val files = File(context.filesDir, DIR).listFiles()?.sortedBy { it.lastModified() } ?: return
+        files.dropLast(MAX_NOTES).forEach { it.delete() }
+    }
+}
+```
+
+### Step 2 — save on receive (`ITantraForegroundService.kt`, inside `onTextReceived`)
+
+The exact code around the `play` call depends on which tasks are done. Find the `audioPlayback.play(` call inside `onTextReceived` and use the matching row:
+
+| State of `onTextReceived` | What to add |
+| --- | --- |
+| One `synth` and one `audioPlayback.play(synth.samples, synth.sampleRate, …)` (T13 done, T40 not) | On the line **before** that `audioPlayback.play(`, add the snippet below with `SAMPLES = synth.samples` and `RATE = synth.sampleRate` |
+| A `for (segment in segments)` loop (T40 done) | Before the loop: `val noteParts = mutableListOf<FloatArray>(); var noteRate = 0`. Inside the loop, right after `val part = …`: `noteParts.add(part.samples); noteRate = part.sampleRate`. After the loop: the snippet below with `SAMPLES = concatenate(noteParts)` and `RATE = noteRate`, guarded by `if (noteParts.isNotEmpty())` |
+| `val waveform = …` and `audioPlayback.play(waveform, isAlert)` (T13 not done) | **Stop.** Do T13 first |
+
+Snippet (replace `SAMPLES` and `RATE`):
+
+```kotlin
+                    // Keep it as a replayable voice note (T67). Off the playback path.
+                    val noteSamples = SAMPLES
+                    val noteRate = RATE
+                    serviceScope.launch(Dispatchers.IO) {
+                        com.itantra.core.audio.VoiceNoteStore.save(
+                            this@ITantraForegroundService, message.senderId, message.sequence, noteSamples, noteRate
+                        )
+                    }
+```
+
+For the T40 row, `concatenate(noteParts)` is:
+
+```kotlin
+FloatArray(noteParts.sumOf { it.size }).also { out ->
+    var o = 0
+    for (p in noteParts) { p.copyInto(out, o); o += p.size }
+}
+```
+
+(In the T40 row, `noteRate` is already declared by you; name the snippet's local `noteRateFinal` instead to avoid the clash.)
+
+### Step 3 — replay (`ITantraForegroundService.kt`)
+
+ANCHOR:
+
+```kotlin
+    fun setTTSLanguage(lang: String) { ttsLanguage = lang }
+```
+
+REPLACEMENT (if T66 already added lines after it, insert this directly after the `setTTSLanguage` line and leave T66's lines in place):
+
+```kotlin
+    fun setTTSLanguage(lang: String) { ttsLanguage = lang }
+
+    /** Replays a stored voice note through the normal playback path (T67). False if none exists. */
+    fun replayVoiceNote(senderId: String, sequence: Int): Boolean {
+        val file = com.itantra.core.audio.VoiceNoteStore.fileFor(this, senderId, sequence)
+        if (!file.exists()) return false
+        serviceScope.launch(Dispatchers.IO) {
+            val (samples, rate) = com.itantra.core.audio.VoiceNoteStore.load(file) ?: return@launch
+            audioPlayback.play(samples, rate)
+        }
+        return true
+    }
+```
+
+### Step 4 — `MainViewModel.kt`
+
+Add beside `stopTransceiverPtt()`:
+
+```kotlin
+    /** Replay a received message's voice note (T67). Returns false if it is not stored yet. */
+    fun replayVoiceNote(message: TransceiverMessage): Boolean =
+        foregroundService?.replayVoiceNote(message.senderId, message.sequence) ?: false
+```
+
+Add the import `com.itantra.domain.model.TransceiverMessage` if missing.
+
+### Step 5 — UI 🎨 (`TransceiverScreen.kt`)
+
+On each message bubble whose `direction == Direction.RECEIVED`, add a small play icon button using an icon style already used in that file. On tap: `if (!viewModel.replayVoiceNote(msg))` show the screen's existing snackbar/toast pattern with "Voice note not ready yet". Show the note's duration only if it is trivial to get; it is optional.
+
+### VERIFY
+
+1. `./gradlew :app:compileDebugKotlin`
+2. Receive three messages. `adb shell run-as com.itantra.debug ls files/voicenotes` lists three `.wav` files.
+3. Tap play on the second message: it plays again, and it waits its turn if something else is playing (T38).
+4. `adb shell run-as com.itantra.debug cat files/voicenotes/<one>.wav > note.wav` plays correctly on a laptop.
+
+### DO NOT
+
+- Do not add fields to `TransceiverMessage` or the proto for this.
+- Do not save on the sender side. The PS describes the receiver's TTS output as the voice note.
+
+---
+
+## T68 · (Stretch) ESP32 receiver — the "embedded device" in the PS
+
+**Files:** new `firmware/esp32_receiver/esp32_receiver.ino`, `core/network/BluetoothRFCOMMManager.kt`
+**Criterion:** REQ — *"stream the data through wifi/Bluetooth connected embedded device or another phone"*
+**Depends on:** T69 (otherwise the phone never sends to a Bluetooth peer it connected to as a client).
+
+### Hardware (human)
+
+- An **original ESP32** board (ESP32-WROOM-32 / DevKitC). **Not** ESP32-S2, S3, C3 or C6 — those have no Bluetooth Classic, and the app's transport is Bluetooth Classic RFCOMM.
+- Optional: an active buzzer on GPIO 25 → GND. The on-board LED on GPIO 2 is used as the alert light.
+- Arduino IDE with the "esp32 by Espressif Systems" board package.
+
+### Step 1 — app: fall back to the standard serial UUID
+
+The app connects with its own UUID `6E400001-B5A3-F393-E0A9-E50E24DCCA9E`. An ESP32 running `BluetoothSerial` advertises the standard Serial Port Profile UUID instead, so the connection fails.
+
+**1a.** ANCHOR (companion object of `BluetoothRFCOMMManager`):
+
+```kotlin
+        private val SERVICE_UUID = UUID.fromString("6E400001-B5A3-F393-E0A9-E50E24DCCA9E")
+```
+
+REPLACEMENT:
+
+```kotlin
+        private val SERVICE_UUID = UUID.fromString("6E400001-B5A3-F393-E0A9-E50E24DCCA9E")
+        /** Standard Bluetooth Serial Port Profile UUID. Embedded receivers (T68) listen on this. */
+        private val SPP_UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
+```
+
+**1b.** ANCHOR (inside `connectToDevice`):
+
+```kotlin
+                val socket = device.createRfcommSocketToServiceRecord(SERVICE_UUID)
+                socket.connect()
+```
+
+REPLACEMENT:
+
+```kotlin
+                val socket = run {
+                    val primary = device.createRfcommSocketToServiceRecord(SERVICE_UUID)
+                    try {
+                        primary.connect()
+                        primary
+                    } catch (e: IOException) {
+                        // Not another iTantra phone? An embedded receiver (T68) exposes the
+                        // standard SPP UUID instead. Retry once on it before giving up.
+                        runCatching { primary.close() }
+                        Log.w(TAG, "iTantra UUID connect failed (${e.message}); retrying on SPP")
+                        device.createRfcommSocketToServiceRecord(SPP_UUID).also { it.connect() }
+                    }
+                }
+```
+
+**1c.** Fix a partial-read bug that embedded senders and fragmented RFCOMM packets trigger. ANCHOR (inside `handleSocket`):
+
+```kotlin
+                val read = input.read(lengthBuffer)
+                if (read < 4) break
+```
+
+REPLACEMENT:
+
+```kotlin
+                // RFCOMM may deliver the 4-byte header in pieces; read until complete.
+                var got = 0
+                while (got < 4) {
+                    val n = input.read(lengthBuffer, got, 4 - got)
+                    if (n < 0) break
+                    got += n
+                }
+                if (got < 4) break
+```
+
+### Step 2 — the firmware
+
+Create `firmware/esp32_receiver/esp32_receiver.ino` exactly:
+
+```cpp
+// iTantra embedded receiver (T68).
+// Accepts the app's frames over Bluetooth Classic SPP: 4-byte big-endian length + a
+// TransceiverMessage protobuf (see app/src/main/proto/itantra.proto). Prints the text on the
+// serial monitor and flashes/buzzes on ALERT. Protobuf is decoded by hand (only the fields we
+// need) so no extra library is required.
+#include "BluetoothSerial.h"
+
+BluetoothSerial SerialBT;
+const int LED_PIN = 2;       // on-board LED on most ESP32 DevKitC boards
+const int BUZZER_PIN = 25;   // active buzzer to GND (optional)
+const size_t MAX_PAYLOAD = 4096;
+uint8_t payload[MAX_PAYLOAD];
+
+// Blocks until n bytes arrive or the link drops. Returns false on disconnect.
+bool readExact(uint8_t* buf, size_t n) {
+  size_t got = 0;
+  while (got < n) {
+    if (!SerialBT.hasClient()) return false;
+    int c = SerialBT.read();
+    if (c < 0) { delay(1); continue; }
+    buf[got++] = (uint8_t)c;
+  }
+  return true;
+}
+
+bool readVarint(const uint8_t* p, size_t len, size_t& i, uint64_t& out) {
+  out = 0;
+  for (int shift = 0; shift < 64 && i < len; shift += 7) {
+    uint8_t b = p[i++];
+    out |= (uint64_t)(b & 0x7F) << shift;
+    if (!(b & 0x80)) return true;
+  }
+  return false;
+}
+
+void alertSignal() {
+  for (int k = 0; k < 6; k++) {
+    digitalWrite(LED_PIN, HIGH); digitalWrite(BUZZER_PIN, HIGH); delay(150);
+    digitalWrite(LED_PIN, LOW);  digitalWrite(BUZZER_PIN, LOW);  delay(100);
+  }
+}
+
+void setup() {
+  Serial.begin(115200);
+  pinMode(LED_PIN, OUTPUT);
+  pinMode(BUZZER_PIN, OUTPUT);
+  SerialBT.begin("iTantra-ESP32");
+  Serial.println("Ready. Pair the phone with 'iTantra-ESP32'.");
+}
+
+void loop() {
+  uint8_t hdr[4];
+  if (!readExact(hdr, 4)) { delay(50); return; }
+  uint32_t len = ((uint32_t)hdr[0] << 24) | ((uint32_t)hdr[1] << 16) | ((uint32_t)hdr[2] << 8) | hdr[3];
+  if (len == 0) return;
+  if (len > MAX_PAYLOAD) {                 // too big for this board: skip it
+    for (uint32_t k = 0; k < len; k++) { uint8_t d; if (!readExact(&d, 1)) return; }
+    return;
+  }
+  if (!readExact(payload, len)) return;
+
+  uint64_t type = 0;                        // 0 SPEECH, 1 ALERT, 2 ACK, 3 PING
+  String text, srcLang, sender;
+  size_t i = 0;
+  while (i < len) {
+    uint64_t key;
+    if (!readVarint(payload, len, i, key)) break;
+    uint32_t field = key >> 3, wire = key & 7;
+    if (wire == 0) {                        // varint: type(1), timestamp(6), sequence(8)
+      uint64_t v; if (!readVarint(payload, len, i, v)) break;
+      if (field == 1) type = v;
+    } else if (wire == 2) {                 // length-delimited: text(2), src_lang(3), dst_lang(4), sender_id(5)
+      uint64_t l; if (!readVarint(payload, len, i, l) || i + l > len) break;
+      String s; s.reserve(l);
+      for (uint64_t k = 0; k < l; k++) s += (char)payload[i + k];
+      if (field == 2) text = s; else if (field == 3) srcLang = s; else if (field == 5) sender = s;
+      i += l;
+    } else if (wire == 5) {                 // fixed32: confidence(7)
+      i += 4;
+    } else if (wire == 1) {                 // fixed64: not used by this schema, skip safely
+      i += 8;
+    } else {
+      break;                                // unknown wire type: stop parsing this frame
+    }
+  }
+
+  if (type == 2 || type == 3) return;       // ACK / PING: nothing to show
+  Serial.printf("[%s] %s (%s): %s\n", type == 1 ? "ALERT" : "SPEECH", sender.c_str(), srcLang.c_str(), text.c_str());
+  if (type == 1) alertSignal();
+  else { digitalWrite(LED_PIN, HIGH); delay(80); digitalWrite(LED_PIN, LOW); }
+}
+```
+
+**Honest limitation for the slide:** the serial monitor shows UTF-8 correctly, but small OLED displays cannot render Indic scripts. If a display is added, show "ALERT from <sender>" rather than the Indic text.
+
+### VERIFY
+
+1. Flash the sketch; the serial monitor prints `Ready`.
+2. Phone: pair with `iTantra-ESP32` in Android Bluetooth settings, then connect from the app's Bluetooth device list. Logcat shows `retrying on SPP`, then a connection.
+3. Speak on the phone (PTT): the text appears on the serial monitor. Send an SOS (T66): LED/buzzer pattern plays.
+
+### DO NOT
+
+- Do not change the app's own `SERVICE_UUID`; phone-to-phone must keep working.
+- Do not add nanopb or other protobuf libraries to the firmware; the hand decoder is intentional.
+
+---
+
+## T69 · Send on every live transport, and drop duplicates on receive
+
+**Files:** `core/network/BluetoothRFCOMMManager.kt`, `core/service/ITantraForegroundService.kt`
+**Criterion:** REQ — reliable Bluetooth in both directions
+**Depends on:** nothing.
+
+### Why
+
+`onSTTResult` sends over Bluetooth only when `isBluetoothFallbackActive` is true. That flag is set only when **this** phone started the Bluetooth server (Host Beacon, or three Wi-Fi Direct failures). A phone that connected **outbound** as the Bluetooth client has the flag false, so it sends over TCP to nobody. Over Bluetooth the link is one-directional unless both phones have Host Beacon on. The fix is to send on every transport that has a peer, and to ignore the second copy if a peer is reachable on both.
+
+### Step 1 — `BluetoothRFCOMMManager.kt`
+
+ANCHOR:
+
+```kotlin
+    fun send(message: TransceiverMessage, targetDeviceId: String? = null) {
+```
+
+REPLACEMENT:
+
+```kotlin
+    /** True if at least one Bluetooth peer is connected (T69). */
+    fun hasConnections(): Boolean = connectedSockets.isNotEmpty()
+
+    fun send(message: TransceiverMessage, targetDeviceId: String? = null) {
+```
+
+### Step 2 — `ITantraForegroundService.kt`: a single send path
+
+**2a.** Add the helper and the dedup set. ANCHOR:
+
+```kotlin
+    private var isBluetoothFallbackActive = false
+```
+
+REPLACEMENT:
+
+```kotlin
+    private var isBluetoothFallbackActive = false
+
+    /**
+     * Send on every transport that currently has a peer (T69). Previously Bluetooth was used only
+     * when this phone had started the Bluetooth server, so a phone connected as the Bluetooth
+     * client sent over TCP to nobody.
+     */
+    private fun transmit(message: TransceiverMessage) {
+        if (bluetoothManager.hasConnections()) bluetoothManager.send(message)
+        socketTransport.broadcast(message)
+    }
+
+    /**
+     * Recently received message keys, so a peer reachable over both Wi-Fi Direct and Bluetooth is
+     * heard once (T69). The key includes the timestamp because sequence numbers restart at 1 when
+     * the sender's app restarts. Bounded to 256 entries; guard every access with synchronized.
+     */
+    private val seenMessages: MutableSet<String> = java.util.Collections.newSetFromMap(
+        object : java.util.LinkedHashMap<String, Boolean>(64, 0.75f, false) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Boolean>?): Boolean =
+                size > 256
+        }
+    )
+```
+
+**2b.** Use it in `onSTTResult`. ANCHOR:
+
+```kotlin
+                if (isBluetoothFallbackActive) {
+                    bluetoothManager.send(message)
+                } else {
+                    socketTransport.broadcast(message)
+                }
+```
+
+REPLACEMENT:
+
+```kotlin
+                transmit(message)
+```
+
+**2c.** Use it in `broadcastAlert`. ANCHOR:
+
+```kotlin
+        if (isBluetoothFallbackActive) {
+            bluetoothManager.send(alert)
+        } else {
+            socketTransport.broadcast(alert)
+        }
+```
+
+REPLACEMENT:
+
+```kotlin
+        transmit(alert)
+```
+
+(If T66 is already done, this block is already gone — skip 2c.)
+
+**2d.** Drop duplicates. ANCHOR:
+
+```kotlin
+        override fun onTextReceived(message: TransceiverMessage) {
+```
+
+REPLACEMENT:
+
+```kotlin
+        override fun onTextReceived(message: TransceiverMessage) {
+            val dedupKey = "${message.senderId}:${message.sequence}:${message.timestamp}"
+            val isNew = synchronized(seenMessages) { seenMessages.add(dedupKey) }
+            if (!isNew) {
+                Log.d(TAG, "Duplicate $dedupKey dropped (reached us on two transports)")
+                return
+            }
+```
+
+Do not remove `isBluetoothFallbackActive`: it still controls whether the Bluetooth **server** is listening.
+
+### VERIFY
+
+1. `./gradlew :app:compileDebugKotlin`
+2. Phone A: Host Beacon on. Phone B: Host Beacon **off**, connect to A over Bluetooth. Speak on B: A must hear it (this failed before). Speak on A: B hears it.
+3. Two phones connected over both Wi-Fi Direct and Bluetooth: each message is heard once; logcat shows `Duplicate … dropped` for the second copy.
+
+### DO NOT
+
+- Do not remove either transport's `send`/`broadcast`. Both may be live.
+- Do not key the dedup on `sequence` alone.
 
 ---
 
@@ -1130,7 +2734,9 @@ Before/after table from the week-0 and week-6 CSVs; rehearsed two-device demo; d
 | D — bundle/UI | T20, T21 🎨, T22 | Specced |
 | E — deferred | T23, T29, T30, T48, T49, T50 | Specced as procedures 🔬 |
 | F — dossier | T56–T61 | Commands given |
-| Judgement only | T01, T03, T04, T16, T19, T25–T28, T36, T54, T55 | Trivial, or covered inline in Part 1 |
+| G — second audit | T62 🔬, T63, T64 🔬, T65, T66 🎨, T67 🎨, T68, T69 | Specced, anchors verified against committed code and working tree on 2026-09-23 |
+| Judgement only | T01, T03, T04, T16, T25–T28, T36, T54 | Trivial, or covered inline in Part 1 |
+| Superseded | T19 → T64; T55 → merged into T64 Step 6 | — |
 
 ---
 
