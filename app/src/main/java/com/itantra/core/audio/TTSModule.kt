@@ -45,17 +45,20 @@ class TTSModule(
 
     private val ttsCache = mutableMapOf<String, OfflineTts>()
 
+    /** Synthesized PCM plus the sample rate it must be played at. */
+    data class SynthesisResult(val samples: FloatArray, val sampleRate: Int)
+
     /**
-     * Synthesize text to a 16kHz PCM waveform for the specified language.
+     * Synthesize text to a PCM waveform for the specified language, at the voice's native
+     * sample rate.
      *
      * @param text Input text string (UTF-8, supports all Indic scripts).
      * @param languageCode BCP-47 language code (e.g., "hi", "en"). Only [LANGUAGE_TO_PACK]'s
      *   languages have a real voice; anything else — or a supported language whose voice pack
      *   isn't downloaded yet — returns null and reports a real [ErrorCode.MODEL_LOAD_FAILED].
-     * @return FloatArray PCM waveform at [PLAYBACK_SAMPLE_RATE] (16kHz), ready for AudioTrack
-     *   playback, or null on failure. Never returns fabricated audio.
+     * @return [SynthesisResult], or null on failure. Never returns fabricated audio.
      */
-    suspend fun synthesize(text: String, languageCode: String): FloatArray? =
+    suspend fun synthesize(text: String, languageCode: String): SynthesisResult? =
         withContext(Dispatchers.Default) {
             val tts = getOrLoadTts(languageCode)
             if (tts == null) {
@@ -80,9 +83,12 @@ class TTSModule(
                         "in ${synthesisMs}ms [$languageCode]"
                 )
 
-                val resampled = resampleTo16k(audio.samples, audio.sampleRate)
                 callbacks.onTTSSynthesisComplete(durationMs)
-                resampled
+                // Return the voice's native sample rate. The previous linear-interpolation
+                // downsample to 16kHz had no anti-aliasing filter, so everything above 8kHz
+                // folded back into the audible band as metallic artifacts — and AudioTrack
+                // plays 22050Hz natively, so the resample bought nothing.
+                SynthesisResult(audio.samples, audio.sampleRate)
             } catch (e: Exception) {
                 Log.e(TAG, "TTS synthesis error for '$languageCode': ${e.message}", e)
                 callbacks.onAudioError(
@@ -91,27 +97,6 @@ class TTSModule(
                 null
             }
         }
-
-    /** Resample a waveform from [sourceSampleRate] down to [PLAYBACK_SAMPLE_RATE] via linear interpolation. */
-    fun resampleTo16k(waveform: FloatArray, sourceSampleRate: Int): FloatArray {
-        if (sourceSampleRate == PLAYBACK_SAMPLE_RATE) return waveform
-        val ratio = PLAYBACK_SAMPLE_RATE.toDouble() / sourceSampleRate
-        val outputLength = (waveform.size * ratio).toInt()
-        val resampled = FloatArray(outputLength)
-
-        for (i in resampled.indices) {
-            val srcIdx = i / ratio
-            val floor = srcIdx.toInt()
-            val frac = (srcIdx - floor).toFloat()
-
-            resampled[i] = if (floor + 1 < waveform.size) {
-                waveform[floor] * (1f - frac) + waveform[floor + 1] * frac
-            } else {
-                waveform.getOrElse(floor) { 0f }
-            }
-        }
-        return resampled
-    }
 
     /**
      * Loads (or returns the cached) [OfflineTts] instance for [languageCode]. Returns null when

@@ -34,7 +34,6 @@ class AudioPlaybackManager(
 ) {
     companion object {
         private const val TAG = "AudioPlayback"
-        private const val SAMPLE_RATE = TTSModule.PLAYBACK_SAMPLE_RATE
         private const val CHANNEL_CONFIG = android.media.AudioFormat.CHANNEL_OUT_MONO
         private const val AUDIO_FORMAT = android.media.AudioFormat.ENCODING_PCM_FLOAT
     }
@@ -47,18 +46,28 @@ class AudioPlaybackManager(
     /**
      * Play a synthesized PCM waveform.
      *
-     * @param waveform Float PCM samples at [SAMPLE_RATE] Hz.
+     * @param waveform Float PCM samples at [sampleRate] Hz.
+     * @param sampleRate The rate [waveform] was synthesized at (voice-native, not resampled).
      * @param isAlert If true, uses alarm stream with max volume override.
+     * @param onFirstFrame If given, invoked immediately after playback starts and before the
+     *   first buffer is written — used to stamp when audio actually started playing, for the
+     *   Latency criterion. Must not be invoked after `write()` returns: `WRITE_BLOCKING` only
+     *   returns once playback has drained, which would measure the wrong thing.
      */
-    fun play(waveform: FloatArray, isAlert: Boolean = false) {
+    fun play(
+        waveform: FloatArray,
+        sampleRate: Int,
+        isAlert: Boolean = false,
+        onFirstFrame: (() -> Unit)? = null
+    ) {
         scope.launch {
-            if (isAlert) playAlert(waveform) else playNormal(waveform)
+            if (isAlert) playAlert(waveform, sampleRate, onFirstFrame) else playNormal(waveform, sampleRate, onFirstFrame)
         }
     }
 
-    private fun playNormal(waveform: FloatArray) {
+    private fun playNormal(waveform: FloatArray, sampleRate: Int, onFirstFrame: (() -> Unit)? = null) {
         requestAudioFocus(isAlert = false)
-        val bufferSize = AudioTrack.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT)
+        val bufferSize = AudioTrack.getMinBufferSize(sampleRate, CHANNEL_CONFIG, AUDIO_FORMAT)
 
         val track = AudioTrack.Builder()
             .setAudioAttributes(
@@ -75,7 +84,7 @@ class AudioPlaybackManager(
             .setAudioFormat(
                 android.media.AudioFormat.Builder()
                     .setEncoding(AUDIO_FORMAT)
-                    .setSampleRate(SAMPLE_RATE)
+                    .setSampleRate(sampleRate)
                     .setChannelMask(CHANNEL_CONFIG)
                     .build()
             )
@@ -86,6 +95,7 @@ class AudioPlaybackManager(
         try {
             track.setVolume(1.0f)
             track.play()
+            onFirstFrame?.invoke()
             track.write(waveform, 0, waveform.size, AudioTrack.WRITE_BLOCKING)
             track.stop()
         } finally {
@@ -94,7 +104,7 @@ class AudioPlaybackManager(
         }
     }
 
-    private fun playAlert(waveform: FloatArray) {
+    private fun playAlert(waveform: FloatArray, sampleRate: Int, onFirstFrame: (() -> Unit)? = null) {
         // Save current alarm volume
         savedVolume = audioManager.getStreamVolume(AudioManager.STREAM_ALARM)
         val maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_ALARM)
@@ -116,7 +126,7 @@ class AudioPlaybackManager(
         requestAudioFocus(isAlert = true)
 
         val bufferSize = AudioTrack.getMinBufferSize(
-            SAMPLE_RATE,
+            sampleRate,
             CHANNEL_CONFIG,
             android.media.AudioFormat.ENCODING_PCM_FLOAT
         )
@@ -132,7 +142,7 @@ class AudioPlaybackManager(
             .setAudioFormat(
                 android.media.AudioFormat.Builder()
                     .setEncoding(android.media.AudioFormat.ENCODING_PCM_FLOAT)
-                    .setSampleRate(SAMPLE_RATE)
+                    .setSampleRate(sampleRate)
                     .setChannelMask(CHANNEL_CONFIG)
                     .build()
             )
@@ -142,6 +152,7 @@ class AudioPlaybackManager(
 
         try {
             track.play()
+            onFirstFrame?.invoke()
             track.write(waveform, 0, waveform.size, AudioTrack.WRITE_BLOCKING)
             track.stop()
         } finally {

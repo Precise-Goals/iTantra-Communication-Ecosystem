@@ -25,7 +25,9 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         ndk {
-            abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
+            // Judged build targets real phones only. x86_64 is emulator-only and armeabi-v7a
+            // cannot run llamacpp at all (LlmModule.isDeviceSupported already gates it out).
+            abiFilters += listOf("arm64-v8a")
         }
     }
 
