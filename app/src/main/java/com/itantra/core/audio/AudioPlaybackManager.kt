@@ -54,15 +54,40 @@ class AudioPlaybackManager(
      *   Latency criterion. Must not be invoked after `write()` returns: `WRITE_BLOCKING` only
      *   returns once playback has drained, which would measure the wrong thing.
      */
+    private class PlaybackItem(
+        val waveform: FloatArray,
+        val sampleRate: Int,
+        val isAlert: Boolean,
+        val onFirstFrame: (() -> Unit)?
+    )
+
+    /** Serialises playback (T38). Previously each message built its own AudioTrack and played
+     *  simultaneously, so phrases arriving close together garbled each other. */
+    private val playbackQueue = kotlinx.coroutines.channels.Channel<PlaybackItem>(
+        capacity = 16,
+        onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST
+    )
+
+    init {
+        scope.launch {
+            for (item in playbackQueue) {
+                try {
+                    if (item.isAlert) playAlert(item.waveform, item.sampleRate, item.onFirstFrame)
+                    else playNormal(item.waveform, item.sampleRate, item.onFirstFrame)
+                } catch (e: Exception) {
+                    Log.e(TAG, "playback failed: ${e.message}", e)
+                }
+            }
+        }
+    }
+
     fun play(
         waveform: FloatArray,
         sampleRate: Int,
         isAlert: Boolean = false,
         onFirstFrame: (() -> Unit)? = null
     ) {
-        scope.launch {
-            if (isAlert) playAlert(waveform, sampleRate, onFirstFrame) else playNormal(waveform, sampleRate, onFirstFrame)
-        }
+        playbackQueue.trySend(PlaybackItem(waveform, sampleRate, isAlert, onFirstFrame))
     }
 
     private fun playNormal(waveform: FloatArray, sampleRate: Int, onFirstFrame: (() -> Unit)? = null) {
@@ -180,6 +205,7 @@ class AudioPlaybackManager(
                     val gained = focusChange == AudioManager.AUDIOFOCUS_GAIN
                     callbacks.onAudioFocusChanged(gained)
                 }
+                .setWillPauseWhenDucked(false)
                 .build()
 
             audioFocusRequest = focusRequest
