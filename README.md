@@ -41,7 +41,7 @@ Instead of streaming raw audio, iTantra converts speech to text **on-device** us
 ┌──────────────────────────────────────────────────────────────────────┐
 │                            SENDER DEVICE                              │
 │  Mic → AudioRecord (16kHz mono PCM_16BIT, 100ms/1600-sample chunks)  │
-│      → VADModule (adaptive energy-based speech detection)            │
+│      → VADModule (energy-threshold speech detection)                 │
 │      → 800ms silence → flushAndTranscribe()                          │
 │      → STTModule (sherpa-onnx IndicConformer INT8, per-language)     │
 │           mel-spectrogram(80-bin) → OrtSession.run() → CtcDecoder     │
@@ -59,6 +59,29 @@ Instead of streaming raw audio, iTantra converts speech to text **on-device** us
 │  [ALERT type] → STREAM_ALARM @ max volume + DND-bypass attempt        │
 └──────────────────────────────────────────────────────────────────────┘
 ```
+
+### Target architecture — what changes to meet PS-26173 fully
+
+The shape stays the same: speech → text on the sender, a small Protobuf frame over Wi-Fi Direct or Bluetooth, text → speech on the receiver. **No redesign is needed.** The additions below are small, local changes to existing modules (task IDs refer to [`docs/TASKS.md`](docs/TASKS.md)):
+
+```
+SENDER                                            RECEIVER
+Mic ─(muted while this phone plays audio) T63     Frame in ─ duplicate dropped T69
+  → VAD: Silero, energy as fallback      T62        → TTS in the text's own language T43
+  → phrase cut at a pause → queue        T65        → playback queue, ALERT jumps it  T38
+  → STT (10 languages incl. Odia)        T64        → saved as a voice note           T67
+  → send on Wi-Fi AND/OR Bluetooth       T69        → ALERT: alarm volume + full-screen dialog T66
+                     ↘ optional ESP32 receiver over Bluetooth SPP  T68
+```
+
+| PS requirement | Where it is met |
+| --- | --- |
+| STT + TTS, 10 languages, offline | `STTModule`, `TTSModule` — Odia STT (T64) and five TTS voices (T17b) still to add |
+| Form sentences after pauses, stream instantly | VAD + phrase queue (T62, T65) |
+| Wi-Fi / Bluetooth to a phone or embedded device | Wi-Fi Direct + RFCOMM, both directions (T69); ESP32 (T68) |
+| Played as a voice note | Voice-note store (T67) |
+| Alerts at highest volume, non-interruptible | Alarm stream (exists) + SOS send/show (T66) + queue pre-emption (T39) |
+| PTT, and phone mode when PTT is off | PTT (exists), phone-mode toggle + echo gate (T37 + T63) |
 
 ### Technology Stack
 

@@ -74,6 +74,8 @@ The system is purpose-built to serve ISRO's PS-26173 mandate: enabling inclusive
 
 ### 5.1 Core Pipeline (STT → Net → TTS)
 
+> **Update 2026-09-23:** this pipeline still meets PS-26173 and is kept. The current, PS-complete version — with the small additions needed (echo gate, phrase queue, voice notes, SOS, Bluetooth in both directions) — is the **Target architecture** in [`README.md`](README.md#target-architecture--what-changes-to-meet-ps-26173-fully).
+
 ```
 [SENDER NODE]
   Microphone → AudioRecord (16kHz PCM)
@@ -230,6 +232,7 @@ iTantraForegroundService  (Android Foreground Service)
 - Speech detected → stream chunks into STT input buffer
 - Pause > 800ms → STT inference triggered on accumulated audio buffer
 - Full-duplex: both devices send/receive simultaneously via independent coroutine scopes
+- **Update 2026-09-23:** on a loudspeaker, full-duplex makes the phone re-transmit what it plays. The microphone is muted while a received message is playing (echo gate, `docs/TASKS.md` T63) — hands-free like a phone, without the echo loop
 
 ### 6.3 Alert / Distress Broadcast
 
