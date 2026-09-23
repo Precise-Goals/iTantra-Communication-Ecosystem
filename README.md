@@ -41,7 +41,7 @@ Instead of streaming raw audio, iTantra converts speech to text **on-device** us
 ┌──────────────────────────────────────────────────────────────────────┐
 │                            SENDER DEVICE                              │
 │  Mic → AudioRecord (16kHz mono PCM_16BIT, 100ms/1600-sample chunks)  │
-│      → VADModule (adaptive energy-based speech detection)            │
+│      → VADModule (energy-threshold speech detection)                 │
 │      → 800ms silence → flushAndTranscribe()                          │
 │      → STTModule (sherpa-onnx IndicConformer INT8, per-language)     │
 │           mel-spectrogram(80-bin) → OrtSession.run() → CtcDecoder     │
@@ -60,6 +60,29 @@ Instead of streaming raw audio, iTantra converts speech to text **on-device** us
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
+### Target architecture — what changes to meet PS-26173 fully
+
+The shape stays the same: speech → text on the sender, a small Protobuf frame over Wi-Fi Direct or Bluetooth, text → speech on the receiver. **No redesign is needed.** The additions below are small, local changes to existing modules (task IDs refer to [`docs/TASKS.md`](docs/TASKS.md)):
+
+```
+SENDER                                            RECEIVER
+Mic ─(muted while this phone plays audio) T63     Frame in ─ duplicate dropped T69
+  → VAD: Silero, energy as fallback      T62        → TTS in the text's own language T43
+  → phrase cut at a pause → queue        T65        → playback queue, ALERT jumps it  T38
+  → STT (10 languages incl. Odia)        T64        → saved as a voice note           T67
+  → send on Wi-Fi AND/OR Bluetooth       T69        → ALERT: alarm volume + full-screen dialog T66
+                     ↘ optional ESP32 receiver over Bluetooth SPP  T68
+```
+
+| PS requirement | Where it is met |
+| --- | --- |
+| STT + TTS, 10 languages, offline | `STTModule`, `TTSModule` — Odia STT (T64) and five TTS voices (T17b) still to add |
+| Form sentences after pauses, stream instantly | VAD + phrase queue (T62, T65) |
+| Wi-Fi / Bluetooth to a phone or embedded device | Wi-Fi Direct + RFCOMM, both directions (T69); ESP32 (T68) |
+| Played as a voice note | Voice-note store (T67) |
+| Alerts at highest volume, non-interruptible | Alarm stream (exists) + SOS send/show (T66) + queue pre-emption (T39) |
+| PTT, and phone mode when PTT is off | PTT (exists), phone-mode toggle + echo gate (T37 + T63) |
+
 ### Technology Stack
 
 | Layer | Technology | Notes |
@@ -69,7 +92,7 @@ Instead of streaming raw audio, iTantra converts speech to text **on-device** us
 | Navigation | Navigation-Compose 2.7.7 | 6 routes, see [Screens](#-screens) |
 | STT | AI4Bharat IndicConformer, sherpa-onnx ONNX INT8 export, per-language graph + `tokens.txt` | via `onnxruntime-android` 1.18.0 |
 | TTS | Real espeak-ng-phonemized VITS voices (Piper / Coqui / Mimic3) | via `sherpa-onnx-static-link-onnxruntime` AAR (v1.13.7) |
-| VAD | Silero VAD v4 ONNX (bundled) + adaptive energy-based detector | Energy-based detection is the active default, tuned via real-device testing |
+| VAD | Silero VAD (v5+ ONNX, downloaded) + fixed-threshold energy detector | Energy detection is the active default today; repairing Silero is planned (see [Roadmap](#-roadmap)) |
 | AI Assistant LLM | Phi‑3‑mini‑4k‑instruct GGUF (q4), optional 2.39 GB download | via `llamacpp-kotlin` 0.4.0 (arm64-v8a + x86_64) |
 | Networking | `WifiP2pManager` (primary) + `BluetoothAdapter`/RFCOMM (fallback) | TCP port 8765 |
 | Wire format | Protocol Buffers v3, `protobuf-javalite` 3.25.3 | 4-byte big-endian length-prefixed frames |
@@ -96,7 +119,7 @@ iTantra/
 │   │   │   └── TacticalAiEngine.kt       # Reliable keyword-matching assistant, always available (9 languages)
 │   │   ├── audio/
 │   │   │   ├── AudioCaptureModule.kt     # AudioRecord capture, VAD-gated speech buffering
-│   │   │   ├── VADModule.kt              # Adaptive energy-based voice detection (Silero neural model also present)
+│   │   │   ├── VADModule.kt              # Energy-threshold voice detection (Silero neural model loaded, not yet active)
 │   │   │   ├── STTModule.kt              # sherpa-onnx IndicConformer inference, per-language lazy load
 │   │   │   ├── CtcDecoder.kt             # Pure-Kotlin CTC greedy decode (unit-tested)
 │   │   │   ├── TTSModule.kt              # sherpa-onnx VITS synthesis
@@ -147,7 +170,7 @@ iTantra/
 `AudioRecord(MIC, 16000Hz, MONO, PCM_16BIT)` on a dedicated `Dispatchers.IO` scope. Reads 1600-sample (100ms) chunks, converts to `Float` PCM, and feeds each chunk to `VADModule`. Speech chunks accumulate into a thread-safe buffer. End-of-speech = **8 consecutive silent 100ms chunks (800ms)**; hard cap of 30s per utterance. Public surface: `startCapture()`, `stopCapture()`, `suspend fun flushAndTranscribe(): FloatArray?`.
 
 ### Voice Activity Detection — `VADModule`
-Uses a robust, adaptive energy-based voice detector, tuned through real on-device testing across quiet and noisy conditions (RMS threshold, discriminated against a speech-probability cutoff). A bundled Silero VAD v4 ONNX neural model is also present in the pipeline — real-device testing showed the energy-based approach gives more consistent results for this deployment today, so it's the active detector, with a self-healing path that automatically falls back to it if the neural session ever throws at runtime.
+The active detector is an RMS energy threshold (`rms > 0.025` on each 100 ms chunk). It is simple and works in quiet rooms, but a fixed threshold degrades in noise. The Silero neural VAD model is downloaded and loaded but not used: it was set aside after returning near-zero probabilities for silence, a sine wave and white noise. Those are all non-speech inputs, so near-zero was the correct answer, and the downloaded file is the v5+ model, which expects a 64-sample context prefix the current code does not supply. Re-enabling it, with the energy detector kept as a fallback, is planned — see [Roadmap](#-roadmap).
 
 ### Speech-to-Text — `STTModule` + `CtcDecoder`
 Uses **AI4Bharat IndicConformer**, exported as per-language sherpa-onnx ONNX INT8 graphs (`stt_{lang}_int8.onnx` + `stt_{lang}_tokens.txt`). Each language is lazy-loaded and cached on first use. `SessionOptions`: 2 intra-op threads, `ALL_OPT`, attempts NNAPI delegate with a CPU/XNNPACK fallback.
@@ -244,7 +267,7 @@ Concurrency is explicitly tuned (`maxRequests`/`maxRequestsPerHost` raised well 
 **Model sources:**
 - STT: AI4Bharat IndicConformer (sherpa-onnx export), Hugging Face — 9 Indic languages.
 - TTS: `k2-fsa/sherpa-onnx` `tts-models` release — 5 languages (see table above).
-- VAD: Silero VAD v4 ONNX, GitHub raw.
+- VAD: Silero VAD ONNX (v5+ interface), GitHub raw — currently from `master`; pinning to a release tag is planned.
 - AI Assistant: `microsoft/Phi-3-mini-4k-instruct-gguf` on Hugging Face.
 
 ---
@@ -360,9 +383,12 @@ The commit history documents genuine, iterative on-device engineering:
 
 ## 🗺️ Roadmap
 
-- **Neural VAD upgrade** — the bundled Silero VAD model is already in the pipeline; further tuning is planned so it can take over from the current energy-based detector.
-- **Full language voice coverage** — sourcing free, high-quality offline TTS voices for Marathi, Kannada, Tamil, Telugu, and Odia (STT + TTS).
-- **Emergency / SOS broadcast screen** — a dedicated distress-signal UI; the underlying `ALERT` message type and alarm-volume/DND-bypass playback path already exist in the wire protocol and audio pipeline.
+- **Neural VAD** — supply the 64-sample context the v5+ Silero model expects, verify it on recorded speech, and make it the primary detector with the energy detector as fallback.
+- **Full language coverage** — convert TTS voices for Marathi, Kannada, Tamil, Telugu and Odia (MMS, CC-BY-NC), and export Odia STT from AI4Bharat's `indicconformer_stt_or_hybrid_ctc_rnnt_large` checkpoint (the current download mirror has no Odia).
+- **Phone mode in the UI, with an echo gate** — so a phone never re-transmits the message it is playing.
+- **Bluetooth in both directions** — today a phone sends over Bluetooth only if it is the one hosting.
+- **Voice notes** — keep received speech for replay.
+- **Emergency / SOS controls** — send preset or spoken alerts, and show received alerts on screen; the `ALERT` message type and alarm-volume/DND-bypass playback already exist, but no screen sends or displays one yet.
 - **Deeper `PeerSessionScreen` integration** — connecting the per-peer session view directly to the live transceiver pipeline.
 - **Persisted background downloads** — scheduling model downloads via WorkManager so they can survive process death.
 

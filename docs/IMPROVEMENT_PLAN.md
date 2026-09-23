@@ -2,6 +2,7 @@
 
 > Smart India Hackathon 2026 · Problem Statement PS-26173
 > As of 2026-09-20 · Audited against `docs/comprehensive-documentation` @ `e7b07c4`
+> **Second audit 2026-09-23** — further findings and corrections in [§10](#10-addendum--second-audit-2026-09-23). Read §10 before acting on §3.3, §3.4, §7.1, §7.2 or the Odia position.
 
 ---
 
@@ -78,12 +79,16 @@ These mismatches remain:
 
 ### 3.3 VAD clips the first phoneme of every utterance
 
+> **Superseded in part by §10.1:** the neural Silero VAD was disabled on a misdiagnosis and should be repaired (T62). The adaptive energy detector below becomes the fallback, not the primary. The pre-roll buffer applies to either.
+
 The active energy path in `VADModule` uses a **fixed** threshold (`rms > 0.025f → 0.85`), despite the README describing it as adaptive. Two distinct accuracy costs:
 
 1. **No pre-roll buffer.** Accumulation begins only *after* RMS crosses the threshold, so low-energy onsets — unvoiced stops `/k/ /t/ /p/`, initial fricatives — are cut off. Every utterance loses its opening phoneme. *Fix:* keep a 300 ms ring buffer and prepend it when speech triggers. Roughly 20 lines for an immediate WER win.
 2. **Fixed absolute threshold.** In a noisy environment RMS never drops below 0.025, so the detector never releases and the 30 s cap is hit. In a quiet room a soft speaker never triggers at all. *Fix:* track a rolling noise floor (EMA or percentile over quiet frames) and apply hysteresis — trigger at floor+9 dB, release at floor+4 dB.
 
 ### 3.4 The capture chain is not tuned for ASR
+
+> **Amended by §10.2:** `VOICE_RECOGNITION` is right for PTT, but phone mode also needs an echo gate (T63), or received TTS is re-transcribed and sent back.
 
 - `AudioCaptureModule` opens `MediaRecorder.AudioSource.MIC`. Switching to **`VOICE_RECOGNITION`** selects the path Android tunes for speech recognition and disables the aggressive voice-call processing that smears spectra. A standard, free WER improvement.
 - No DC-offset removal, and no `NoiseSuppressor` or `AutomaticGainControl` `AudioEffect` attached to the session.
@@ -217,11 +222,15 @@ These are separate from the performance and accuracy work above. Each is somethi
 
 ### 7.1 The receiver ignores `dstLang`
 
+> **Corrected by §10.13:** the fix is to use `srcLang`, not `dstLang`.
+
 `ITantraForegroundService.onTextReceived()` calls `ttsModule.synthesize(message.text, ttsLanguage)` — the **receiver's local setting**, not the `dstLang` the sender put on the wire. If the sender speaks Hindi and the receiver is configured for Malayalam, Devanagari text is fed to a Malayalam VITS voice. The output is meaningless.
 
 *Fix:* honour `message.dstLang`, falling back to `srcLang` when no voice for `dstLang` is installed.
 
 ### 7.2 There is no translation anywhere in the codebase
+
+> **Resolved by §10.12:** the problem statement does not require translation. Remove the claim; do not build it for the judged submission.
 
 A grep for `translat` across `app/src/main/java` returns only UI icon imports and two hard-coded strings in `TacticalAiEngine`. No machine translation step exists in the transceiver path.
 
@@ -347,6 +356,130 @@ This is a desktop JVM figure and is therefore **optimistic**. A mid-range ARM ph
 - The fourth 20% rubric criterion, which was cut off in the source screenshot.
 - On-device measurement of any kind. Every latency and CPU figure here is derived from code inspection or the desktop benchmark. The instrumentation in §6 is what turns these into measured numbers.
 - The `worktree-afsk-radio-link` branch (`MeshLink`, `AfskModem`, `HdlcFramer`). It compiles, has no tests, and is off the critical path for these three criteria.
+
+---
+
+## 10. Addendum — second audit (2026-09-23)
+
+A second pass over the same tree, plus the uncommitted working-tree changes on `docs/comprehensive-documentation`. Four findings **correct** earlier planning (§10.1, §10.2, §10.3, §10.13); the rest are gaps no earlier document listed. New tasks are T62–T69 in [`TASKS.md`](TASKS.md), specced in [`IMPLEMENTATION_SPEC_2.md`](IMPLEMENTATION_SPEC_2.md) Group G, with every code anchor checked against both the committed code and the working tree.
+
+### 10.1 Correction — the Silero VAD was disabled on a misdiagnosis
+
+`VADModule.initialize()` forces `VadBackend.BASIC_ENERGY` with the comment that the bundled model is *"empirically non-functional"*: it was tested against **silence, a 200 Hz sine and white noise**, and returned ~0.001 for all three.
+
+That is the correct output. None of those inputs is speech; a working speech detector *should* reject all three. The test proves nothing about the model — it was never run on a recording of a person talking.
+
+There is also a probable real defect. `ModelRegistry` downloads `silero_vad.onnx` from the repo's **`master`** branch, and the code confirms its signature is a single combined `state [2,1,128]` — that is the **v5+ model**, not v4 (the on-disk name `silero_vad_v4.onnx` is misleading). The official v5 wrapper (`OnnxWrapper` in `silero_vad/utils_vad.py`) **prepends the last 64 samples of the previous window** to every 512-sample window, feeding `[1, 576]`. `VADModule.process()` feeds `[1, 512]` with no context. That alone can flatten the output.
+
+**Consequence for the plan:** §3.3's adaptive energy detector (T32) is still worth doing, but as the *fallback*. The primary fix is to repair Silero (T62). A neural VAD is also the right answer for the Efficiency criterion's "CPU during idle listening" — Silero costs well under 1 ms per 32 ms window — and for noisy field conditions, where any energy threshold degrades.
+
+### 10.2 Correction — `VOICE_RECOGNITION` and "no AEC" break phone mode
+
+§3.4 recommends `VOICE_RECOGNITION`, and `IMPLEMENTATION_SPEC_2.md` T33 says *"Do not attach `AcousticEchoCanceler` — this is a push-to-talk radio, not a speakerphone."* That was true until T37. **Phone mode makes it a speakerphone.**
+
+In `PHONE_MODE` capture runs continuously. When a message arrives, `onTextReceived` plays TTS through the loudspeaker; nothing mutes or gates the mic (`grep -rn "AcousticEchoCanceler\|VOICE_COMMUNICATION" app/src/main/java` → nothing in capture). The phone hears its own playback, the VAD fires, STT transcribes it, and **the received sentence is transmitted back to the sender**. Two phones in phone mode can ping-pong a sentence indefinitely. This will surface in the first minute of a judge testing phone mode.
+
+**Fix (T63):** gate capture while `PipelineStage == SPEAKING` plus a ~250 ms tail, in both modes — deterministic, zero-cost, and correct walkie-talkie semantics. Optionally, in phone mode only, use `VOICE_COMMUNICATION` with `AcousticEchoCanceler` to allow barge-in. Keep `VOICE_RECOGNITION` for PTT.
+
+### 10.3 Correction — Odia STT does exist upstream
+
+Every planning document states that no Odia STT model exists. That is true only of the **third-party mirror** the registry downloads from (`parismitaglobalsolutions/indicconformer-sherpa-onnx`). AI4Bharat publishes Odia directly: [`ai4bharat/indicconformer_stt_or_hybrid_ctc_rnnt_large`](https://huggingface.co/ai4bharat/indicconformer_stt_or_hybrid_ctc_rnnt_large) — same family as the other nine, Conformer-Large, ~120 M parameters, hybrid CTC-RNNT.
+
+10/10 STT is therefore an **export job**, not an impossibility (T64). Two consequences:
+
+- The "state 9/10 with the reason" position in T19 is withdrawn. A judge who searches Hugging Face for thirty seconds will find the model.
+- The same card supports §5.2's suspicion about size: **~120 M parameters at INT8 should be ~120–130 MB**, not the mirror's ~197 MB. Exporting all ten languages CTC-only from the AI4Bharat originals (T55 + T64 as one job) likely fixes Odia and cuts ~600 MB from a full install in the same pass.
+
+⚠️ `model-export/export_indicconformer.py` cannot be reused as-is: it restores the checkpoint as `EncDecMultiTaskModel` (NeMo's Canary class, not the hybrid CTC-RNNT class) and exports a raw-audio graph, whereas `STTModule` feeds 80-bin mel features. Treat it as historical.
+
+### 10.4 Gap — the app cannot send an ALERT
+
+`ITantraForegroundService.broadcastAlert()` exists and the receive side (alarm stream, max volume, DND bypass) is implemented. **Nothing in `ui/` calls `broadcastAlert()`** (`grep -rn "broadcastAlert" app/src/main/java/com/itantra/ui` → nothing). The alert path is unreachable from the app, so "alert type messages will be announced at highest volume non-interruptible" cannot be demonstrated. `ACTION_PLAN.md` §2 rated this "mostly done"; it is **not demonstrable**.
+
+**Fix (T66):** an SOS control on the Transceiver screen — one-tap preset phrases (the translated `AlertTemplate` set already exists in the domain model) plus free-speech-as-alert — and on the receiver a full-screen alert with the text.
+
+### 10.5 Gap — nothing is a "voice note"
+
+The PS: TTS output *"will be played as a voice note"*. Today the waveform is synthesized, played once and discarded; the chat shows text only. There is no replay (`grep -rni "\.wav\|voiceNote\|replay" app/src/main/java` → only a doc comment and unrelated `SharedFlow` params).
+
+**Fix (T67):** write each received utterance as a 16-bit WAV to `filesDir/voicenotes/<senderId>_<sequence>.wav`, show a play button and duration on the message bubble, and route replays through the T38 playback queue.
+
+### 10.6 Gap — phrase-level pipelining exists in embryo, but is unsafe; fix it before T50
+
+T50 (chunked streaming inference) is correctly flagged as risky: IndicConformer is non-streaming, and chunk seams cost WER.
+
+A cheaper structure costs **no** accuracy: while PTT is held, cut at natural pauses and send each phrase through the existing batch `transcribe()` as a complete utterance. Phone B starts speaking phrase 1 while phone A is still saying phrase 2. This is literally what the PS describes: *"after detecting pauses and stoppages should form the sentences detected and must instantly … stream the data"*.
+
+The capture loop **already does a version of this** — it cuts at 800 ms of silence even while PTT is held and calls `onSpeechReady` → STT → transmit. But it has two real bugs:
+
+1. **Inference blocks capture.** `onSpeechReady(...)` — the whole STT inference — is called *inside* the capture loop. The loop stops reading the microphone for the duration, while `AudioRecord`'s buffer holds only ~200 ms (`CHUNK_SIZE * 2`). Speech during inference is lost.
+2. **Concurrent inference.** `stopPTT()` calls `sttModule.transcribe()` directly, possibly while a mid-hold segment is still transcribing on another coroutine. In the working tree, the new FFT code reuses member scratch arrays (`fftRe`, `fftIm`, `powerSpectrum`), and the session cache is a plain `HashMap`; two concurrent calls corrupt each other's features. The release flush can also overtake an earlier phrase.
+
+**Fix (T65):** an inference `Mutex` in `STTModule`, one segment queue with a single consumer (the release flush goes through it too), and a 400 ms cut while PTT is held. Do this before T50 and re-measure whether T50 is still needed. Depends on T41, and on T38 on the receiver so phrases queue instead of overlapping.
+
+### 10.7 Gap — the "embedded device" half of the transport requirement is undemonstrated
+
+The PS: *"stream the data through wifi/Bluetooth connected **embedded device** or another phone"*. The phone-to-phone half is done. Nobody has shown the embedded half. A ~100-line ESP32 sketch that accepts the existing 4-byte length-prefixed Protobuf frame over Bluetooth SPP (the RFCOMM transport already speaks this) and shows the text on a small display, or sounds a buzzer on `ALERT`, closes this visibly (T68). Stretch priority — but almost no other team will have it.
+
+### 10.8 Status — work already done in the working tree
+
+The uncommitted working tree on `docs/comprehensive-documentation` (not yet on `main`) already contains:
+
+| Task | State |
+| --- | --- |
+| T05, T06, T07 — radix-2 FFT-512, sparse Slaney filterbank built once, scratch buffers | Implemented |
+| T08, T09, T10, T12 — `core/telemetry/Telemetry.kt`, send/receive stamps, RTF, CSV | Implemented |
+| T11 — peer clock offset from the ping loop | Offset recorded; cross-device number not yet computed |
+| T13 — resampler removed, `AudioTrack` at voice-native rate | Implemented |
+| T14 — `abiFilters` arm64-v8a only | Implemented |
+| T25, T27 — Slaney norm, periodic Hann | Implemented |
+| T26, T28 — n_fft 512 and `2^-24` log guard done; `center=True` and unbiased std **not** done | Partial |
+| T24 — preemphasis | Not done |
+
+**None of it is committed, and none of it has been measured on a device.** The first action is to commit it and take the T16 baseline — otherwise the 43.6× claim remains a desktop benchmark, not a device measurement.
+
+### 10.9 Minor
+
+- **T14 and low-end phones.** arm64-only is right for the judged demo phone, but some sub-₹8,000 Android Go devices are 32-bit only. Once T02 removes llama.cpp (the only reason `armeabi-v7a` was unusable), an `armeabi-v7a` ABI split costs nothing in the arm64 APK. Decide after T03 names the target phone.
+- **Model pinning.** The Silero URL points at `master`, so the model can change under you between two downloads. Pin it to a release tag as part of T62.
+
+### 10.11 Bug — Bluetooth only sends from the phone that hosts
+
+`onSTTResult` and `broadcastAlert` send over Bluetooth only when `isBluetoothFallbackActive` is true, and that flag is set only when **this** phone started the Bluetooth server (the Host Beacon toggle, or three Wi-Fi Direct failures). A phone that connected **outbound** as the Bluetooth client keeps the flag false and sends over TCP — to no one. So over Bluetooth, messages flow only from the hosting phone unless both phones turn Host Beacon on. It also blocks T68: the phone is the client when it connects to an ESP32.
+
+**Fix (T69):** send on every transport that currently has a peer (`bluetoothManager.hasConnections()` plus the TCP broadcast), and drop duplicates on receive by `(senderId, sequence, timestamp)`, in case a peer is reachable over both.
+
+### 10.12 Does the problem statement require translation? No.
+
+The PS text asks for: STT in ten languages; sentence formation after pauses; streaming the text over Wi-Fi/Bluetooth; TTS that *"after receiving the Text data should convert it into intelligible speech"*; alerts at highest volume; PTT and phone modes. It never asks for the text to change language between sender and receiver. The "inclusive" motivation is about **literacy** — audio instead of written messages — not about crossing languages.
+
+Consequences:
+
+- **Do not build translation for the judged build.** An offline Indic MT model (e.g. a distilled IndicTrans2) is hundreds of MB and adds latency, against two criteria that score exactly those, for a feature nobody is scoring.
+- **Remove translation claims** from any doc or slide (`RANGE_STRATEGY.md` §10 already walks this back; keep it that way).
+- **The receiver's voice must follow the text's language** — see §10.13.
+- If a judge asks, the honest answer is: *"Out of scope for PS-26173; the architecture is text-first, so an offline MT stage slots in between STT and transmit without touching anything else."* That is a good answer, not a gap.
+
+### 10.13 Correction — T43 should use `srcLang`, not `dstLang`
+
+T43 (and §7.1) fixes the receiver ignoring the wire's language by switching to `message.dstLang`. But the sender fills `dstLang` from **its own** TTS setting, and no translation exists (§10.12). The text is always in the language that was spoken — `srcLang`. Whenever a sender's STT and TTS settings differ, `dstLang` voicing reproduces the Devanagari-into-a-Malayalam-voice bug. The spec now uses `message.srcLang` and reports a real error if that language has no voice yet — never a different language's voice.
+
+### 10.10 Revised top of the work order
+
+Items 1–4 below slot in ahead of §8's list; the rest of §8 is unchanged.
+
+| # | Change | Criterion | Effort |
+| --- | --- | --- | --- |
+| 0 | Commit the working-tree changes (§10.8); take the T16 baseline | all | 0.5 day |
+| 1 | T63 echo gate — without it phone mode (a hard requirement) self-oscillates | REQ | 3 hours |
+| 1b | T69 transport fix — Bluetooth currently sends only from the hosting phone | REQ | 2 hours |
+| 1c | T43 with `srcLang` (§10.13) | ACC, REQ | 1 hour |
+| 2 | T66 SOS/alert control — without it a hard requirement cannot be shown | REQ | 1 day |
+| 3 | T62 repair Silero VAD; keep T32 as fallback | ACC, EFF | 1 day |
+| 4 | T64 + T55 export all ten STT languages CTC-only INT8 from AI4Bharat | ACC, EFF, REQ | 3 days |
+| 5 | T67 voice notes | REQ | 0.5 day |
+| 6 | T65 phrase-level pipelining (before T50) | LAT | 1 day |
+| 7 | T68 ESP32 receiver | REQ (stretch) | 1 day |
 
 ---
 
