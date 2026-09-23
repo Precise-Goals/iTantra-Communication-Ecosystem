@@ -46,6 +46,43 @@ class AudioCaptureModule(
     private var audioRecord: AudioRecord? = null
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var captureJob: Job? = null
+
+    /** One pending STT job (T65). [done] completes after onSpeechReady returns. */
+    private class Segment(
+        val audio: FloatArray,
+        val language: String,
+        val done: kotlinx.coroutines.CompletableDeferred<Unit>? = null
+    )
+
+    /**
+     * All finished speech goes through this queue and ONE consumer (T65). Previously
+     * onSpeechReady -- which runs the whole STT inference -- was called inline in the capture
+     * loop, so the loop stopped reading the microphone during inference and AudioRecord's small
+     * buffer overflowed. The queue keeps capture reading and keeps phrases in spoken order.
+     */
+    private val segmentQueue =
+        kotlinx.coroutines.channels.Channel<Segment>(kotlinx.coroutines.channels.Channel.UNLIMITED)
+
+    init {
+        scope.launch {
+            for (segment in segmentQueue) {
+                try {
+                    onSpeechReady(segment.audio, segment.language)
+                } catch (e: Exception) {
+                    Log.e(TAG, "segment processing failed: ${e.message}", e)
+                } finally {
+                    segment.done?.complete(Unit)
+                }
+            }
+        }
+    }
+
+    /** Queue [audio] behind any phrases already pending and suspend until it is processed. */
+    suspend fun submitAndAwait(audio: FloatArray, language: String) {
+        val done = kotlinx.coroutines.CompletableDeferred<Unit>()
+        segmentQueue.send(Segment(audio, language, done))
+        done.await()
+    }
     private var isCapturing = false
 
     // Speech accumulation buffer. Written from the capture coroutine (Dispatchers.IO) and read/
@@ -66,9 +103,17 @@ class AudioCaptureModule(
 
     private var speechChunkCount = 0
 
+    /** Set by the service while the PTT button is held (T65). */
+    @Volatile var pttHeld: Boolean = false
+    /** 400 ms: the phrase cut used while PTT is held and enough speech has been captured. */
+    private val silenceChunksPtt = 4
+
     private val silenceChunksForEndOfSpeech: Int
-        get() = if (speechChunkCount >= confidentSpeechChunks) silenceChunksShort
-                else silenceChunksLong
+        get() = when {
+            pttHeld && speechChunkCount >= confidentSpeechChunks -> silenceChunksPtt
+            speechChunkCount >= confidentSpeechChunks -> silenceChunksShort
+            else -> silenceChunksLong
+        }
 
     var currentLanguage: String = "hi"
 
@@ -154,7 +199,8 @@ class AudioCaptureModule(
                 }
                 readySegment?.let { combined ->
                     Log.d(TAG, "Speech segment complete: ${combined.size} samples")
-                    onSpeechReady(combined, currentLanguage)
+                    // Hand off; never run inference on the capture loop (T65).
+                    segmentQueue.trySend(Segment(combined, currentLanguage))
                 }
             }
         }

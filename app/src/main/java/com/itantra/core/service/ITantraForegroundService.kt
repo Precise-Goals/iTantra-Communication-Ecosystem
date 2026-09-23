@@ -377,6 +377,7 @@ class ITantraForegroundService : Service() {
 
     /** Start PTT capture (hold) */
     fun startPTT() {
+        audioCaptureModule.pttHeld = true
         if (!audioCaptureModule.isRunning) {
             audioCaptureModule.startCapture()
             _pipelineStage.value = PipelineStage.LISTENING
@@ -385,19 +386,22 @@ class ITantraForegroundService : Service() {
 
     /** Stop PTT capture (release) — flushes buffer to STT */
     fun stopPTT() {
+        audioCaptureModule.pttHeld = false
         serviceScope.launch {
             val buffer = audioCaptureModule.flushAndTranscribe()
+            // Stop the microphone before waiting on STT, so nothing said after release is queued.
+            audioCaptureModule.stopCapture()
             if (buffer != null && buffer.isNotEmpty()) {
                 _pipelineStage.value = PipelineStage.TRANSCRIBING
-                sttModule.ensureLoaded(sttLanguage)
-                sttModule.transcribe(buffer, sttLanguage)
+                // Same queue as mid-hold phrases (T65): keeps spoken order, avoids concurrent
+                // inference, and goes through onSpeechReady so the flush gets telemetry too.
+                audioCaptureModule.submitAndAwait(buffer, sttLanguage)
                 // onSTTResult (audioCallbacks) takes it from TRANSCRIBING through TRANSMITTING
                 // and back to IDLE; only reset here if transcription produced no result at all.
                 if (_pipelineStage.value == PipelineStage.TRANSCRIBING) _pipelineStage.value = PipelineStage.IDLE
             } else {
                 _pipelineStage.value = PipelineStage.IDLE
             }
-            audioCaptureModule.stopCapture()
         }
     }
 

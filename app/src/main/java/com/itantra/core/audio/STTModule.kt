@@ -11,6 +11,7 @@ import com.itantra.domain.contracts.AudioCallbacks
 import com.itantra.domain.model.AppResult
 import com.itantra.domain.model.ErrorCode
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.nio.FloatBuffer
 import kotlin.math.ln
@@ -52,6 +53,10 @@ class STTModule(
     private val sessionCache = mutableMapOf<String, OrtSession>()
     private val vocabCache = mutableMapOf<String, Array<String>>()
     private val ioNamesCache = mutableMapOf<String, IoNames>()
+
+    /** One inference or model load at a time (T65). The feature extractor reuses member scratch
+     *  buffers and the caches are plain HashMaps, so concurrent calls corrupt each other. */
+    private val inferenceLock = kotlinx.coroutines.sync.Mutex()
 
     private data class IoNames(val featureInput: String, val lengthInput: String?, val outputName: String)
 
@@ -189,7 +194,10 @@ class STTModule(
      * separately by ModelDownloadManager — this only loads what's already on disk).
      * @return true if the language is ready to transcribe, false if the model/vocab is missing.
      */
-    suspend fun ensureLoaded(languageCode: String): Boolean = withContext(Dispatchers.Default) {
+    suspend fun ensureLoaded(languageCode: String): Boolean =
+        inferenceLock.withLock { ensureLoadedUnlocked(languageCode) }
+
+    private suspend fun ensureLoadedUnlocked(languageCode: String): Boolean = withContext(Dispatchers.Default) {
         if (sessionCache.containsKey(languageCode) && vocabCache.containsKey(languageCode)) {
             return@withContext true
         }
@@ -290,6 +298,11 @@ class STTModule(
     suspend fun transcribe(
         audioBuffer: FloatArray,
         languageCode: String = "hi"
+    ): AppResult<String> = inferenceLock.withLock { transcribeUnlocked(audioBuffer, languageCode) }
+
+    private suspend fun transcribeUnlocked(
+        audioBuffer: FloatArray,
+        languageCode: String
     ): AppResult<String> = withContext(Dispatchers.Default) {
         val sess = sessionCache[languageCode]
         val vocab = vocabCache[languageCode]
