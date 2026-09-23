@@ -56,7 +56,19 @@ class AudioCaptureModule(
     private val bufferLock = Any()
     private val speechBuffer = mutableListOf<FloatArray>()
     private var silenceChunkCount = 0
-    private val silenceChunksForEndOfSpeech = (VADModule.SILENCE_DURATION_MS / 100).toInt() // 8 chunks
+    // Endpoint sooner once enough speech has been captured to be confident it was a real
+    // utterance. The flat 800ms wait was a hard floor under the "words said -> STT complete"
+    // metric for every utterance. Short fragments keep the long window to avoid cutting off
+    // a hesitant speaker mid-sentence.
+    private val silenceChunksLong = (VADModule.SILENCE_DURATION_MS / 100).toInt()  // 8 = 800ms
+    private val silenceChunksShort = 5                                             // 500ms
+    private val confidentSpeechChunks = 8                                          // 800ms of speech
+
+    private var speechChunkCount = 0
+
+    private val silenceChunksForEndOfSpeech: Int
+        get() = if (speechChunkCount >= confidentSpeechChunks) silenceChunksShort
+                else silenceChunksLong
 
     var currentLanguage: String = "hi"
 
@@ -114,6 +126,7 @@ class AudioCaptureModule(
                         // Guard against infinite accumulation
                         if (speechBuffer.sumOf { it.size } < MAX_SPEECH_BUFFER_SAMPLES) {
                             speechBuffer.add(floatChunk)
+                            speechChunkCount++
                         }
                     }
                 } else {
@@ -133,6 +146,7 @@ class AudioCaptureModule(
                                 }
                                 speechBuffer.clear()
                                 silenceChunkCount = 0
+                                speechChunkCount = 0
                                 readySegment = combined
                             }
                         }
@@ -157,6 +171,7 @@ class AudioCaptureModule(
         }
         speechBuffer.clear()
         silenceChunkCount = 0
+        speechChunkCount = 0
         combined
     }
 
@@ -166,7 +181,7 @@ class AudioCaptureModule(
         audioRecord?.stop()
         audioRecord?.release()
         audioRecord = null
-        synchronized(bufferLock) { speechBuffer.clear() }
+        synchronized(bufferLock) { speechBuffer.clear(); speechChunkCount = 0 }
         Log.d(TAG, "Audio capture stopped")
     }
 
