@@ -261,9 +261,14 @@ Treat this as the most important week in the plan.
 
 ### Measure WER
 
-- [ ] **T30 · WER harness** — *G · ACC/DOC · 1d*
+- [ ] **T30 · WER harness** — *S · ACC/DOC · —*
   Per language, over a public Indic test set, CSV out. Target: **within 3 points absolute of the published IndicConformer WER** — any gap is your pipeline's fault, not the model's.
   **Done when:** a per-language WER table exists.
+  **Owner corrected 2026-09-25** (this line said "G"; `docs/WORK_SPLIT.md` §5 S1 is authoritative):
+  no standalone harness — Sarthak re-runs only the IndicConformer half of his S1 SraVaani-vs-
+  IndicConformer evaluation once `feature/t23-nemo-features` (T23/T29) merges, since that
+  evaluation already is the per-language WER table T30 asks for, and adds it to
+  `docs/evaluation/sravaani/README.md` as "after T23/T29".
 
 ### Fix the front of the pipeline
 
