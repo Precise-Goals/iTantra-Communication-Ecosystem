@@ -31,6 +31,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -73,10 +74,12 @@ import androidx.core.content.ContextCompat
 import com.itantra.core.service.ITantraForegroundService
 import com.itantra.domain.model.ConnectionType
 import com.itantra.domain.model.DownloadState
+import com.itantra.domain.model.IndicLanguage
 import com.itantra.domain.model.ModelPack
 import com.itantra.domain.model.PeerDevice
 import com.itantra.ui.MainViewModel
 import com.itantra.ui.component.ModelDownloadGate
+import com.itantra.ui.component.STT_LANGUAGES
 import com.itantra.ui.theme.iTantraBackground
 import com.itantra.ui.theme.iTantraBlack
 import com.itantra.ui.theme.iTantraBlack40
@@ -106,6 +109,7 @@ fun TransceiverScreen(
     val isAutoDetect by viewModel.isAutoDetectEnabled.collectAsState()
     val networkState by viewModel.networkState.collectAsState()
     val pipelineStage by viewModel.pipelineStage.collectAsState()
+    val selectedLanguage by viewModel.selectedLanguage.collectAsState()
 
     // ── Paired Bluetooth devices (BluetoothRFCOMMManager.connectToDevice needs a real
     // BluetoothDevice, which only bonded-device enumeration can supply without a scan) ──
@@ -211,20 +215,20 @@ fun TransceiverScreen(
                 )
                 Spacer(Modifier.height(6.dp))
 
-                // Language auto-detect pill
+                // Selected walkie-talkie language pill (T72). The transceiver has no working
+                // auto-detect, so this shows the actual selection instead of toggling one.
                 Row(
                     modifier = Modifier
                         .clip(RoundedCornerShape(20.dp))
                         .background(iTantraCardAlt)
                         .border(1.dp, iTantraBorder, RoundedCornerShape(20.dp))
-                        .clickable { viewModel.setAutoDetect(!isAutoDetect) }
                         .padding(horizontal = 12.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(Icons.Filled.Translate, contentDescription = null, tint = iTantraBlack, modifier = Modifier.size(13.dp))
                     Spacer(Modifier.width(5.dp))
                     Text(
-                        text = if (isAutoDetect) "Auto · ${detectedLanguage?.uppercase() ?: "?"}" else "Manual",
+                        text = IndicLanguage.fromCode(selectedLanguage).nativeName,
                         style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, fontWeight = FontWeight.SemiBold),
                         color = iTantraBlack
                     )
@@ -248,6 +252,33 @@ fun TransceiverScreen(
                     .height(1.dp)
                     .background(iTantraDivider)
             )
+
+            // ── Walkie-talkie language (drives STT + TTS; T72) ──────
+            LazyRow(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                contentPadding = PaddingValues(bottom = 8.dp)
+            ) {
+                items(STT_LANGUAGES, key = { it.first }) { (code, label) ->
+                    val isSelected = code == selectedLanguage
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(if (isSelected) iTantraBlack else iTantraCardAlt)
+                            .border(1.dp, if (isSelected) iTantraBlack else iTantraBorder, RoundedCornerShape(16.dp))
+                            // Switching model mid-hold would transcribe half a phrase with the
+                            // wrong model, so the picker is locked while PTT is held (T72).
+                            .clickable(enabled = !isPttActive) { viewModel.setManualLanguage(code) }
+                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                    ) {
+                        Text(
+                            text = label,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (isSelected) iTantraWhite else iTantraBlack60
+                        )
+                    }
+                }
+            }
 
             // ── Host & Search Compact Control Row ───────────────────
             Row(

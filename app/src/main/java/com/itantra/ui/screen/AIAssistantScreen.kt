@@ -64,6 +64,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.itantra.ui.AiMessage
 import com.itantra.ui.MainViewModel
+import com.itantra.ui.component.STT_LANGUAGES
 import com.itantra.ui.theme.iTantraBackground
 import com.itantra.ui.theme.iTantraBlack
 import com.itantra.ui.theme.iTantraBlack40
@@ -75,19 +76,6 @@ import com.itantra.ui.theme.iTantraWhite
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-
-/** STT input language options — must match the BCP-47 codes ModelRegistry.sttInfo() downloads for. */
-private val STT_LANGUAGES = listOf(
-    "hi" to "हिंदी",
-    "en" to "English",
-    "gu" to "ગુજરાતી",
-    "mr" to "मराठी",
-    "kn" to "ಕನ್ನಡ",
-    "ml" to "മലയാളം",
-    "ta" to "தமிழ்",
-    "te" to "తెలుగు",
-    "bn" to "বাংলা"
-)
 
 /**
  * 100% Offline AI Assistant Conversational Interface.
