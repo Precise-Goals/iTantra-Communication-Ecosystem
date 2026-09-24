@@ -524,6 +524,20 @@ class ITantraForegroundService : Service() {
     fun getLoadedTTSLanguages(): Set<String> = ttsModule.getLoadedLanguages()
     fun unloadTTSLanguage(lang: String) = ttsModule.unloadLanguage(lang)
 
+    /**
+     * Load the STT model and TTS voice now, off the critical path (T45). Cheap to call again: both
+     * loads return at once when the model is already cached. A PTT phrase that arrives during the
+     * warm-up simply waits for the load via the STT lock, as it would have anyway.
+     */
+    fun warmUp(sttLang: String = sttLanguage, ttsLang: String = ttsLanguage) {
+        serviceScope.launch {
+            val t0 = System.nanoTime()
+            val sttOk = runCatching { sttModule.ensureLoaded(sttLang) }.getOrDefault(false)
+            val ttsOk = runCatching { ttsModule.warmUp(ttsLang) }.getOrDefault(false)
+            Log.d(TAG, "Warm-up stt=$sttLang:$sttOk tts=$ttsLang:$ttsOk in ${(System.nanoTime() - t0) / 1_000_000}ms")
+        }
+    }
+
     // ==================== INTERNALS ====================
 
     private fun appendMessage(message: TransceiverMessage) {

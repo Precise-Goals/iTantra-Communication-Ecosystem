@@ -79,6 +79,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 viewModelScope.launch { it.networkStateFlow.collect { s -> _networkState.value = s } }
                 viewModelScope.launch { it.pipelineStage.collect { s -> _pipelineStage.value = s } }
                 viewModelScope.launch { it.isBluetoothListening.collect { b -> _isBluetoothListening.value = b } }
+                it.warmUp()
             }
         }
         override fun onServiceDisconnected(name: ComponentName?) {

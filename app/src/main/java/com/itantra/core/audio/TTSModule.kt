@@ -149,6 +149,14 @@ class TTSModule(
         }
     }
 
+    /**
+     * Load [languageCode]'s voice into the cache without synthesizing anything (T45), so the first
+     * received message does not pay the load. Returns false if there is no voice for it or its
+     * pack is not downloaded. Takes the same lock as synthesize() (T70).
+     */
+    suspend fun warmUp(languageCode: String): Boolean =
+        ttsLock.withLock { withContext(Dispatchers.Default) { getOrLoadTts(languageCode) != null } }
+
     fun getLoadedLanguages(): Set<String> = ttsCache.keys.toSet()
 
     fun unloadLanguage(languageCode: String) {
