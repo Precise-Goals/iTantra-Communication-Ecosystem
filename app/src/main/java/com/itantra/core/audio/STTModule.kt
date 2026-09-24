@@ -396,7 +396,8 @@ class STTModule(
      * checkpoints — confirmed field-by-field against the real checkpoint config and the
      * installed nemo_toolkit's FilterbankFeatures source (T23), not assumed defaults.
      */
-    private fun extractLogMelSpectrogram(input: FloatArray): FloatArray {
+    @androidx.annotation.VisibleForTesting
+    internal fun extractLogMelSpectrogram(input: FloatArray): FloatArray {
         // NeMo applies preemph=0.97 once to the whole signal before framing, not per-frame.
         val audio = FloatArray(input.size)
         if (input.isNotEmpty()) {

@@ -251,8 +251,12 @@ Treat this as the most important week in the plan.
   Done 2026-09-25: std now divides by `(N-1)` over only NeMo's "valid" frame count — see T23's
   note above on the last-frame masking artifact this also required reproducing.
 
-- [ ] **T29 · Golden-reference test** — *G · ACC · 1d*
+- [x] **T29 · Golden-reference test** — *G · ACC · 1d*
   Run NeMo's preprocessor in Python over a fixed WAV, save the feature matrix, assert the Kotlin output matches to ~1e-3 in a JVM unit test. There are currently **zero tests on the feature path**.
+  Done 2026-09-25: `MelFeatureGoldenTest` (`app/src/test/java/com/itantra/MelFeatureGoldenTest.kt`)
+  against a real FLEURS `hi_in` clip run through the actual checkpoint's own
+  `AudioToMelSpectrogramPreprocessor` in Colab (fixture + reference committed under
+  `app/src/test/resources/`). Passes at the 1e-3 tolerance with no relaxation.
   **Done when:** the test is green in CI and fails if any of T24–T28 regresses.
 
 ### Measure WER
