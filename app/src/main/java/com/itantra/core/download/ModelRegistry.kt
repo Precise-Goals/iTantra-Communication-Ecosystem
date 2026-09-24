@@ -16,13 +16,19 @@ import com.itantra.domain.model.ModelPack
  * `sizeBytes` and, where GitHub publishes one, `sha256` were read from that
  * asset list's real `size`/`digest` fields.
  *
- * Kannada, Tamil, Telugu, Marathi and Odia have **no** free pre-converted
+ * Kannada, Tamil, Telugu, Marathi and Odia had **no** free pre-converted
  * offline TTS source anywhere in that release (checked every vits-* family:
- * piper/coqui/mimic3/mms/icefall/melo, every naming variant) — see the
- * `ModelPack` entries for those languages, which are intentionally absent
- * from [com.itantra.domain.model.ModelPack.coreTransceiverPacks]. The same
- * source has no Odia STT model either — only "as" (Assamese), which is not
- * substituted in as a fake Odia model.
+ * piper/coqui/mimic3/mms/icefall/melo, every naming variant). As of T17b they
+ * are **self-converted** from `facebook/mms-tts-{kan,tam,tel,mar,ory}` using
+ * sherpa-onnx's documented MMS conversion procedure
+ * (k2-fsa.github.io/sherpa/onnx/tts/mms.html) and hosted by the team —
+ * see `mmsTtsInfo` and `ITANTRA_MODELS_BASE` below. **Licence: CC-BY-NC 4.0**
+ * (non-commercial), inherited from `facebook/mms-tts`; the other TTS voices
+ * above are more permissively licensed piper/coqui/mimic3 voices. They remain
+ * intentionally absent from [com.itantra.domain.model.ModelPack.coreTransceiverPacks] —
+ * optional extras, not part of the compulsory download. The same mirror still
+ * has no Odia STT model either — only "as" (Assamese), which is not
+ * substituted in as a fake Odia model (see T64).
  */
 object ModelRegistry {
 
@@ -32,6 +38,10 @@ object ModelRegistry {
         "https://huggingface.co/parismitaglobalsolutions/indicconformer-sherpa-onnx/resolve/main"
     private const val SHERPA_TTS_MODELS_BASE =
         "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models"
+    /** Team-hosted exports: the T17b MMS voices, self-converted since no prebuilt source exists
+     *  for these languages anywhere in the sherpa-onnx tts-models release (see class doc). */
+    private const val ITANTRA_MODELS_BASE =
+        "https://huggingface.co/Chgauravpc/itantra/resolve/main"
 
     data class ModelInfo(
         val pack: ModelPack,
@@ -102,6 +112,27 @@ object ModelRegistry {
         extractDirName = "tts/$lang"
     )
 
+    /**
+     * A team-hosted MMS voice (T17b): converted from `facebook/mms-tts-<lang>` with sherpa-onnx's
+     * documented MMS conversion (no espeak-ng phonemization — these are character-frontend
+     * models), hosted on our own repo because no prebuilt source exists for these languages.
+     * Same shape as [sherpaTtsInfo] but pointing at [ITANTRA_MODELS_BASE] instead.
+     */
+    private fun mmsTtsInfo(
+        pack: ModelPack,
+        assetName: String,
+        lang: String,
+        sizeBytes: Long,
+        sha256: String
+    ): ModelInfo = ModelInfo(
+        pack = pack,
+        fileName = assetName,
+        downloadUrl = "$ITANTRA_MODELS_BASE/$assetName",
+        sha256 = sha256,
+        sizeBytes = sizeBytes,
+        extractDirName = "tts/$lang"
+    )
+
     val registry: Map<ModelPack, ModelInfo> = mapOf(
         ModelPack.VAD_MODEL to ModelInfo(
             pack = ModelPack.VAD_MODEL,
@@ -161,28 +192,42 @@ object ModelRegistry {
             sha256 = null // GitHub hasn't published a digest for this asset
         ),
 
-        // No known free offline TTS source exists for these — see class doc. Not downloadable;
-        // entries kept only so the enum/UI don't dangle. downloadUrl intentionally left blank.
-        ModelPack.TTS_KANNADA to ModelInfo(
-            ModelPack.TTS_KANNADA, fileName = "", downloadUrl = "", sha256 = null, sizeBytes = 0L
+        // T17b: no prebuilt source exists for these five in the sherpa-onnx tts-models release
+        // (see class doc), so they are self-converted from facebook/mms-tts and team-hosted.
+        // Licence: CC-BY-NC 4.0 (non-commercial), inherited from facebook/mms-tts.
+        ModelPack.TTS_KANNADA to mmsTtsInfo(
+            ModelPack.TTS_KANNADA, "vits-mms-kan.tar.bz2", "kn",
+            sizeBytes = 107_749_805L,
+            sha256 = "a30d90ac58d8ed1f8f4894b17fad079f333540c69e2a427a7905d7498e645949"
         ),
-        ModelPack.TTS_TAMIL to ModelInfo(
-            ModelPack.TTS_TAMIL, fileName = "", downloadUrl = "", sha256 = null, sizeBytes = 0L
+        ModelPack.TTS_TAMIL to mmsTtsInfo(
+            ModelPack.TTS_TAMIL, "vits-mms-tam.tar.bz2", "ta",
+            sizeBytes = 107_732_523L,
+            sha256 = "f73caaf4e033a7e351c9d5e9e4c113c949a182da2ef240ff6bcc3ed6f2df9718"
         ),
-        ModelPack.TTS_TELUGU to ModelInfo(
-            ModelPack.TTS_TELUGU, fileName = "", downloadUrl = "", sha256 = null, sizeBytes = 0L
+        ModelPack.TTS_TELUGU to mmsTtsInfo(
+            ModelPack.TTS_TELUGU, "vits-mms-tel.tar.bz2", "te",
+            sizeBytes = 107_766_301L,
+            sha256 = "e684ee72c1e05bc18f3e09096454d65967c69d8ebfb72a6fc2485e60e203e712"
         ),
-        ModelPack.TTS_MARATHI to ModelInfo(
-            ModelPack.TTS_MARATHI, fileName = "", downloadUrl = "", sha256 = null, sizeBytes = 0L
+        ModelPack.TTS_MARATHI to mmsTtsInfo(
+            ModelPack.TTS_MARATHI, "vits-mms-mar.tar.bz2", "mr",
+            sizeBytes = 107_755_641L,
+            sha256 = "000bdcf9feb12812d6a6f776e113ff1ce0042bff1b677c0986289c125b17785e"
         ),
-        ModelPack.TTS_ODIA to ModelInfo(
-            ModelPack.TTS_ODIA, fileName = "", downloadUrl = "", sha256 = null, sizeBytes = 0L
+        ModelPack.TTS_ODIA to mmsTtsInfo(
+            ModelPack.TTS_ODIA, "vits-mms-ory.tar.bz2", "or",
+            sizeBytes = 107_748_139L,
+            sha256 = "69bdf843e14743fcc4038ae448905d51d5ab5ee8af2c0d4845fef11d79daf3fc"
         )
     )
 
     fun getInfo(pack: ModelPack): ModelInfo? = registry[pack]
 
-    /** True for the 5 languages with no known free TTS source (see class doc). */
+    /** True for a TTS pack with no source at all (downloadUrl left blank). As of T17b, every
+     *  language has a source (sherpa-onnx tts-models or the team-hosted MMS exports below), so
+     *  this is currently always false — kept as a guard in case a future language is added
+     *  without one. */
     fun isUnsupportedTts(pack: ModelPack): Boolean = registry[pack]?.downloadUrl?.isBlank() == true
 
     fun totalSizeBytes(packs: List<ModelPack>): Long =
