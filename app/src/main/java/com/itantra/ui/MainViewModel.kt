@@ -79,6 +79,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 viewModelScope.launch { it.networkStateFlow.collect { s -> _networkState.value = s } }
                 viewModelScope.launch { it.pipelineStage.collect { s -> _pipelineStage.value = s } }
                 viewModelScope.launch { it.isBluetoothListening.collect { b -> _isBluetoothListening.value = b } }
+                // Push the current selection before warming, so the right model is loaded (T72).
+                it.setSTTLanguage(_selectedLanguage.value)
+                it.setTTSLanguage(_selectedLanguage.value)
+                it.warmUp()
             }
         }
         override fun onServiceDisconnected(name: ComponentName?) {
@@ -160,6 +164,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (!_isAutoDetectEnabled.value) {
             _detectedLanguage.value = bcp47Code
         }
+        // The walkie-talkie previously ignored this and always used Hindi (T72).
+        foregroundService?.let {
+            it.setSTTLanguage(bcp47Code)
+            it.setTTSLanguage(bcp47Code)
+            it.warmUp(bcp47Code, bcp47Code)
+        }
     }
 
     // ── Hardware Mesh Networking (Wi-Fi Direct & BLE) ────────────────
@@ -222,7 +232,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         vadModule = vadModule,
         sttModule = sttModule,
         callbacks = audioCallbacks,
-        onSpeechReady = { pcm, lang ->
+        onSpeechReady = { pcm, lang, _ ->
             sttModule.ensureLoaded(lang)
             val result = sttModule.transcribe(pcm, lang)
             if (result is AppResult.Success && result.data.isNotBlank()) {

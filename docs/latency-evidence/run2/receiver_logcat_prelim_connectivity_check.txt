@@ -1,0 +1,19 @@
+--------- beginning of main
+09-24 18:50:01.467 D/iTantraService(31401): Service created
+09-24 18:50:01.774 D/VADModule(31401): VAD initialized — backend: BASIC_ENERGY (physical path: null, neural session loaded: false)
+09-24 18:50:01.893 D/STTModule(31401): STT('hi'): NNAPI delegate enabled
+09-24 18:50:09.669 D/STTModule(31401): STT('hi') loaded in 8062ms — vocab size 5633, inputs=IoNames(featureInput=audio_signal, lengthInput=length, outputName=logprobs)
+09-24 18:50:11.119 D/TTSModule(31401): sherpa-onnx TTS loaded for 'hi' from hi_IN-pratham-medium.onnx
+09-24 18:50:11.119 D/iTantraService(31401): Warm-up stt=hi:true tts=hi:true in 9512ms
+09-24 18:51:35.931 D/iTantraService(31401): Node connected: POCO X6 5G
+09-24 18:51:51.692 D/iTantraService(31401): Node connected: POCO X6 5G
+09-24 18:51:51.707 D/iTantraService(31401): Node connected: POCO X6 5G
+09-24 18:51:52.053 D/iTantraService(31401): Node connected: POCO X6 5G
+09-24 18:52:03.301 D/AudioCapture(31401): Audio capture started at 16000Hz
+09-24 18:52:05.406 D/AudioCapture(31401): Audio capture stopped
+09-24 18:52:06.741 D/STTModule(31401): STT inference: 'हेलो केैन यू हेयर में हेलो हैेलो' in 1318ms [hi]
+09-24 18:52:06.759 D/Telemetry(31401): utt=1 lang=hi rtf=0.835 stt=1351ms wait=15ms feat=98ms infer=1238ms tts=0ms synth=0ms
+09-24 18:52:17.905 D/iTantraService(31401): Received from e13bcf9c-5b80-4c72-9876-85ebd14e5e36: 'हैेलो कैन्यू हेयर में हैेलो हैेलो' [SPEECH]
+09-24 18:52:18.686 D/TTSModule(31401): sherpa-onnx TTS synthesized 56064 samples @ 22050Hz in 779ms [hi]
+09-24 18:52:18.686 D/iTantraService(31401): TTS synthesis complete: 2542ms audio
+09-24 18:52:18.771 D/Telemetry(31401): utt=2 lang=hi rtf=0.000 stt=0ms wait=0ms feat=0ms infer=0ms tts=866ms synth=782ms

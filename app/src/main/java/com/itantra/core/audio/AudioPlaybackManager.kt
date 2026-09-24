@@ -43,17 +43,6 @@ class AudioPlaybackManager(
     private var audioFocusRequest: AudioFocusRequest? = null
     private var savedVolume: Int = -1
 
-    /**
-     * Play a synthesized PCM waveform.
-     *
-     * @param waveform Float PCM samples at [sampleRate] Hz.
-     * @param sampleRate The rate [waveform] was synthesized at (voice-native, not resampled).
-     * @param isAlert If true, uses alarm stream with max volume override.
-     * @param onFirstFrame If given, invoked immediately after playback starts and before the
-     *   first buffer is written — used to stamp when audio actually started playing, for the
-     *   Latency criterion. Must not be invoked after `write()` returns: `WRITE_BLOCKING` only
-     *   returns once playback has drained, which would measure the wrong thing.
-     */
     private class PlaybackItem(
         val waveform: FloatArray,
         val sampleRate: Int,
@@ -81,6 +70,17 @@ class AudioPlaybackManager(
         }
     }
 
+    /**
+     * Play a synthesized PCM waveform.
+     *
+     * @param waveform Float PCM samples at [sampleRate] Hz.
+     * @param sampleRate The rate [waveform] was synthesized at (voice-native, not resampled).
+     * @param isAlert If true, uses alarm stream with max volume override.
+     * @param onFirstFrame If given, invoked immediately after playback starts and before the
+     *   first buffer is written — used to stamp when audio actually started playing, for the
+     *   Latency criterion. Must not be invoked after `write()` returns: `WRITE_BLOCKING` only
+     *   returns once playback has drained, which would measure the wrong thing.
+     */
     fun play(
         waveform: FloatArray,
         sampleRate: Int,

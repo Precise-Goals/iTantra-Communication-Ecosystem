@@ -12,6 +12,7 @@ import com.k2fsa.sherpa.onnx.OfflineTtsConfig
 import com.k2fsa.sherpa.onnx.OfflineTtsModelConfig
 import com.k2fsa.sherpa.onnx.OfflineTtsVitsModelConfig
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 
@@ -45,6 +46,10 @@ class TTSModule(
 
     private val ttsCache = mutableMapOf<String, OfflineTts>()
 
+    /** One synthesis or voice load at a time (T70). The cache is a plain HashMap, and two
+     *  messages arriving during a cold load would otherwise both load the same voice. */
+    private val ttsLock = kotlinx.coroutines.sync.Mutex()
+
     /** Synthesized PCM plus the sample rate it must be played at. */
     data class SynthesisResult(val samples: FloatArray, val sampleRate: Int)
 
@@ -59,6 +64,9 @@ class TTSModule(
      * @return [SynthesisResult], or null on failure. Never returns fabricated audio.
      */
     suspend fun synthesize(text: String, languageCode: String): SynthesisResult? =
+        ttsLock.withLock { synthesizeUnlocked(text, languageCode) }
+
+    private suspend fun synthesizeUnlocked(text: String, languageCode: String): SynthesisResult? =
         withContext(Dispatchers.Default) {
             val tts = getOrLoadTts(languageCode)
             if (tts == null) {
@@ -140,6 +148,14 @@ class TTSModule(
             null
         }
     }
+
+    /**
+     * Load [languageCode]'s voice into the cache without synthesizing anything (T45), so the first
+     * received message does not pay the load. Returns false if there is no voice for it or its
+     * pack is not downloaded. Takes the same lock as synthesize() (T70).
+     */
+    suspend fun warmUp(languageCode: String): Boolean =
+        ttsLock.withLock { withContext(Dispatchers.Default) { getOrLoadTts(languageCode) != null } }
 
     fun getLoadedLanguages(): Set<String> = ttsCache.keys.toSet()
 
