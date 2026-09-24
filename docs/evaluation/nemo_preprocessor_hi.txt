@@ -102,5 +102,6 @@ use_torchaudio = False
 | lowfreq / highfreq             | 0 / 8000             | 0 / 8000                 | none          |
 
 All "Action" rows implemented in STTModule.kt on branch feature/t23-nemo-features. Golden test
-(T29) is docs/evaluation/... TODO once the golden fixture cells are run and golden_features.npy
-is committed.
+(T29) is app/src/test/java/com/itantra/MelFeatureGoldenTest.kt, against
+app/src/test/resources/{fixture.wav,golden_features.npy} (a real FLEURS hi_in clip run through
+the actual checkpoint's own preprocessor). Passes at 1e-3 tolerance.
