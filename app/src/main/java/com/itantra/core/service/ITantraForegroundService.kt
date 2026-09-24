@@ -140,6 +140,28 @@ class ITantraForegroundService : Service() {
     private var wakeLock: PowerManager.WakeLock? = null
     private var isBluetoothFallbackActive = false
 
+    /**
+     * Send on every transport that currently has a peer (T69). Previously Bluetooth was used only
+     * when this phone had started the Bluetooth server, so a phone connected as the Bluetooth
+     * client sent over TCP to nobody.
+     */
+    private fun transmit(message: TransceiverMessage) {
+        if (bluetoothManager.hasConnections()) bluetoothManager.send(message)
+        socketTransport.broadcast(message)
+    }
+
+    /**
+     * Recently received message keys, so a peer reachable over both Wi-Fi Direct and Bluetooth is
+     * heard once (T69). The key includes the timestamp because sequence numbers restart at 1 when
+     * the sender's app restarts. Bounded to 256 entries; guard every access with synchronized.
+     */
+    private val seenMessages: MutableSet<String> = java.util.Collections.newSetFromMap(
+        object : java.util.LinkedHashMap<String, Boolean>(64, 0.75f, false) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Boolean>?): Boolean =
+                size > 256
+        }
+    )
+
     // ==================== CALLBACKS ====================
 
     private val networkCallbacks = object : NetworkCallbacks {
@@ -174,6 +196,12 @@ class ITantraForegroundService : Service() {
         }
 
         override fun onTextReceived(message: TransceiverMessage) {
+            val dedupKey = "${message.senderId}:${message.sequence}:${message.timestamp}"
+            val isNew = synchronized(seenMessages) { seenMessages.add(dedupKey) }
+            if (!isNew) {
+                Log.d(TAG, "Duplicate $dedupKey dropped (reached us on two transports)")
+                return
+            }
             val rxStampNs = System.nanoTime()
             // Previously silent — made visible so a future two-device test can confirm receipt
             // from logcat alone, matching the visibility already present on the send side.
@@ -252,11 +280,7 @@ class ITantraForegroundService : Service() {
                 appendMessage(message)
                 // Transmit over network
                 _pipelineStage.value = PipelineStage.TRANSMITTING
-                if (isBluetoothFallbackActive) {
-                    bluetoothManager.send(message)
-                } else {
-                    socketTransport.broadcast(message)
-                }
+                transmit(message)
                 _pipelineStage.value = PipelineStage.IDLE
             }
         }
@@ -438,11 +462,7 @@ class ITantraForegroundService : Service() {
             direction = Direction.SENT
         )
         appendMessage(alert)
-        if (isBluetoothFallbackActive) {
-            bluetoothManager.send(alert)
-        } else {
-            socketTransport.broadcast(alert)
-        }
+        transmit(alert)
     }
 
     /** Connect to a discovered Wi-Fi Direct peer by MAC address */

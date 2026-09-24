@@ -1,0 +1,6 @@
+--------- beginning of main
+09-24 22:46:57.003 D/AudioCapture( 9870): Audio capture started at 16000Hz
+09-24 22:46:58.726 D/AudioCapture( 9870): Audio capture stopped
+09-24 22:47:00.562 D/STTModule( 9870): STT inference: 'तो क है' in 1834ms [hi]
+09-24 22:47:07.478 D/iTantraService( 9870): Received from 46b85d73-09ee-4255-bef5-1a18406bd621: 'हैेलो कन्यू है आर्मी' [SPEECH]
+09-24 22:47:07.827 D/iTantraService( 9870): TTS synthesis complete: 1705ms audio

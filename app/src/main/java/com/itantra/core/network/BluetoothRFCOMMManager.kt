@@ -124,6 +124,9 @@ class BluetoothRFCOMMManager(
         }
     }
 
+    /** True if at least one Bluetooth peer is connected (T69). */
+    fun hasConnections(): Boolean = connectedSockets.isNotEmpty()
+
     fun send(message: TransceiverMessage, targetDeviceId: String? = null) {
         val encoded = ProtobufSerializer.encode(message)
         scope.launch {
