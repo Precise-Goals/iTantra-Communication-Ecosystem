@@ -220,36 +220,55 @@ Treat this as the most important week in the plan.
 
 ### Match the NeMo preprocessor
 
-- [ ] **T23 · Extract `cfg.preprocessor` from the checkpoint** — *G · ACC · 4h*
+- [x] **T23 · Extract `cfg.preprocessor` from the checkpoint** — *G · ACC · 4h*
   Do not patch from a list — read the real config out of the AI4Bharat NeMo checkpoint first.
   **Done when:** every parameter is written down and compared against the Kotlin code.
+  Done 2026-09-25: real config + `FilterbankFeatures` source pulled from the installed
+  nemo_toolkit in Colab, full reconciliation table in `docs/evaluation/nemo_preprocessor_hi.txt`.
+  Found one thing not on this list: the mel *scale* (Hz↔mel warping) was using the HTK formula;
+  the checkpoint's `librosa.filters.mel(...)` call has no `htk=True`, so it's librosa's Slaney
+  scale — a different formula from T25's area normalization. Fixed alongside T24/T26/T28.
 
-- [ ] **T24 · Add preemphasis** — *G · ACC · 1h*
+- [x] **T24 · Add preemphasis** — *G · ACC · 1h*
   `x[i] − 0.97·x[i−1]`, absent today. Likely the largest remaining WER term.
 
 - [x] **T25 · Slaney mel normalization** — *G · ACC · 2h*
   Area-normalize the filters; currently raw triangles, so wide high-frequency bands run hot.
 
-- [ ] 🟡 **T26 · n_fft = 512 with `center=True`** — *G · ACC · 2h*
+- [x] **T26 · n_fft = 512 with `center=True`** — *G · ACC · 2h*
   Currently 400-point and uncentred — wrong bin resolution and a half-window frame offset. Folds into T05.
-  🟡 *Partial:* n_fft 512 is done in the working tree; `center=True` is not.
+  Done 2026-09-25: frames now center on `t*hop`, out-of-range samples treated as zero
+  (`pad_mode="constant"`, confirmed from source — not torch.stft's own reflect default).
 
-- [x] **T27 · Periodic Hann window** — *G · ACC · 30m*
-  Currently symmetric (`/(N−1)`); torch uses periodic (`/N`).
+- [x] **T27 · Symmetric Hann window** — *G · ACC · 30m*
+  **Corrected 2026-09-25:** this task had it backwards. The real `FilterbankFeatures` source
+  calls `window_fn(win_length, periodic=False)` — NeMo explicitly wants the **symmetric**
+  window (`/(N−1)`), not torch.hann_window's own periodic default. The working tree had been
+  "fixed" to periodic based on that assumed default; reverted to symmetric as part of T23.
 
-- [ ] 🟡 **T28 · Log guard and unbiased std** — *G · ACC · 30m*
+- [x] **T28 · Log guard and unbiased std** — *G · ACC · 30m*
   `1e-10` → `2**-24`; std to unbiased (N−1).
-  🟡 *Partial:* the log guard is done in the working tree; std is still biased (N).
+  Done 2026-09-25: std now divides by `(N-1)` over only NeMo's "valid" frame count — see T23's
+  note above on the last-frame masking artifact this also required reproducing.
 
-- [ ] **T29 · Golden-reference test** — *G · ACC · 1d*
+- [x] **T29 · Golden-reference test** — *G · ACC · 1d*
   Run NeMo's preprocessor in Python over a fixed WAV, save the feature matrix, assert the Kotlin output matches to ~1e-3 in a JVM unit test. There are currently **zero tests on the feature path**.
+  Done 2026-09-25: `MelFeatureGoldenTest` (`app/src/test/java/com/itantra/MelFeatureGoldenTest.kt`)
+  against a real FLEURS `hi_in` clip run through the actual checkpoint's own
+  `AudioToMelSpectrogramPreprocessor` in Colab (fixture + reference committed under
+  `app/src/test/resources/`). Passes at the 1e-3 tolerance with no relaxation.
   **Done when:** the test is green in CI and fails if any of T24–T28 regresses.
 
 ### Measure WER
 
-- [ ] **T30 · WER harness** — *G · ACC/DOC · 1d*
+- [ ] **T30 · WER harness** — *S · ACC/DOC · —*
   Per language, over a public Indic test set, CSV out. Target: **within 3 points absolute of the published IndicConformer WER** — any gap is your pipeline's fault, not the model's.
   **Done when:** a per-language WER table exists.
+  **Owner corrected 2026-09-25** (this line said "G"; `docs/WORK_SPLIT.md` §5 S1 is authoritative):
+  no standalone harness — Sarthak re-runs only the IndicConformer half of his S1 SraVaani-vs-
+  IndicConformer evaluation once `feature/t23-nemo-features` (T23/T29) merges, since that
+  evaluation already is the per-language WER table T30 asks for, and adds it to
+  `docs/evaluation/sravaani/README.md` as "after T23/T29".
 
 ### Fix the front of the pipeline
 

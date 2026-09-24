@@ -97,10 +97,12 @@ class STTModule(
         rev
     }
 
-    /** Periodic Hann window (torch.hann_window default), length FRAME_LENGTH. */
+    /** Symmetric Hann window, length FRAME_LENGTH. NeMo's FilterbankFeatures builds its window
+     *  with `window_fn(win_length, periodic=False)` — confirmed from the installed nemo_toolkit
+     *  source (T23) — not torch.hann_window's own periodic default. */
     private val hannWindow: FloatArray by lazy {
         FloatArray(FRAME_LENGTH) { i ->
-            (0.5 * (1.0 - kotlin.math.cos(2.0 * PI * i / FRAME_LENGTH))).toFloat()
+            (0.5 * (1.0 - kotlin.math.cos(2.0 * PI * i / (FRAME_LENGTH - 1)))).toFloat()
         }
     }
 
@@ -118,6 +120,9 @@ class STTModule(
      * Build the mel filterbank once, with Slaney area normalization — librosa's `norm="slaney"`,
      * which is what NeMo's AudioToMelSpectrogramPreprocessor uses. Without it the wide
      * high-frequency bands carry systematically more energy than the encoder saw in training.
+     * The Hz<->mel warping itself (hzToMel/melToHz below) is also librosa's Slaney scale
+     * (`htk=False`, the call's default since NeMo never passes `htk=True`) — a separate thing
+     * from the area normalization, and previously wrong (T23).
      */
     private fun buildMelBank(): MelBank {
         val nBins = N_FFT / 2 + 1
@@ -386,38 +391,50 @@ class STTModule(
     }
 
     /**
-     * Extract 80-dimensional log-mel spectrogram features from raw PCM audio.
-     * Uses standard mel filterbank parameters matching IndicConformer training config.
+     * Extract 80-dimensional log-mel spectrogram features from raw PCM audio, matching NeMo's
+     * AudioToMelSpectrogramPreprocessor as configured for the AI4Bharat IndicConformer
+     * checkpoints — confirmed field-by-field against the real checkpoint config and the
+     * installed nemo_toolkit's FilterbankFeatures source (T23), not assumed defaults.
      */
-    private fun extractLogMelSpectrogram(audio: FloatArray): FloatArray {
-        val frames = mutableListOf<FloatArray>()
-        var start = 0
+    @androidx.annotation.VisibleForTesting
+    internal fun extractLogMelSpectrogram(input: FloatArray): FloatArray {
+        // NeMo applies preemph=0.97 once to the whole signal before framing, not per-frame.
+        val audio = FloatArray(input.size)
+        if (input.isNotEmpty()) {
+            audio[0] = input[0]
+            for (i in 1 until input.size) audio[i] = input[i] - 0.97f * input[i - 1]
+        }
 
         val bank = melBank
         // NeMo's log_zero_guard_value default is 2**-24, not the 1e-10 used previously.
         val logGuard = 5.9604645e-8
 
-        while (start + FRAME_LENGTH <= audio.size) {
-            // Window straight into the FFT scratch buffer; zero-pad FRAME_LENGTH..N_FFT.
+        // torch.stft(..., center=True, pad_mode="constant"): frame t is centered at original
+        // sample t*HOP_LENGTH, spanning FRAME_LENGTH samples either side of it, with any sample
+        // index outside the audio treated as zero. Physical frame count is 1 + size/HOP_LENGTH.
+        val half = FRAME_LENGTH / 2
+        val numFrames = audio.size / HOP_LENGTH + 1
+        val frames = Array(numFrames) { FloatArray(N_MELS) }
+
+        for (t in 0 until numFrames) {
+            val frameStart = t * HOP_LENGTH - half
             for (i in 0 until FRAME_LENGTH) {
-                fftRe[i] = (audio[start + i] * hannWindow[i]).toDouble()
+                val srcIdx = frameStart + i
+                val sample = if (srcIdx in audio.indices) audio[srcIdx] else 0f
+                fftRe[i] = (sample * hannWindow[i]).toDouble()
                 fftIm[i] = 0.0
             }
             for (i in FRAME_LENGTH until N_FFT) { fftRe[i] = 0.0; fftIm[i] = 0.0 }
 
             fftPowerInPlace()
 
-            val melFeatures = FloatArray(N_MELS)
             for (m in 0 until N_MELS) {
                 val w = bank.weights[m]
                 val s = bank.startBin[m]
                 var energy = 0f
                 for (k in w.indices) energy += powerSpectrum[s + k] * w[k]
-                melFeatures[m] = ln(energy.toDouble() + logGuard).toFloat()
+                frames[t][m] = ln(energy.toDouble() + logGuard).toFloat()
             }
-
-            frames.add(melFeatures)
-            start += HOP_LENGTH
         }
 
         // Per-feature (per-mel-channel) normalization across this utterance's frames — NeMo's
@@ -426,33 +443,54 @@ class STTModule(
         // out-of-distribution magnitudes and collapsed to the same predicted token regardless of
         // audio content (confirmed on-device: three different-length recordings all decoded to
         // the same single repeated character).
-        val T = frames.size
+        //
+        // NeMo's get_seq_len() reports one fewer "valid" frame than the physical frame count
+        // above (floor(size/hop) vs. 1 + floor(size/hop)) — an artifact of its batch-padding
+        // math. It normalizes over only the valid frames, then masks the last physical frame to
+        // exactly zero. Reproduced here because the golden reference (T29) comes from that exact
+        // code path, and unbiased (N-1) variance, per NeMo's normalize_batch.
+        val validLen = numFrames - 1
         for (m in 0 until N_MELS) {
             var mean = 0.0
-            for (t in 0 until T) mean += frames[t][m]
-            mean /= T
+            for (t in 0 until validLen) mean += frames[t][m]
+            mean /= validLen
             var variance = 0.0
-            for (t in 0 until T) {
+            for (t in 0 until validLen) {
                 val d = frames[t][m] - mean
                 variance += d * d
             }
-            val std = kotlin.math.sqrt(variance / T)
+            val std = kotlin.math.sqrt(variance / (validLen - 1))
             val denom = (std + 1e-5).toFloat()
-            for (t in 0 until T) frames[t][m] = ((frames[t][m] - mean) / denom).toFloat()
+            for (t in 0 until validLen) frames[t][m] = ((frames[t][m] - mean) / denom).toFloat()
+            frames[validLen][m] = 0f
         }
 
         // Flatten [T, N_MELS] → [N_MELS, T] (transpose for model input)
-        val result = FloatArray(N_MELS * T)
-        for (t in 0 until T) {
+        val result = FloatArray(N_MELS * numFrames)
+        for (t in 0 until numFrames) {
             for (m in 0 until N_MELS) {
-                result[m * T + t] = frames[t][m]
+                result[m * numFrames + t] = frames[t][m]
             }
         }
         return result
     }
 
-    private fun hzToMel(hz: Double) = 2595.0 * Math.log10(1.0 + hz / 700.0)
-    private fun melToHz(mel: Double) = 700.0 * (Math.pow(10.0, mel / 2595.0) - 1.0)
+    // librosa's Slaney mel scale (htk=False): linear below 1kHz, log above. Confirmed against
+    // the installed librosa's hz_to_mel/mel_to_hz source (T23) — this is NOT the HTK formula
+    // (2595*log10(1+f/700)) this file used before; NeMo calls librosa.filters.mel() without
+    // htk=True, so Slaney's scale is what the checkpoint was trained against.
+    private val MEL_F_SP = 200.0 / 3.0
+    private val MEL_MIN_LOG_HZ = 1000.0
+    private val MEL_MIN_LOG_MEL = MEL_MIN_LOG_HZ / MEL_F_SP
+    private val MEL_LOG_STEP = Math.log(6.4) / 27.0
+
+    private fun hzToMel(hz: Double): Double =
+        if (hz < MEL_MIN_LOG_HZ) hz / MEL_F_SP
+        else MEL_MIN_LOG_MEL + Math.log(hz / MEL_MIN_LOG_HZ) / MEL_LOG_STEP
+
+    private fun melToHz(mel: Double): Double =
+        if (mel < MEL_MIN_LOG_MEL) MEL_F_SP * mel
+        else MEL_MIN_LOG_HZ * Math.exp(MEL_LOG_STEP * (mel - MEL_MIN_LOG_MEL))
 
     private fun estimateConfidence(logits: Array<FloatArray>): Float {
         if (logits.isEmpty()) return 0f

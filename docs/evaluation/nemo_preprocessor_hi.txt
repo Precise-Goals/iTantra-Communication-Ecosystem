@@ -1,0 +1,107 @@
+T23 — real NeMo preprocessor config, ai4bharat/indicconformer_stt_hi_hybrid_ctc_rnnt_large
+Recorded 2026-09-25 in Google Colab (nemo_toolkit[asr] as installed by `pip install "nemo_toolkit[asr]"`
+that day; this specific pip resolution shipped a "NeMo_3.0.0" restore path whose
+ASRModel.from_pretrained() checkpoint-restore step is broken for this classic single-file .nemo
+archive — worked around by reading model_config.yaml directly out of the .nemo tar, see below).
+
+=== Explicit overrides in the checkpoint's model_config.yaml, preprocessor block ===
+(extracted directly from indicconformer_stt_hi_hybrid_rnnt_large.nemo, which is the checkpoint's
+real filename on the Hub — the repo ID's own "hybrid_ctc_rnnt" name does not match the archive's
+"hybrid_rnnt" filename inside it; the .nemo tar was untarred and model_config.yaml parsed with
+plain PyYAML, bypassing the broken restore path)
+
+_target_: nemo.collections.asr.modules.AudioToMelSpectrogramPreprocessor
+sample_rate: 16000
+normalize: per_feature
+window_size: 0.025
+window_stride: 0.01
+window: hann
+features: 80
+n_fft: 512
+frame_splicing: 1
+dither: 1.0e-05
+pad_to: 0
+
+=== Fields NOT overridden by the checkpoint (fall back to class defaults) ===
+Source: inspect.signature(AudioToMelSpectrogramPreprocessor.__init__) on the installed
+nemo_toolkit, same session.
+
+preemph = 0.97
+lowfreq = 0
+highfreq = None            (resolves to sample_rate/2 = 8000 in FilterbankFeatures.__init__)
+log = True
+log_zero_guard_type = 'add'
+log_zero_guard_value = 5.960464477539063e-08   (= 2**-24)
+mag_power = 2.0
+mel_norm = 'slaney'
+exact_pad = False
+pad_value = 0
+use_torchaudio = False
+
+=== Behavior confirmed from FilterbankFeatures source (not a constructor field, but real,
+    checked behavior — inspect.getsource on the installed package) ===
+
+1. Window: `window_fn(self.win_length, periodic=False)` — a SYMMETRIC Hann window
+   (denominator N-1), not torch.hann_window's own periodic default (denominator N). The working
+   tree had this backwards (T27 "periodic Hann window" was a wrong assumption; reverted by T23).
+
+2. Dither: applied only `if self.training` — disabled at inference/eval. No dither needed in the
+   Kotlin feature extractor, and none was added.
+
+3. STFT call: `torch.stft(x, n_fft=512, hop_length=160, win_length=400, center=True,
+   window=<the 400-sample window above>, return_complex=True, pad_mode="constant")`.
+   center=True (since exact_pad defaults False) pads the signal by n_fft//2=256 zeros each side;
+   pad_mode="constant" means that padding — and any part of a centered analysis window that
+   falls outside the real audio — is zero, not reflected. Net effect: frame t is centered at
+   original sample t*hop_length, spanning the 400-sample window either side, with out-of-range
+   samples treated as zero. Physical frame count = 1 + floor(audio_len / hop_length).
+
+4. get_seq_len(): floor(audio_len / hop_length) — exactly one less than the physical frame count
+   above. forward() masks (zero-fills) every frame at or beyond this "valid" length, and
+   normalize_batch's per_feature mean/std are computed only over the valid frames. Net effect for
+   a single, unpadded utterance: the very last physical frame is excluded from normalization
+   statistics and is hard-zeroed in the output, for any input length.
+
+5. normalize_batch(..., normalize_type="per_feature"): unbiased variance
+   (`sum((x-mean)**2) / (N - 1)`, N = valid frame count), epsilon added to std is
+   CONSTANT = 1e-5 (same value already used in the working tree).
+
+6. Mel filterbank: `librosa.filters.mel(sr=16000, n_fft=512, n_mels=80, fmin=0, fmax=8000,
+   norm='slaney')` — called WITHOUT `htk=True`, so librosa's Slaney mel *scale* applies
+   (hz_to_mel/mel_to_hz below), which is a different formula from the HTK scale
+   (2595*log10(1+f/700)) the working tree had. This is separate from T25's "Slaney
+   normalization" (the 2/(upper-lower) filter-area scaling, which was already correct) — the
+   scale formula itself had never been checked against the real config before now.
+
+   librosa hz_to_mel / mel_to_hz (htk=False), from the installed librosa's own source:
+     f_sp = 200/3 ; min_log_hz = 1000 ; min_log_mel = min_log_hz / f_sp ; logstep = ln(6.4)/27
+     hz_to_mel(f)  = f / f_sp                          if f < min_log_hz
+                   = min_log_mel + ln(f/min_log_hz)/logstep   otherwise
+     mel_to_hz(m)  = f_sp * m                           if m < min_log_mel
+                   = min_log_hz * exp(logstep*(m - min_log_mel))  otherwise
+
+=== Reconciliation against app/src/main/java/com/itantra/core/audio/STTModule.kt (pre-T23) ===
+
+| Field                          | Config says          | Working tree had        | Action        |
+|--------------------------------|----------------------|--------------------------|---------------|
+| sample_rate                    | 16000                | 16000                    | none          |
+| window_size / FRAME_LENGTH     | 0.025s = 400 samples | 400                      | none          |
+| window_stride / HOP_LENGTH     | 0.01s = 160 samples  | 160                      | none          |
+| n_fft                          | 512                  | 512                      | none          |
+| features / N_MELS              | 80                   | 80                       | none          |
+| window shape                   | symmetric (N-1)      | periodic (N) — T27 wrong | reverted      |
+| preemph                        | 0.97 (default)       | none                     | added (T24)   |
+| dither                         | eval-time: none      | none                     | none          |
+| center / pad_mode              | True / constant      | none (left-aligned)      | added (T26)   |
+| last-frame masking             | zero, excluded from stats | none                | added         |
+| normalize                      | per_feature, unbiased| per_feature, biased      | fixed (T28)   |
+| log_zero_guard_value           | 2**-24               | 5.9604645e-8 (== 2**-24 to float32 precision) | none |
+| mag_power                      | 2.0                  | re^2+im^2 (== power^2)   | none          |
+| mel_norm (area)                | slaney               | slaney (T25)             | none          |
+| mel scale (hz<->mel warping)   | Slaney (htk=False)   | HTK formula              | fixed         |
+| lowfreq / highfreq             | 0 / 8000             | 0 / 8000                 | none          |
+
+All "Action" rows implemented in STTModule.kt on branch feature/t23-nemo-features. Golden test
+(T29) is app/src/test/java/com/itantra/MelFeatureGoldenTest.kt, against
+app/src/test/resources/{fixture.wav,golden_features.npy} (a real FLEURS hi_in clip run through
+the actual checkpoint's own preprocessor). Passes at 1e-3 tolerance.
