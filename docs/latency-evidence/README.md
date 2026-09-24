@@ -81,8 +81,20 @@ aborted pairing attempt earlier in the same app process and should be ignored:
 
 | Phrase | audio_ms | stt_ms | feature_ms | infer_ms | Note |
 | --- | --- | --- | --- | --- | --- |
-| 1 | 3100 | 3076.8 | 2439.0 | 637.8 | First STT call this process — feature_ms is inflated by one-time JIT/cache warmup, not representative |
-| 2 | 1400 | 360.6 | 13.3 | 347.2 | Warm — this is the representative per-phrase number |
+| 1 | 3100 | 3076.8 | 2439.0 | 637.8 | First STT call this process — `feature_ms` **contains the 2306 ms model load** (see below) |
+| 2 | 1400 | 360.6 | 13.3 | 347.2 | Warm — representative per-phrase number |
+
+**How to read these columns (corrected 2026-09-24).** The service stamps "capture ended" and then
+calls `ensureLoaded()` before transcribing, so `feature_ms` (and therefore `stt_ms` and `rtf`)
+includes any model load. For phrase 1 that is 2306 ms of the 2439 ms; actual feature extraction
+was ~130 ms, so phrase 1's real processing was ~770 ms for 3.1 s of audio (≈ 0.25× real time,
+the same speed as phrase 2). An earlier version of this table attributed the 2439 ms to JIT
+warm-up; that was wrong.
+
+A second caveat: since T65, "capture ended" is stamped when the segment queue **picks the phrase
+up**, not when the VAD cut it. So `stt_ms` leaves out time spent queued behind an earlier phrase
+— phrase 2 waited ~1.2 s behind phrase 1 in this run, and that wait is not in its 360.6 ms. The
+rubric's "words said → STT complete" needs the cut time. Task T71 fixes both stamps.
 
 From `receiver_telemetry.csv`, matching rows by receive order:
 
@@ -144,7 +156,8 @@ is an unsynchronised map. The logcat here is filtered to other tags, so it canno
 
 ## Next capture — what to change
 
-1. Implement T45 (warm-up) first, so the run measures the pipeline rather than a model load.
+1. Implement T70 and T45 (warm-up) first, so the run measures the pipeline rather than a model
+   load, and T71, so `stt_ms` starts at the VAD cut and model load is its own column.
 2. Add `TTSModule:*` to the logcat tag filter on the receiver.
 3. Keep everything else identical (same phones, same two-sentence script), so the result is
    directly comparable with this run.
