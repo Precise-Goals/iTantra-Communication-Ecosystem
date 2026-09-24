@@ -140,7 +140,7 @@ class VADModule(
                     Log.d(TAG, "VAD input '$name': ${(info.info as? TensorInfo)?.shape?.contentToString()}")
                 }
             }
-            Log.d(TAG, "VAD initialized — backend: $activeBackend (physical path: $physicalPath, neural session loaded but unused: ${session != null})")
+            Log.d(TAG, "VAD initialized — backend: $activeBackend (physical path: $physicalPath, neural session loaded: ${session != null})")
             true
         } catch (e: Exception) {
             Log.w(TAG, "VAD initialization notice: ${e.message}")
