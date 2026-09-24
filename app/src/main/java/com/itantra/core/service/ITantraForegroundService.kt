@@ -28,6 +28,7 @@ import com.itantra.core.network.BluetoothRFCOMMManager
 import com.itantra.core.network.SocketTransport
 import com.itantra.core.network.WifiDirectManager
 import com.itantra.core.proto.ProtobufSerializer
+import com.itantra.core.telemetry.Telemetry
 import com.itantra.domain.contracts.AudioCallbacks
 import com.itantra.domain.contracts.NetworkCallbacks
 import com.itantra.domain.model.AlertEvent
@@ -173,6 +174,7 @@ class ITantraForegroundService : Service() {
         }
 
         override fun onTextReceived(message: TransceiverMessage) {
+            val rxStampNs = System.nanoTime()
             // Previously silent — made visible so a future two-device test can confirm receipt
             // from logcat alone, matching the visibility already present on the send side.
             Log.d(TAG, "Received from ${message.senderId}: '${message.text.take(80)}' [${message.type}]")
@@ -188,10 +190,18 @@ class ITantraForegroundService : Service() {
             serviceScope.launch(Dispatchers.Default) {
                 val isAlert = message.type == MessageType.ALERT
                 _pipelineStage.value = PipelineStage.SPEAKING
-                val waveform = ttsModule.synthesize(message.text, ttsLanguage)
-                if (waveform != null) {
-                    // synthesize() already returns audio resampled to PLAYBACK_SAMPLE_RATE
-                    audioPlayback.play(waveform, isAlert)
+                val utt = Telemetry.begin(ttsLanguage)
+                utt.rxNs = rxStampNs
+                val synth = ttsModule.synthesize(message.text, ttsLanguage)
+                utt.ttsDoneNs = System.nanoTime()
+                if (synth != null) {
+                    utt.ttsAudioDurationMs = synth.samples.size * 1000L / synth.sampleRate
+                    audioPlayback.play(synth.samples, synth.sampleRate, isAlert) {
+                        utt.firstAudioFrameNs = System.nanoTime()
+                        Telemetry.complete(this@ITantraForegroundService, utt)
+                    }
+                } else {
+                    Telemetry.complete(this@ITantraForegroundService, utt)
                 }
                 _pipelineStage.value = PipelineStage.IDLE
             }
@@ -316,8 +326,14 @@ class ITantraForegroundService : Service() {
             sttModule = sttModule,
             callbacks = audioCallbacks,
             onSpeechReady = { audioBuffer, lang ->
+                val utt = Telemetry.begin(lang)
+                utt.captureEndNs = System.nanoTime()
+                utt.audioDurationMs = audioBuffer.size * 1000L / STTModule.SAMPLE_RATE
                 sttModule.ensureLoaded(lang)
+                sttModule.currentUtterance = utt
                 sttModule.transcribe(audioBuffer, lang)
+                utt.inferDoneNs = System.nanoTime()
+                Telemetry.complete(this@ITantraForegroundService, utt)
             }
         )
 
@@ -361,6 +377,7 @@ class ITantraForegroundService : Service() {
 
     /** Start PTT capture (hold) */
     fun startPTT() {
+        audioCaptureModule.pttHeld = true
         if (!audioCaptureModule.isRunning) {
             audioCaptureModule.startCapture()
             _pipelineStage.value = PipelineStage.LISTENING
@@ -369,19 +386,22 @@ class ITantraForegroundService : Service() {
 
     /** Stop PTT capture (release) — flushes buffer to STT */
     fun stopPTT() {
+        audioCaptureModule.pttHeld = false
         serviceScope.launch {
             val buffer = audioCaptureModule.flushAndTranscribe()
+            // Stop the microphone before waiting on STT, so nothing said after release is queued.
+            audioCaptureModule.stopCapture()
             if (buffer != null && buffer.isNotEmpty()) {
                 _pipelineStage.value = PipelineStage.TRANSCRIBING
-                sttModule.ensureLoaded(sttLanguage)
-                sttModule.transcribe(buffer, sttLanguage)
+                // Same queue as mid-hold phrases (T65): keeps spoken order, avoids concurrent
+                // inference, and goes through onSpeechReady so the flush gets telemetry too.
+                audioCaptureModule.submitAndAwait(buffer, sttLanguage)
                 // onSTTResult (audioCallbacks) takes it from TRANSCRIBING through TRANSMITTING
                 // and back to IDLE; only reset here if transcription produced no result at all.
                 if (_pipelineStage.value == PipelineStage.TRANSCRIBING) _pipelineStage.value = PipelineStage.IDLE
             } else {
                 _pipelineStage.value = PipelineStage.IDLE
             }
-            audioCaptureModule.stopCapture()
         }
     }
 

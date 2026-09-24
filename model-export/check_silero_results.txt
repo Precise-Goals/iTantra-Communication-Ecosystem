@@ -1,0 +1,34 @@
+check_silero.py results — T62 diagnosis verification (2026-09-24)
+
+Model: silero_vad.onnx pinned to GitHub release tag v6.2.3
+  (https://raw.githubusercontent.com/snakers4/silero-vad/v6.2.3/src/silero_vad/data/silero_vad.onnx)
+  sha256 = 1a153a22f4509e292a94e67d6f9b85e8deb25b4988682b7e174c65279d8788e3
+
+Audio samples used:
+  - synthetic_speech_16k.wav: a COMPUTER-GENERATED voice, not a human recording — synthesized
+    with the Windows SAPI voice via System.Speech.Synthesis.SpeechSynthesizer, output directly
+    to 16kHz mono 16-bit PCM (8.4s, "Hello, can you hear me. This is a test of the voice
+    activity detector. Testing one two three four five."). No human speaker was recorded.
+  - silence_16k.wav: 5s of digital zero silence (numpy zeros), not room-tone/ambient noise.
+
+Command:
+  python model-export/check_silero.py <model.onnx> <wav>
+
+Results:
+  synthetic speech:
+    context=False: max=0.259 fraction>0.5=0.00   <- never crosses the 0.5 speech threshold
+    context=True:  max=1.000 fraction>0.5=0.66   <- correctly detects speech in 66% of frames
+  silence:
+    context=False: max=0.001 fraction>0.5=0.00
+    context=True:  max=0.009 fraction>0.5=0.00
+
+Interpretation:
+  Without the 64-sample context, even a clearly-speech synthetic sample never reaches the 0.5
+  threshold (max 0.259) — the missing context pushes output toward zero, not toward saturation
+  at 1. With the context, the same audio correctly registers as speech in most frames while
+  silence stays correctly near-zero either way. This confirms the T62 diagnosis and the fix's
+  correctness on this specific (synthetic-voice) test.
+
+Caveat: this validates the model/code against a synthesized voice, not a live human speaker.
+Live human-voice confirmation on real hardware is a separate, additional check — see the
+telemetry/logcat evidence committed alongside this file for that.

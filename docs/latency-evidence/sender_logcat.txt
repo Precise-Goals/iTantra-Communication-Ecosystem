@@ -1,0 +1,23 @@
+--------- beginning of main
+09-24 15:13:37.545 W/MeshHardware(19083): setDeviceName failure code: 0
+09-24 15:13:37.547 D/iTantraService(19083): Service created
+09-24 15:13:37.964 D/VADModule(19083): VAD real signature — inputs=[input, state, sr] outputs=[output, stateN]
+09-24 15:13:37.966 D/VADModule(19083): VAD input 'input': [-1, -1]
+09-24 15:13:37.969 D/VADModule(19083): VAD input 'state': [2, -1, 128]
+09-24 15:13:37.969 D/VADModule(19083): VAD input 'sr': []
+09-24 15:13:37.969 D/VADModule(19083): VAD initialized — backend: NEURAL (physical path: /data/user/0/com.itantra.debug/files/models/silero_vad_v4.onnx, neural session loaded but unused: true)
+09-24 15:13:57.576 I/MeshHardware(19083): Wi-Fi Direct P2P Group Created as Host: 23122PCD1I_031.A3
+09-24 15:13:57.858 I/MeshHardware(19083): Bluetooth startDiscovery active
+09-24 15:13:57.883 I/MeshHardware(19083): Hardware WifiP2p discoverPeers active
+09-24 15:14:00.682 D/MeshHardware(19083): Live hardware peers updated: 1 nodes mapped
+09-24 15:14:00.682 D/iTantraService(19083): Node discovered: DESKTOP-RN9HGN5
+09-24 15:14:03.064 D/iTantraService(19083): Node connected: OPPO F29 5G
+09-24 15:14:03.122 D/iTantraService(19083): Node connected: OPPO F29 5G
+09-24 15:14:12.448 D/AudioCapture(19083): Audio capture started at 16000Hz
+09-24 15:14:16.087 D/AudioCapture(19083): Speech segment complete: 49600 samples
+09-24 15:14:16.178 D/STTModule(19083): STT('hi'): NNAPI delegate enabled
+09-24 15:14:17.890 D/AudioCapture(19083): Speech segment complete: 22400 samples
+09-24 15:14:18.394 D/STTModule(19083): STT('hi') loaded in 2306ms — vocab size 5633, inputs=IoNames(featureInput=audio_signal, lengthInput=length, outputName=logprobs)
+09-24 15:14:19.150 D/STTModule(19083): STT inference: 'हेलो हेलो कैनूोग आर्मी हेलो हेलो' in 755ms [hi]
+09-24 15:14:19.385 D/AudioCapture(19083): Audio capture stopped
+09-24 15:14:19.525 D/STTModule(19083): STT inference: 'हेलो हेलो' in 358ms [hi]

@@ -34,7 +34,6 @@ class AudioPlaybackManager(
 ) {
     companion object {
         private const val TAG = "AudioPlayback"
-        private const val SAMPLE_RATE = TTSModule.PLAYBACK_SAMPLE_RATE
         private const val CHANNEL_CONFIG = android.media.AudioFormat.CHANNEL_OUT_MONO
         private const val AUDIO_FORMAT = android.media.AudioFormat.ENCODING_PCM_FLOAT
     }
@@ -47,18 +46,53 @@ class AudioPlaybackManager(
     /**
      * Play a synthesized PCM waveform.
      *
-     * @param waveform Float PCM samples at [SAMPLE_RATE] Hz.
+     * @param waveform Float PCM samples at [sampleRate] Hz.
+     * @param sampleRate The rate [waveform] was synthesized at (voice-native, not resampled).
      * @param isAlert If true, uses alarm stream with max volume override.
+     * @param onFirstFrame If given, invoked immediately after playback starts and before the
+     *   first buffer is written — used to stamp when audio actually started playing, for the
+     *   Latency criterion. Must not be invoked after `write()` returns: `WRITE_BLOCKING` only
+     *   returns once playback has drained, which would measure the wrong thing.
      */
-    fun play(waveform: FloatArray, isAlert: Boolean = false) {
+    private class PlaybackItem(
+        val waveform: FloatArray,
+        val sampleRate: Int,
+        val isAlert: Boolean,
+        val onFirstFrame: (() -> Unit)?
+    )
+
+    /** Serialises playback (T38). Previously each message built its own AudioTrack and played
+     *  simultaneously, so phrases arriving close together garbled each other. */
+    private val playbackQueue = kotlinx.coroutines.channels.Channel<PlaybackItem>(
+        capacity = 16,
+        onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST
+    )
+
+    init {
         scope.launch {
-            if (isAlert) playAlert(waveform) else playNormal(waveform)
+            for (item in playbackQueue) {
+                try {
+                    if (item.isAlert) playAlert(item.waveform, item.sampleRate, item.onFirstFrame)
+                    else playNormal(item.waveform, item.sampleRate, item.onFirstFrame)
+                } catch (e: Exception) {
+                    Log.e(TAG, "playback failed: ${e.message}", e)
+                }
+            }
         }
     }
 
-    private fun playNormal(waveform: FloatArray) {
+    fun play(
+        waveform: FloatArray,
+        sampleRate: Int,
+        isAlert: Boolean = false,
+        onFirstFrame: (() -> Unit)? = null
+    ) {
+        playbackQueue.trySend(PlaybackItem(waveform, sampleRate, isAlert, onFirstFrame))
+    }
+
+    private fun playNormal(waveform: FloatArray, sampleRate: Int, onFirstFrame: (() -> Unit)? = null) {
         requestAudioFocus(isAlert = false)
-        val bufferSize = AudioTrack.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT)
+        val bufferSize = AudioTrack.getMinBufferSize(sampleRate, CHANNEL_CONFIG, AUDIO_FORMAT)
 
         val track = AudioTrack.Builder()
             .setAudioAttributes(
@@ -75,7 +109,7 @@ class AudioPlaybackManager(
             .setAudioFormat(
                 android.media.AudioFormat.Builder()
                     .setEncoding(AUDIO_FORMAT)
-                    .setSampleRate(SAMPLE_RATE)
+                    .setSampleRate(sampleRate)
                     .setChannelMask(CHANNEL_CONFIG)
                     .build()
             )
@@ -86,6 +120,7 @@ class AudioPlaybackManager(
         try {
             track.setVolume(1.0f)
             track.play()
+            onFirstFrame?.invoke()
             track.write(waveform, 0, waveform.size, AudioTrack.WRITE_BLOCKING)
             track.stop()
         } finally {
@@ -94,7 +129,7 @@ class AudioPlaybackManager(
         }
     }
 
-    private fun playAlert(waveform: FloatArray) {
+    private fun playAlert(waveform: FloatArray, sampleRate: Int, onFirstFrame: (() -> Unit)? = null) {
         // Save current alarm volume
         savedVolume = audioManager.getStreamVolume(AudioManager.STREAM_ALARM)
         val maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_ALARM)
@@ -116,7 +151,7 @@ class AudioPlaybackManager(
         requestAudioFocus(isAlert = true)
 
         val bufferSize = AudioTrack.getMinBufferSize(
-            SAMPLE_RATE,
+            sampleRate,
             CHANNEL_CONFIG,
             android.media.AudioFormat.ENCODING_PCM_FLOAT
         )
@@ -132,7 +167,7 @@ class AudioPlaybackManager(
             .setAudioFormat(
                 android.media.AudioFormat.Builder()
                     .setEncoding(android.media.AudioFormat.ENCODING_PCM_FLOAT)
-                    .setSampleRate(SAMPLE_RATE)
+                    .setSampleRate(sampleRate)
                     .setChannelMask(CHANNEL_CONFIG)
                     .build()
             )
@@ -142,6 +177,7 @@ class AudioPlaybackManager(
 
         try {
             track.play()
+            onFirstFrame?.invoke()
             track.write(waveform, 0, waveform.size, AudioTrack.WRITE_BLOCKING)
             track.stop()
         } finally {
@@ -169,6 +205,7 @@ class AudioPlaybackManager(
                     val gained = focusChange == AudioManager.AUDIOFOCUS_GAIN
                     callbacks.onAudioFocusChanged(gained)
                 }
+                .setWillPauseWhenDucked(false)
                 .build()
 
             audioFocusRequest = focusRequest

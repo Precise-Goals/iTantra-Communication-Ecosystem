@@ -168,6 +168,10 @@ class SocketTransport(
                         MessageType.ACK -> {
                             val latency = System.currentTimeMillis() - message.timestamp
                             callbacks.onLatencyMeasured(peerId, latency)
+                            // Offset ~= RTT/2. Lets phone B express phone A's send time on its
+                            // own clock, which is what the cross-device latency metric needs
+                            // without NTP or external timing gear.
+                            com.itantra.core.telemetry.Telemetry.peerClockOffsetMs = latency / 2
                         }
                         else -> callbacks.onTextReceived(message)
                     }

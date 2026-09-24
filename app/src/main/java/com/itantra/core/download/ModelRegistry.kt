@@ -27,7 +27,7 @@ import com.itantra.domain.model.ModelPack
 object ModelRegistry {
 
     private const val SILERO_VAD_URL =
-        "https://raw.githubusercontent.com/snakers4/silero-vad/master/src/silero_vad/data/silero_vad.onnx"
+        "https://raw.githubusercontent.com/snakers4/silero-vad/v6.2.3/src/silero_vad/data/silero_vad.onnx"
     private const val FASTTEXT_LID_URL =
         "https://dl.fbaipublicfiles.com/fasttext/supervised-models/lid.176.ftz"
     private const val SHERPA_BASE =
@@ -111,7 +111,7 @@ object ModelRegistry {
             pack = ModelPack.VAD_MODEL,
             fileName = "silero_vad_v4.onnx",
             downloadUrl = SILERO_VAD_URL,
-            sha256 = null, // GitHub raw content, no LFS digest header — trust-on-first-download
+            sha256 = "1a153a22f4509e292a94e67d6f9b85e8deb25b4988682b7e174c65279d8788e3", // pinned to v6.2.3 (T62)
             sizeBytes = 2_327_524L // 2.22 MB
         ),
 

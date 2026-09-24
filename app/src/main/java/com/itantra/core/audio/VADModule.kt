@@ -58,6 +58,13 @@ class VADModule(
          * Silero model. [process] re-buffers incoming CHUNK_SIZE (1600) chunks into this size
          * internally rather than changing CHUNK_SIZE everywhere. */
         private const val SILERO_WINDOW_SIZE = 512
+        /** Samples of the previous window prepended to every Silero call. The official v5
+         *  wrapper (OnnxWrapper in silero_vad/utils_vad.py) does this; without it the model's
+         *  output is unreliable. See T62. */
+        private const val SILERO_CONTEXT_SIZE = 64
+        /** Release threshold for the neural backend. Silero's own recommended hysteresis is
+         *  "threshold - 0.15", which stops the detector chattering inside a word. */
+        private const val SPEECH_RELEASE_THRESHOLD = 0.35f
         /** Speech detection threshold [0.0–1.0]. Tuned for field environments. */
         private const val SPEECH_THRESHOLD = 0.5f
         /** Minimum silence duration before emitting end-of-speech (ms) */
@@ -82,6 +89,8 @@ class VADModule(
     // accepts without a shape error — see SILERO_WINDOW_SIZE doc.
     private val pendingSamples = ArrayDeque<Float>()
     private var lastSpeechProb = 0f
+    /** Last SILERO_CONTEXT_SIZE samples of the previous window (T62). */
+    private val sileroContext = FloatArray(SILERO_CONTEXT_SIZE)
 
     /**
      * Initialize the Silero VAD ONNX session.
@@ -114,7 +123,17 @@ class VADModule(
             // work around — the model itself doesn't discriminate speech from silence in this
             // configuration. Forcing BASIC_ENERGY rather than silently shipping a VAD that never
             // fires; revisit if a correctly-calibrated replacement model becomes available.
-            activeBackend = VadBackend.BASIC_ENERGY
+            // UPDATE (T62): the test described above used only non-speech inputs, so ~0 output
+            // was the correct answer, not a malfunction. The real defect was the missing 64-sample
+            // context the v5 model expects (added in process()). Verified with
+            // model-export/check_silero.py against the pinned v6.2.3 model — see
+            // model-export/check_silero_results.txt: without the context a clearly-speech sample
+            // never crosses the 0.5 threshold (max 0.259); with it, the same sample correctly
+            // reads as speech in 66% of frames. That test used a computer-synthesized voice
+            // (Windows SAPI), not a recorded human speaker — separately confirmed live on two
+            // physical devices with real human speech; see the committed evidence referenced in
+            // README.md's "Phrase-level pipelining & latency" section.
+            activeBackend = if (session != null) VadBackend.NEURAL else VadBackend.BASIC_ENERGY
             session?.let {
                 Log.d(TAG, "VAD real signature — inputs=${it.inputNames} outputs=${it.outputNames}")
                 it.inputInfo.forEach { (name, info) ->
@@ -161,13 +180,25 @@ class VADModule(
 
         try {
             pendingSamples.addAll(audioChunk.asIterable())
+            var chunkMaxProb = -1f
             while (pendingSamples.size >= SILERO_WINDOW_SIZE) {
                 val window = FloatArray(SILERO_WINDOW_SIZE) { pendingSamples.removeFirst() }
 
+                // v5+ Silero input is [previous 64 samples | current 512 samples] = 576 (T62).
+                val framed = FloatArray(SILERO_CONTEXT_SIZE + SILERO_WINDOW_SIZE)
+                sileroContext.copyInto(framed, destinationOffset = 0)
+                window.copyInto(framed, destinationOffset = SILERO_CONTEXT_SIZE)
+                window.copyInto(
+                    sileroContext,
+                    destinationOffset = 0,
+                    startIndex = SILERO_WINDOW_SIZE - SILERO_CONTEXT_SIZE,
+                    endIndex = SILERO_WINDOW_SIZE
+                )
+
                 val inputTensor = OnnxTensor.createTensor(
                     env,
-                    FloatBuffer.wrap(window),
-                    longArrayOf(1, SILERO_WINDOW_SIZE.toLong())
+                    FloatBuffer.wrap(framed),
+                    longArrayOf(1, framed.size.toLong())
                 )
                 // "sr" is a rank-0 scalar in the real model (confirmed: shape []), not a
                 // 1-element array — the scalar-long overload matches that exactly.
@@ -189,6 +220,7 @@ class VADModule(
                 @Suppress("UNCHECKED_CAST")
                 val outputVal = outputs[0].value as Array<FloatArray>
                 lastSpeechProb = outputVal[0][0]
+                if (lastSpeechProb > chunkMaxProb) chunkMaxProb = lastSpeechProb
 
                 // Update combined state for next window
                 @Suppress("UNCHECKED_CAST")
@@ -199,13 +231,20 @@ class VADModule(
                 outputs.close()
             }
 
-            val isCurrentSpeech = lastSpeechProb >= SPEECH_THRESHOLD
+            // Loudest window in this chunk; falls back to the previous value if the chunk was too
+            // short to complete a window.
+            val chunkProb = if (chunkMaxProb >= 0f) chunkMaxProb else lastSpeechProb
+            val isCurrentSpeech = if (isSpeechActive) chunkProb >= SPEECH_RELEASE_THRESHOLD
+                                  else chunkProb >= SPEECH_THRESHOLD
             if (isCurrentSpeech != isSpeechActive) {
                 isSpeechActive = isCurrentSpeech
-                callbacks.onVADTriggered(isCurrentSpeech, lastSpeechProb)
+                callbacks.onVADTriggered(isCurrentSpeech, chunkProb)
             }
 
-            lastSpeechProb
+            // AudioCaptureModule compares this return value against a fixed 0.5, so return a
+            // value on the side of 0.5 that matches the hysteresis decision made above.
+            if (isCurrentSpeech) maxOf(chunkProb, SPEECH_THRESHOLD)
+            else minOf(chunkProb, SPEECH_THRESHOLD - 0.01f)
         } catch (e: Exception) {
             // A session can load successfully but still fail at run() time — e.g. the bundled
             // model's real input signature not matching what this code assumes (confirmed
@@ -227,6 +266,7 @@ class VADModule(
         isSpeechActive = false
         pendingSamples.clear()
         lastSpeechProb = 0f
+        sileroContext.fill(0f)
     }
 
     fun release() {

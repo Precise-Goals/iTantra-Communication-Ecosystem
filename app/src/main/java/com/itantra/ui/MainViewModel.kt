@@ -270,10 +270,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         viewModelScope.launch(Dispatchers.Default) {
             _isSpeaking.value = true
-            val waveform = ttsModule.synthesize(text, lang)
-            if (waveform != null && waveform.isNotEmpty()) {
+            val synth = ttsModule.synthesize(text, lang)
+            if (synth != null && synth.samples.isNotEmpty()) {
                 _voiceUnavailableNotice.value = null
-                audioPlayback.play(waveform)
+                audioPlayback.play(synth.samples, synth.sampleRate)
             } else {
                 _isSpeaking.value = false
                 _voiceUnavailableNotice.value = "Voice not available offline for '$lang' — showing text only"

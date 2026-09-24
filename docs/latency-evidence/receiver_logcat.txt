@@ -1,0 +1,17 @@
+--------- beginning of main
+09-24 15:13:36.872 D/iTantraService(12773): Service created
+09-24 15:13:36.887 W/MeshHardware(12773): setDeviceName failure code: 0
+09-24 15:13:37.311 D/VADModule(12773): VAD real signature — inputs=[input, state, sr] outputs=[output, stateN]
+09-24 15:13:37.312 D/VADModule(12773): VAD input 'input': [-1, -1]
+09-24 15:13:37.312 D/VADModule(12773): VAD input 'state': [2, -1, 128]
+09-24 15:13:37.312 D/VADModule(12773): VAD input 'sr': []
+09-24 15:13:37.312 D/VADModule(12773): VAD initialized — backend: NEURAL (physical path: /data/user/0/com.itantra.debug/files/models/silero_vad_v4.onnx, neural session loaded but unused: true)
+09-24 15:13:56.038 W/MeshHardware(12773): createGroup failed: 0
+09-24 15:13:56.341 I/MeshHardware(12773): Bluetooth startDiscovery active
+09-24 15:13:56.369 W/MeshHardware(12773): discoverPeers failed: 0
+09-24 15:14:02.539 D/iTantraService(12773): Node connected: POCO X6 5G
+09-24 15:14:02.544 D/iTantraService(12773): Node connected: POCO X6 5G
+09-24 15:14:18.676 D/iTantraService(12773): Received from 77a1075a-4bb7-4d22-96e6-817e845adb4f: 'हेलो हेलो कैनूोग आर्मी हेलो हेलो' [SPEECH]
+09-24 15:14:19.050 D/iTantraService(12773): Received from 77a1075a-4bb7-4d22-96e6-817e845adb4f: 'हेलो हेलो' [SPEECH]
+09-24 15:14:20.874 D/iTantraService(12773): TTS synthesis complete: 2772ms audio
+09-24 15:14:20.966 D/iTantraService(12773): TTS synthesis complete: 816ms audio

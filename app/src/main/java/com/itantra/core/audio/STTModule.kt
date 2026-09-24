@@ -11,12 +11,11 @@ import com.itantra.domain.contracts.AudioCallbacks
 import com.itantra.domain.model.AppResult
 import com.itantra.domain.model.ErrorCode
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.nio.FloatBuffer
-import kotlin.math.cos
 import kotlin.math.ln
 import kotlin.math.PI
-import kotlin.math.sin
 
 /**
  * Speech-to-Text module using AI4Bharat IndicConformer (sherpa-onnx export, ONNX INT8).
@@ -40,6 +39,9 @@ class STTModule(
         private const val N_MELS = 80
         private const val FRAME_LENGTH = 400   // 25ms window at 16kHz
         private const val HOP_LENGTH = 160     // 10ms hop at 16kHz
+        /** FFT size: next power of two at or above FRAME_LENGTH. NeMo pads the 400-sample
+         *  window to 512 rather than transforming 400 points directly. */
+        private const val N_FFT = 512
 
         /** Candidate input names for the acoustic feature tensor, in priority order. */
         private val FEATURE_INPUT_ALIASES = listOf("audio_signal", "x", "features", "input", "waveform")
@@ -52,14 +54,150 @@ class STTModule(
     private val vocabCache = mutableMapOf<String, Array<String>>()
     private val ioNamesCache = mutableMapOf<String, IoNames>()
 
+    /** One inference or model load at a time (T65). The feature extractor reuses member scratch
+     *  buffers and the caches are plain HashMaps, so concurrent calls corrupt each other. */
+    private val inferenceLock = kotlinx.coroutines.sync.Mutex()
+
     private data class IoNames(val featureInput: String, val lengthInput: String?, val outputName: String)
+
+    /** Set by the caller before transcribe(); used to stamp feature-extraction timing. */
+    @Volatile var currentUtterance: com.itantra.core.telemetry.Telemetry.Utterance? = null
+
+    // ── Precomputed FFT and mel filterbank ────────────────────────────────
+    // Built once on first use. The previous implementation recomputed a naive O(N^2) DFT and
+    // rebuilt the entire mel filterbank on every single frame, which cost ~950ms per 3s of
+    // audio and put RTF above 1.0 before the ONNX session even ran.
+
+    /** Bit-reversal permutation table for the radix-2 FFT. */
+    private val fftReverse: IntArray by lazy {
+        val rev = IntArray(N_FFT)
+        var j = 0
+        for (i in 1 until N_FFT) {
+            var bit = N_FFT shr 1
+            while (j >= bit) { j -= bit; bit = bit shr 1 }
+            j += bit
+            rev[i] = j
+        }
+        rev
+    }
+
+    /** Periodic Hann window (torch.hann_window default), length FRAME_LENGTH. */
+    private val hannWindow: FloatArray by lazy {
+        FloatArray(FRAME_LENGTH) { i ->
+            (0.5 * (1.0 - kotlin.math.cos(2.0 * PI * i / FRAME_LENGTH))).toFloat()
+        }
+    }
+
+    /** Sparse mel filterbank: for each mel band, the first FFT bin and its triangular weights. */
+    private class MelBank(val startBin: IntArray, val weights: Array<FloatArray>)
+
+    private val melBank: MelBank by lazy { buildMelBank() }
+
+    /** Scratch buffers, reused across frames to keep allocation constant per utterance. */
+    private val fftRe = DoubleArray(N_FFT)
+    private val fftIm = DoubleArray(N_FFT)
+    private val powerSpectrum = FloatArray(N_FFT / 2 + 1)
+
+    /**
+     * Build the mel filterbank once, with Slaney area normalization — librosa's `norm="slaney"`,
+     * which is what NeMo's AudioToMelSpectrogramPreprocessor uses. Without it the wide
+     * high-frequency bands carry systematically more energy than the encoder saw in training.
+     */
+    private fun buildMelBank(): MelBank {
+        val nBins = N_FFT / 2 + 1
+        val melMin = hzToMel(0.0)
+        val melMax = hzToMel(SAMPLE_RATE / 2.0)
+        val melPoints = DoubleArray(N_MELS + 2) { i ->
+            melToHz(melMin + i * (melMax - melMin) / (N_MELS + 1))
+        }
+        val binFreq = DoubleArray(nBins) { k -> k.toDouble() * SAMPLE_RATE / N_FFT }
+
+        val starts = IntArray(N_MELS)
+        val weightRows = Array(N_MELS) { FloatArray(0) }
+
+        for (m in 0 until N_MELS) {
+            val lower = melPoints[m]
+            val center = melPoints[m + 1]
+            val upper = melPoints[m + 2]
+            // Slaney normalization: scale each triangle by 2/(upper-lower) so filters have
+            // equal area rather than equal peak height.
+            val enorm = 2.0 / (upper - lower)
+
+            var first = -1
+            var last = -1
+            for (k in 0 until nBins) {
+                val f = binFreq[k]
+                if (f > lower && f < upper) {
+                    if (first < 0) first = k
+                    last = k
+                }
+            }
+            if (first < 0) { starts[m] = 0; weightRows[m] = FloatArray(0); continue }
+
+            val w = FloatArray(last - first + 1)
+            for (k in first..last) {
+                val f = binFreq[k]
+                val v = if (f <= center) (f - lower) / (center - lower)
+                        else (upper - f) / (upper - center)
+                w[k - first] = (v * enorm).toFloat()
+            }
+            starts[m] = first
+            weightRows[m] = w
+        }
+        return MelBank(starts, weightRows)
+    }
+
+    /**
+     * In-place radix-2 Cooley-Tukey FFT over [fftRe]/[fftIm], then power spectrum into
+     * [powerSpectrum]. Caller must have filled fftRe with the windowed, zero-padded frame
+     * and zeroed fftIm.
+     */
+    private fun fftPowerInPlace() {
+        for (i in 1 until N_FFT) {
+            val j = fftReverse[i]
+            if (i < j) {
+                var t = fftRe[i]; fftRe[i] = fftRe[j]; fftRe[j] = t
+                t = fftIm[i]; fftIm[i] = fftIm[j]; fftIm[j] = t
+            }
+        }
+        var len = 2
+        while (len <= N_FFT) {
+            val ang = -2.0 * PI / len
+            val wr = kotlin.math.cos(ang)
+            val wi = kotlin.math.sin(ang)
+            var i = 0
+            while (i < N_FFT) {
+                var cr = 1.0
+                var ci = 0.0
+                for (k in 0 until len / 2) {
+                    val u = i + k
+                    val v = i + k + len / 2
+                    val tr = fftRe[v] * cr - fftIm[v] * ci
+                    val ti = fftRe[v] * ci + fftIm[v] * cr
+                    fftRe[v] = fftRe[u] - tr; fftIm[v] = fftIm[u] - ti
+                    fftRe[u] += tr;           fftIm[u] += ti
+                    val nr = cr * wr - ci * wi
+                    ci = cr * wi + ci * wr
+                    cr = nr
+                }
+                i += len
+            }
+            len = len shl 1
+        }
+        for (k in powerSpectrum.indices) {
+            powerSpectrum[k] = (fftRe[k] * fftRe[k] + fftIm[k] * fftIm[k]).toFloat()
+        }
+    }
 
     /**
      * Ensure the session + tokenizer for [languageCode] are loaded (downloading is handled
      * separately by ModelDownloadManager — this only loads what's already on disk).
      * @return true if the language is ready to transcribe, false if the model/vocab is missing.
      */
-    suspend fun ensureLoaded(languageCode: String): Boolean = withContext(Dispatchers.Default) {
+    suspend fun ensureLoaded(languageCode: String): Boolean =
+        inferenceLock.withLock { ensureLoadedUnlocked(languageCode) }
+
+    private suspend fun ensureLoadedUnlocked(languageCode: String): Boolean = withContext(Dispatchers.Default) {
         if (sessionCache.containsKey(languageCode) && vocabCache.containsKey(languageCode)) {
             return@withContext true
         }
@@ -160,6 +298,11 @@ class STTModule(
     suspend fun transcribe(
         audioBuffer: FloatArray,
         languageCode: String = "hi"
+    ): AppResult<String> = inferenceLock.withLock { transcribeUnlocked(audioBuffer, languageCode) }
+
+    private suspend fun transcribeUnlocked(
+        audioBuffer: FloatArray,
+        languageCode: String
     ): AppResult<String> = withContext(Dispatchers.Default) {
         val sess = sessionCache[languageCode]
         val vocab = vocabCache[languageCode]
@@ -177,6 +320,7 @@ class STTModule(
         val inferenceStart = System.currentTimeMillis()
         try {
             val features = extractLogMelSpectrogram(audioBuffer)
+            currentUtterance?.featureDoneNs = System.nanoTime()
             val numFrames = features.size / N_MELS
             if (numFrames <= 0) {
                 return@withContext AppResult.Error(ErrorCode.STT_INFERENCE_FAILED, "Audio buffer too short to transcribe")
@@ -211,6 +355,7 @@ class STTModule(
             if (text.isBlank()) {
                 AppResult.Error(ErrorCode.STT_INFERENCE_FAILED, "Empty transcription")
             } else {
+                currentUtterance?.charCount = text.length
                 val confidence = estimateConfidence(logits[0])
                 callbacks.onSTTResult(AppResult.Success(text), confidence, inferenceMs)
                 AppResult.Success(text)
@@ -232,23 +377,27 @@ class STTModule(
         val frames = mutableListOf<FloatArray>()
         var start = 0
 
+        val bank = melBank
+        // NeMo's log_zero_guard_value default is 2**-24, not the 1e-10 used previously.
+        val logGuard = 5.9604645e-8
+
         while (start + FRAME_LENGTH <= audio.size) {
-            val frame = audio.copyOfRange(start, start + FRAME_LENGTH)
-
-            // Apply Hann window
-            for (i in frame.indices) {
-                frame[i] *= (0.5f * (1f - cos(2.0 * PI * i / (FRAME_LENGTH - 1)))).toFloat()
+            // Window straight into the FFT scratch buffer; zero-pad FRAME_LENGTH..N_FFT.
+            for (i in 0 until FRAME_LENGTH) {
+                fftRe[i] = (audio[start + i] * hannWindow[i]).toDouble()
+                fftIm[i] = 0.0
             }
+            for (i in FRAME_LENGTH until N_FFT) { fftRe[i] = 0.0; fftIm[i] = 0.0 }
 
-            // FFT magnitude spectrum (simplified — real impl uses FFTW or KissFFT via JNI)
-            val spectrum = computePowerSpectrum(frame)
+            fftPowerInPlace()
 
-            // Apply mel filterbank (80 filters, 0Hz–8000Hz)
-            val melFeatures = applyMelFilterbank(spectrum, N_MELS, SAMPLE_RATE)
-
-            // Log compression
-            for (i in melFeatures.indices) {
-                melFeatures[i] = (ln(melFeatures[i].toDouble() + 1e-10)).toFloat()
+            val melFeatures = FloatArray(N_MELS)
+            for (m in 0 until N_MELS) {
+                val w = bank.weights[m]
+                val s = bank.startBin[m]
+                var energy = 0f
+                for (k in w.indices) energy += powerSpectrum[s + k] * w[k]
+                melFeatures[m] = ln(energy.toDouble() + logGuard).toFloat()
             }
 
             frames.add(melFeatures)
@@ -282,54 +431,6 @@ class STTModule(
             for (m in 0 until N_MELS) {
                 result[m * T + t] = frames[t][m]
             }
-        }
-        return result
-    }
-
-    /** Compute power spectrum via naive DFT (production should use FFTW via JNI). */
-    private fun computePowerSpectrum(frame: FloatArray): FloatArray {
-        val N = frame.size
-        val halfN = N / 2 + 1
-        val spectrum = FloatArray(halfN)
-        for (k in 0 until halfN) {
-            var re = 0.0
-            var im = 0.0
-            for (n in frame.indices) {
-                val angle = 2.0 * PI * k * n / N
-                re += frame[n] * cos(angle)
-                im -= frame[n] * sin(angle)
-            }
-            spectrum[k] = (re * re + im * im).toFloat()
-        }
-        return spectrum
-    }
-
-    /** Apply mel filterbank to linear frequency spectrum. */
-    private fun applyMelFilterbank(spectrum: FloatArray, nMels: Int, sampleRate: Int): FloatArray {
-        val fMax = sampleRate / 2.0
-        val melMin = hzToMel(0.0)
-        val melMax = hzToMel(fMax)
-        val melPoints = FloatArray(nMels + 2) { i ->
-            melToHz(melMin + i * (melMax - melMin) / (nMels + 1)).toFloat()
-        }
-
-        val result = FloatArray(nMels)
-        val fftBins = spectrum.size
-        for (m in 0 until nMels) {
-            var energy = 0f
-            for (k in spectrum.indices) {
-                val freq = k.toFloat() * sampleRate / (2 * (fftBins - 1))
-                val lower = melPoints[m]
-                val center = melPoints[m + 1]
-                val upper = melPoints[m + 2]
-                val weight = when {
-                    freq >= lower && freq <= center -> (freq - lower) / (center - lower)
-                    freq > center && freq <= upper  -> (upper - freq) / (upper - center)
-                    else                            -> 0f
-                }
-                energy += spectrum[k] * weight
-            }
-            result[m] = energy
         }
         return result
     }
