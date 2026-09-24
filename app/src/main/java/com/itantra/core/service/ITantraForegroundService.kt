@@ -343,6 +343,9 @@ class ITantraForegroundService : Service() {
             }
         )
 
+        // Echo gate (T63): never capture while this device is playing a received message.
+        audioCaptureModule.isSuppressed = { audioPlayback.isOutputActive() }
+
         // Initialize VAD on startup (always resident)
         serviceScope.launch {
             val vadOk = vadModule.initialize()
