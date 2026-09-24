@@ -28,14 +28,10 @@ object ModelRegistry {
 
     private const val SILERO_VAD_URL =
         "https://raw.githubusercontent.com/snakers4/silero-vad/v6.2.3/src/silero_vad/data/silero_vad.onnx"
-    private const val FASTTEXT_LID_URL =
-        "https://dl.fbaipublicfiles.com/fasttext/supervised-models/lid.176.ftz"
     private const val SHERPA_BASE =
         "https://huggingface.co/parismitaglobalsolutions/indicconformer-sherpa-onnx/resolve/main"
     private const val SHERPA_TTS_MODELS_BASE =
         "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models"
-    private const val PHI3_URL =
-        "https://huggingface.co/microsoft/Phi-3-mini-4k-instruct-gguf/resolve/main/Phi-3-mini-4k-instruct-q4.gguf"
 
     data class ModelInfo(
         val pack: ModelPack,
@@ -127,14 +123,6 @@ object ModelRegistry {
         ModelPack.STT_BENGALI to sttInfo(ModelPack.STT_BENGALI, "bn", 197_595_500L),
         ModelPack.STT_ENGLISH to sttInfo(ModelPack.STT_ENGLISH, "en", 197_595_500L),
 
-        ModelPack.LANG_DETECTION to ModelInfo(
-            pack = ModelPack.LANG_DETECTION,
-            fileName = "lid.176.ftz",
-            downloadUrl = FASTTEXT_LID_URL,
-            sha256 = null, // fbaipublicfiles, no LFS digest — trust-on-first-download
-            sizeBytes = 938_013L // 0.89 MB
-        ),
-
         // Shared by every TTS voice below — real espeak-ng phoneme/language data.
         ModelPack.ESPEAK_NG_DATA to ModelInfo(
             pack = ModelPack.ESPEAK_NG_DATA,
@@ -189,14 +177,6 @@ object ModelRegistry {
         ),
         ModelPack.TTS_ODIA to ModelInfo(
             ModelPack.TTS_ODIA, fileName = "", downloadUrl = "", sha256 = null, sizeBytes = 0L
-        ),
-
-        ModelPack.AI_ASSISTANT to ModelInfo(
-            pack = ModelPack.AI_ASSISTANT,
-            fileName = "phi3_mini_q4.gguf",
-            downloadUrl = PHI3_URL,
-            sha256 = null, // captured from HF's X-Linked-ETag header at download time instead
-            sizeBytes = 2_390_000_000L
         )
     )
 

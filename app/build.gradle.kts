@@ -11,8 +11,9 @@ plugins {
 
 android {
     namespace = "com.itantra"
-    // Bumped from 35: llamacpp-kotlin 0.4.0 was compiled with a Kotlin compiler whose metadata
-    // format our toolchain can only read at Kotlin 2.3.x+, which in turn needs a newer AGP/compileSdk.
+    // Bumped from 35 for llamacpp-kotlin (AI Assistant), which needed Kotlin 2.3.x+ and a newer
+    // AGP/compileSdk. The Assistant has since been removed; 36 is kept since nothing requires
+    // going back and the whole toolchain is verified at this level.
     compileSdk = 36
 
     defaultConfig {
@@ -25,8 +26,9 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         ndk {
-            // Judged build targets real phones only. x86_64 is emulator-only and armeabi-v7a
-            // cannot run llamacpp at all (LlmModule.isDeviceSupported already gates it out).
+            // Judged build targets real phones only; x86_64 is emulator-only. armeabi-v7a was
+            // excluded because llamacpp-kotlin (AI Assistant, now removed) had no 32-bit build.
+            // Re-adding it for 32-bit-only budget phones is an open decision (see docs/TASKS.md).
             abiFilters += listOf("arm64-v8a")
         }
     }
@@ -142,11 +144,6 @@ dependencies {
 
     // Pure-JVM tar+bzip2 extraction for downloaded sherpa-onnx TTS voice bundles
     implementation(libs.commons.compress)
-
-    // Real on-device Phi-3/GGUF inference for the AI Assistant (replaces keyword-matching
-    // fallback text). Native libs cover arm64-v8a + x86_64 only (verified by inspecting the
-    // AAR) — no armeabi-v7a build; LlmModule.isDeviceSupported() gates this gracefully.
-    implementation(libs.llamacpp.kotlin)
 
     // Protocol Buffers (Java Lite)
     implementation(libs.protobuf.javalite)

@@ -105,8 +105,6 @@ fun TransceiverScreen(
     val isHosting by viewModel.isHostingEffective.collectAsState()
     val isDiscovering by viewModel.isDiscovering.collectAsState()
     val peers by viewModel.knownPeers.collectAsState()
-    val detectedLanguage by viewModel.detectedLanguage.collectAsState()
-    val isAutoDetect by viewModel.isAutoDetectEnabled.collectAsState()
     val networkState by viewModel.networkState.collectAsState()
     val pipelineStage by viewModel.pipelineStage.collectAsState()
     val selectedLanguage by viewModel.selectedLanguage.collectAsState()

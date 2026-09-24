@@ -39,18 +39,6 @@
       "sizeMb": 1.8,
       "sampleRate": 16000,
       "latencyMs": "< 30ms"
-    },
-    "languageDetection": {
-      "model": "FastText Language ID (lid.176.ftz)",
-      "sizeMb": 0.9,
-      "autodetectWindowSeconds": 2.0,
-      "fallback": "Manual selection toggle supported"
-    },
-    "aiAssistant": {
-      "model": "Microsoft Phi-3 Mini 3.8B Q4",
-      "sizeMb": 2200,
-      "format": "GGUF / ONNX",
-      "license": "MIT Open Source"
     }
   },
   "radioAndNetwork": {
@@ -76,7 +64,6 @@
     { "id": "home", "title": "Home", "description": "Dashboard with node identity, brand mark, hero illustration, and architecture specs" },
     { "id": "transceiver", "title": "Radio Transceiver", "description": "P2P Host & Search toggles, nearby peer list, device authorization, and real-time speech log" },
     { "id": "radar", "title": "Mesh Radar", "description": "Real-time radar sweep canvas plotting nearby node distances by RSSI signal strength" },
-    { "id": "ai_assistant", "title": "AI Assistant", "description": "Offline Phi-3 Mini assistant with voice and text query support across Indic languages" },
     { "id": "downloads", "title": "Downloads", "description": "Centralized modular neural model package manager with progress tracking and disk storage management" }
   ]
 }

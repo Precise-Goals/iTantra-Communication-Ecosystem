@@ -168,7 +168,11 @@ fun ITantraApp() {
 
 /**
  * Custom Monochromatic White Bottom Navigation Bar with Emphasized Center Radio Button.
- * Order: 1. Home, 2. Radar, 3. Radio (Center Hero Raised Button), 4. Downloads, 5. Assistant
+ * Order: 1. Home, 2. Radar, 3. Radio (Center Hero Raised Button), 4. Downloads
+ *
+ * The bar keeps a five-slot geometry (2 | hero | 2) so the raised Radio button stays centred.
+ * With the AI Assistant tab removed, Downloads is the only item right of centre and spans both
+ * right-hand slots.
  */
 @Composable
 private fun ITantraExclusiveBottomNav(
@@ -181,7 +185,7 @@ private fun ITantraExclusiveBottomNav(
             .navigationBarsPadding(),
         contentAlignment = Alignment.BottomCenter
     ) {
-        // ── 1. Bottom Surface (Height 68dp, 5 equal flexbox slots) ───────
+        // ── 1. Bottom Surface (Height 68dp, 5-slot geometry; the last item spans 2 slots) ──
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
@@ -199,10 +203,14 @@ private fun ITantraExclusiveBottomNav(
             ) {
                 bottomNavItems.forEachIndexed { index, item ->
                     val isSelected = currentRoute == item.route
+                    // Two slots left of the hero button, two to its right. Items after the hero
+                    // share the right-hand two slots, so the hero stays at the exact centre.
+                    val rightItems = (bottomNavItems.size - 3).coerceAtLeast(1)
+                    val slotWeight = if (index > 2) 2f / rightItems else 1f
 
                     Box(
                         modifier = Modifier
-                            .weight(1f)
+                            .weight(slotWeight)
                             .height(68.dp),
                         contentAlignment = Alignment.Center
                     ) {
@@ -214,7 +222,7 @@ private fun ITantraExclusiveBottomNav(
                                     .clickable { onNavItemClick(item.route) }
                             )
                         } else {
-                            // Standard Slots (Home, Radar, Downloads, Assistant)
+                            // Standard Slots (Home, Radar, Downloads)
                             Column(
                                 modifier = Modifier
                                     .fillMaxSize()

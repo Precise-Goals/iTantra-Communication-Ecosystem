@@ -62,8 +62,6 @@
         <meta-data android:name="com.itantra.architecture.stt" android:value="AI4Bharat IndicConformer ONNX INT8" />
         <meta-data android:name="com.itantra.architecture.tts" android:value="AI4Bharat IndicTTS VITS ONNX" />
         <meta-data android:name="com.itantra.architecture.vad" android:value="Silero VAD v4" />
-        <meta-data android:name="com.itantra.architecture.lid" android:value="FastText Language ID lid.176" />
-        <meta-data android:name="com.itantra.architecture.ai" android:value="Phi-3 Mini 3.8B Q4 Quantized" />
         <meta-data android:name="com.itantra.network.primary" android:value="Wi-Fi Direct P2P (High-Throughput Mesh)" />
         <meta-data android:name="com.itantra.network.fallback" android:value="Bluetooth RFCOMM (Ultra-Low-Power)" />
         <meta-data android:name="com.itantra.target.ram" android:value="4GB+ RAM (Low/Mid-range smartphones)" />

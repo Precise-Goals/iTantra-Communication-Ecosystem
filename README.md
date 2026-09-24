@@ -16,9 +16,9 @@
 
 **iTantra** is an Android app for offline, AI-powered multilingual voice communication over ad-hoc **Wi-Fi Direct** and **Bluetooth Classic (RFCOMM)** mesh links — built for disaster zones, tactical field operations, and rural areas without GSM infrastructure.
 
-Instead of streaming raw audio, iTantra converts speech to text **on-device** using AI4Bharat's IndicConformer STT models, sends the transcript as a small Protobuf message (~50–300 bytes) over the mesh link, and re-synthesizes it as natural speech on the receiving device using real espeak‑ng‑phonemized VITS voices (via [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx)). A separate, fully offline **AI Tactical Assistant** (on-device Phi‑3‑mini via llama.cpp, with an always-available quick-reference mode) answers first-aid/disaster-protocol queries and can translate across languages.
+Instead of streaming raw audio, iTantra converts speech to text **on-device** using AI4Bharat's IndicConformer STT models, sends the transcript as a small Protobuf message (~50–300 bytes) over the mesh link, and re-synthesizes it as natural speech on the receiving device using real espeak‑ng‑phonemized VITS voices (via [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx)).
 
-**Internet is used exactly once** — for the initial one-time download of neural model files from Hugging Face / GitHub release CDNs. Every P2P communication, VAD/STT/TTS inference, and AI Assistant query afterwards is 100% on-device with zero network calls.
+**Internet is used exactly once** — for the initial one-time download of neural model files from Hugging Face / GitHub release CDNs. Every P2P communication and every VAD/STT/TTS inference afterwards is 100% on-device with zero network calls.
 
 ### Core capabilities
 
@@ -29,7 +29,6 @@ Instead of streaming raw audio, iTantra converts speech to text **on-device** us
 | On-device Speech-to-Text (AI4Bharat IndicConformer, sherpa-onnx INT8) | ✅ Real neural inference across **9 Indic languages** |
 | On-device Text-to-Speech (real espeak-ng-phonemized VITS voices) | ✅ Natural-sounding voices for Hindi, Gujarati, Malayalam, Bengali & English, with more languages in progress |
 | Voice Activity Detection | ✅ Real neural **Silero VAD** (v5+ export, pinned to release `v6.2.3`) with the required 64-sample inter-window context and release hysteresis — repaired after diagnosing a missing-context bug that had forced an energy-only fallback. A real RMS-energy detector remains as an automatic fallback if the model is missing or throws at runtime |
-| On-device AI Tactical Assistant (Phi-3 Mini via llama.cpp) | ✅ Real generative answers once the optional model is downloaded, with a built-in quick-reference mode so the assistant is never unavailable — the UI always shows which mode answered |
 | Model download / integrity pipeline | ✅ Resumable, SHA-256 verified downloads with automatic archive extraction |
 | Peer authorization whitelist | ✅ Room-persisted, survives app restarts |
 
@@ -97,7 +96,6 @@ Mic ─(muted while this phone plays audio) T63     Frame in ─ duplicate dropp
 | STT | AI4Bharat IndicConformer, sherpa-onnx ONNX INT8 export, per-language graph + `tokens.txt` | via `onnxruntime-android` 1.18.0 |
 | TTS | Real espeak-ng-phonemized VITS voices (Piper / Coqui / Mimic3) | via `sherpa-onnx-static-link-onnxruntime` AAR (v1.13.7) |
 | VAD | Silero VAD (v5+ export, pinned to GitHub release `v6.2.3`) ONNX, downloaded at runtime + RMS-energy fallback | Neural detection is the active default; energy fallback is automatic if the model is missing or fails at runtime |
-| AI Assistant LLM | Phi‑3‑mini‑4k‑instruct GGUF (q4), optional 2.39 GB download | via `llamacpp-kotlin` 0.4.0 (arm64-v8a + x86_64) |
 | Networking | `WifiP2pManager` (primary) + `BluetoothAdapter`/RFCOMM (fallback) | TCP port 8765 |
 | Wire format | Protocol Buffers v3, `protobuf-javalite` 3.25.3 | 4-byte big-endian length-prefixed frames |
 | Persistence | Room 2.8.4 (peer registry), DataStore Preferences 1.1.1 (device profile) | |
@@ -117,10 +115,6 @@ iTantra/
 │   ├── ITantraApp.kt                     # Application class — extracts bundled models async on first launch
 │   ├── MainActivity.kt                   # Single Activity; permission requests; bottom-nav Compose shell
 │   ├── core/
-│   │   ├── ai/
-│   │   │   ├── LanguageDetector.kt       # Fast Unicode-script + keyword language identifier
-│   │   │   ├── LlmModule.kt              # Real Phi-3/GGUF inference via llama.cpp; device-support gate; stop-sequence/token cap
-│   │   │   └── TacticalAiEngine.kt       # Reliable keyword-matching assistant, always available (9 languages)
 │   │   ├── audio/
 │   │   │   ├── AudioCaptureModule.kt     # AudioRecord capture, VAD-gated buffering, adaptive endpointing + per-phrase segment queue
 │   │   │   ├── VADModule.kt              # Neural Silero VAD (64-sample context, hysteresis), RMS-energy fallback
@@ -155,11 +149,11 @@ iTantra/
 │       ├── MainViewModel.kt              # Single state hub; binds to the foreground service
 │       ├── navigation/NavGraph.kt        # 6 routes
 │       ├── component/                    # ModelDownloadGate, OnboardingDialog
-│       ├── screen/                       # HomeScreen, TransceiverScreen, PeerSessionScreen, RadarScreen, AIAssistantScreen, DownloadsScreen
+│       ├── screen/                       # HomeScreen, TransceiverScreen, PeerSessionScreen, RadarScreen, DownloadsScreen
 │       └── theme/                        # Monochrome black/white theme, Poppins typography
 │   └── (vendored) com/k2fsa/sherpa/onnx/Tts.kt   # sherpa-onnx JNI wrapper, v1.13.7
 ├── app/src/main/proto/itantra.proto      # TransceiverMessage wire schema
-├── app/src/test/java/com/itantra/        # CtcDecoderUnitTest, DomainModelUnitTest, HashUtilsUnitTest, LlmModuleUnitTest
+├── app/src/test/java/com/itantra/        # CtcDecoderUnitTest, DomainModelUnitTest, HashUtilsUnitTest
 ├── model-export/                         # Historical Python export/quantization scripts from early model-bundling experiments
 ├── landing/                              # Vite+React scaffold for a future marketing site
 ├── PRD.md, team.md                       # Original design/sprint docs — historical reference
@@ -204,20 +198,13 @@ While PTT is held, each phrase is cut, transcribed, and transmitted independentl
 
 **Measured head start (Run 2, commit `bda505c`, warm models):** with the model-load stall removed, phrase 1 finished transcribing **4.39 s before** PTT release and phrase 2 **204 ms before** release — both positive, versus Run 1's **+235 ms / −140 ms** (phrase 2 finished *after* release) when the models were cold. Once warm, per-phrase STT ran at 0.26–0.29× real time in both runs' comparable rows — model warming doesn't change inference speed, only removes the one-time load from the hot path. The receiver's TTS voice load is now similarly warmed: `tts_ms` (received → first audio played) dropped from 2.3 s / 4.7 s (Run 1, cold) to 0.29 s / 0.27 s (Run 2, warm); a new `tts_synth_ms` column isolates synthesis-only time (256 ms / 230 ms) for the first time. Full before/after table, methodology, and an important caveat — **Run 2's receiver was a different physical device than Run 1's** (no OPPO CPH2721 available for that session), so receiver-side numbers are not a clean apples-to-apples hardware comparison — is in [`docs/latency-evidence/README.md`](docs/latency-evidence/README.md)'s "Run 2" section. That doc also has an earlier, larger head-start figure (1.2–5.0s) that was reported from a live test but never captured to a committed artifact, and should be treated as unverified.
 
-**Per-language walkie-talkie (T72):** a language chip picker on the Transceiver screen now drives both STT and TTS for PTT messages, not just the AI Assistant (previously every message was recognised and spoken in Hindi regardless of what was selected or spoken). Verified on real hardware for Tamil and Kannada STT. **A real gap this surfaced, not yet fixed:** the receiving device speaks incoming text using its own locally-selected TTS language, not the language the message was actually written in (`TransceiverMessage.srcLang`/`dstLang`, which the sender does set but `ITantraForegroundService.onTextReceived` does not read) — so a receiver that hasn't independently switched language mispronounces the text in its own voice rather than reporting "no voice available." See `docs/latency-evidence/README.md`'s "Run 2" section for the exact logs.
+**Per-language walkie-talkie (T72):** a language chip picker on the Transceiver screen now drives both STT and TTS for PTT messages (previously every message was recognised and spoken in Hindi regardless of what was selected or spoken). Verified on real hardware for Tamil and Kannada STT. **A real gap this surfaced, not yet fixed:** the receiving device speaks incoming text using its own locally-selected TTS language, not the language the message was actually written in (`TransceiverMessage.srcLang`/`dstLang`, which the sender does set but `ITantraForegroundService.onTextReceived` does not read) — so a receiver that hasn't independently switched language mispronounces the text in its own voice rather than reporting "no voice available." See `docs/latency-evidence/README.md`'s "Run 2" section for the exact logs.
 
 ---
 
-## 🤖 On-Device AI Assistant
+## 🤖 AI Assistant — removed
 
-The "AI Tactical Assistant" screen has **two complementary answer sources**, with the UI always disclosing which one is currently active:
-
-1. **Real LLM path** (`LlmModule`) — Microsoft **Phi-3-mini-4k-instruct**, GGUF q4 quantized, run via the `llamacpp-kotlin` bindings on supported devices (`arm64-v8a`/`x86_64`) once the optional ~2.39 GB model is downloaded. Context window 4096 tokens, generation bounded to **250 tokens max** with clean stop sequences for crisp, focused answers.
-2. **Always-available fallback** (`TacticalAiEngine`) — a fast, curated keyword-matching responder across 9 languages (first-aid/disaster-protocol phrases), so the assistant is useful immediately, even before the optional model is downloaded.
-
-**Language detection** (`LanguageDetector`) is a fast heuristic: it counts Unicode code points per Indic script block, disambiguates Hindi vs. Marathi via script-specific characters/keywords, and matches romanized ("Hinglish"-style) text for code-switch detection.
-
----
+An earlier build included an on-device AI chat assistant (Phi-3-mini via llama.cpp, plus a keyword fallback). It was removed because the problem statement does not ask for it, and it cost an optional 2.39 GB model download plus llama.cpp native libraries in every APK — both scored under Efficiency. The last commit that still contains it is tagged `assistant-last`.
 
 ## 📡 Networking & Mesh Transport
 
@@ -263,7 +250,7 @@ Clean separation between domain models, contracts, and infrastructure:
 - **`TransceiverMessage`** (domain wrapper) — message type, text, source/destination language, sender, timestamp, confidence, sequence, plus a UI-only `direction: SENT|RECEIVED` field.
 - **`DeviceProfile`** — device ID, display name, and a short human-readable callsign derived from the device fingerprint.
 - **`AppResult<T>`** — a sealed `Success`/`Error`/`Loading` wrapper used throughout for honest, explicit error propagation.
-- **`ModelPack`** — the full catalog of 23 downloadable model packs (STT/TTS/VAD/language-ID/AI Assistant); `coreTransceiverPacks()` returns the 17 packs that make up the compulsory Transceiver bundle.
+- **`ModelPack`** — the full catalog of 21 model packs (STT/TTS/VAD/phonemizer data, including placeholders for the five voices not yet available); `coreTransceiverPacks()` returns the 16 packs that make up the compulsory Transceiver bundle.
 
 **Persistence**: DataStore Preferences for the device profile, Room for the peer registry — peer authorization survives re-discovery and app restarts.
 
@@ -271,7 +258,7 @@ Clean separation between domain models, contracts, and infrastructure:
 
 ## 📦 Model Download & Integrity Pipeline
 
-Models are fetched at runtime by `ModelDownloadManager` into `context.filesDir/models/` (aside from small always-available assets extracted on first launch). The Downloads screen tracks **23 model packs**, of which **17 form the "compulsory" core Transceiver bundle**.
+Models are fetched at runtime by `ModelDownloadManager` into `context.filesDir/models/` (aside from small always-available assets extracted on first launch). The Downloads screen tracks **21 model packs**, of which **16 form the "compulsory" core Transceiver bundle**.
 
 **Flow:** `download(pack)` → OkHttp GET streamed in 32KB chunks to a `.part` file (resuming any already-good piece on retry) → SHA-256 verified against (1) a hash pinned in `ModelRegistry`, (2) HuggingFace's `X-Linked-ETag` header, correctly read from the redirect response, or (3) trust-on-first-download for sources with no published hash → on success, renamed to the final filename → archive bundles are extracted via `ArchiveExtractor` (tar.bz2, de-duplicating shared `espeak-ng-data/` copies) → `Downloaded`.
 
@@ -281,7 +268,6 @@ Concurrency is explicitly tuned (`maxRequests`/`maxRequestsPerHost` raised well 
 - STT: AI4Bharat IndicConformer (sherpa-onnx export), Hugging Face — 9 Indic languages.
 - TTS: `k2-fsa/sherpa-onnx` `tts-models` release — 5 languages (see table above).
 - VAD: Silero VAD ONNX, pinned to GitHub release tag `v6.2.3` (SHA-256 verified, not trust-on-first-download).
-- AI Assistant: `microsoft/Phi-3-mini-4k-instruct-gguf` on Hugging Face.
 
 ---
 
@@ -293,13 +279,12 @@ Concurrency is explicitly tuned (`maxRequests`/`maxRequestsPerHost` raised well 
 
 ## 🖥️ Screens
 
-Bottom navigation, left to right: **Home → Radar → Radio (Transceiver, center hero button) → Downloads → Assistant.** `PeerSessionScreen` is a 6th route, reached by tapping a connected peer.
+Bottom navigation, left to right: **Home → Radar → Radio (Transceiver, center hero button) → Downloads.** `PeerSessionScreen` is a 6th route, reached by tapping a connected peer.
 
 - **Home** — dashboard: node identity card (callsign, build ID), a "System Architecture" spec bento grid, and a profile-edit dialog. Also hosts the mandatory-callsign `OnboardingDialog`.
-- **Transceiver** — the real operational screen: Host Beacon / Search Peers toggles, live peer list (Wi-Fi Direct + Bluetooth, merged), giant hold-to-talk PTT button wired to the foreground service, live pipeline-stage and connection-status indicators, language auto-detect toggle. Gated behind `ModelDownloadGate` until the core model bundle is downloaded.
+- **Transceiver** — the real operational screen: Host Beacon / Search Peers toggles, live peer list (Wi-Fi Direct + Bluetooth, merged), giant hold-to-talk PTT button wired to the foreground service, live pipeline-stage and connection-status indicators, and the walkie-talkie language picker. Gated behind `ModelDownloadGate` until the core model bundle is downloaded.
 - **PeerSessionScreen** — a focused per-peer session view; deeper pipeline integration is in progress (see [Roadmap](#-roadmap)).
 - **Radar** — Canvas-drawn sweep visualizing peers by RSSI-derived distance.
-- **AI Assistant** — chat UI for the on-device assistant described above, with an STT input-language picker and per-message speak/stop controls.
 - **Downloads** — the model pack manager described above.
 
 ---
@@ -358,7 +343,7 @@ On Windows, `dev.ps1` / `dev.bat` provide a small developer CLI:
 ### First run
 1. Install and launch on two Android devices (API 26+).
 2. Complete the mandatory callsign onboarding dialog on each.
-3. Open **Downloads**, tap "Download the Pack" to fetch the **~2.18 GB core bundle** (all 9 STT languages + the 5 available TTS voices + VAD + language-ID data — see [`ModelRegistry.kt`](app/src/main/java/com/itantra/core/download/ModelRegistry.kt) for the per-pack sizes this is computed from). The optional 2.39 GB Phi-3 model is only needed for real LLM AI-Assistant replies.
+3. Open **Downloads**, tap "Download the Pack" to fetch the **~2.18 GB core bundle** (all 9 STT languages + the 5 available TTS voices + VAD + phonemizer data — see [`ModelRegistry.kt`](app/src/main/java/com/itantra/core/download/ModelRegistry.kt) for the per-pack sizes this is computed from).
 4. Open **Transceiver** on both devices; one taps "Host Beacon", the other "Search Peers" and connects.
 5. Hold the PTT button and speak — the transcribed text and synthesized reply appear/play on the other device.
 
@@ -373,7 +358,6 @@ Unit tests that exist today (`app/src/test/java/com/itantra/`):
 | `CtcDecoderUnitTest` | Greedy CTC decode merges repeats, drops blanks, token-vocab parsing |
 | `DomainModelUnitTest` | `IndicLanguage.fromCode()` mapping + unknown-code fallback to Hindi; `AlertTemplate` translations; `TransceiverMessage`/`PeerDevice` shapes |
 | `HashUtilsUnitTest` | SHA-256 header normalization (quotes, `sha256:` prefix, case), rejects malformed/weak ETags, case-insensitive hash comparison |
-| `LlmModuleUnitTest` | ABI gating — `arm64-v8a`/`x86_64` supported, `armeabi-v7a`-only devices correctly get no native LLM |
 
 Complemented by extensive real two-device hardware testing for end-to-end integration confidence.
 
@@ -385,7 +369,6 @@ The commit history documents genuine, iterative on-device engineering:
 
 - Delivered fully real, on-device STT inference with correct CTC decoding and normalization
 - Real TTS phonemization (sherpa-onnx), SHA-256-verified model integrity
-- Wired real on-device Phi-3 inference into the AI Assistant (llama.cpp), with a bounded, focused generation window
 - Wired the real PTT walkie-talkie transport end-to-end into the running app
 - Resolved a Wi-Fi Direct discovery conflict and tuned VAD for reliable real-world performance
 - Added a Bluetooth bonded-device picker and a real discovery + pairing flow
@@ -417,8 +400,6 @@ The commit history documents genuine, iterative on-device engineering:
 | sherpa-onnx / Piper / Coqui / Mimic3 voices | Apache 2.0 / MIT (voice-dependent) |
 | Silero VAD | MIT |
 | ONNX Runtime Mobile | MIT |
-| llama.cpp / `llamacpp-kotlin` | MIT |
-| Phi-3-mini-4k-instruct | MIT |
 | Protocol Buffers (javalite) | BSD-3-Clause |
 | Jetpack Compose, Room, DataStore, WorkManager | Apache 2.0 |
 | OkHttp | Apache 2.0 |
