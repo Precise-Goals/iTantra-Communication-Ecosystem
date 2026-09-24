@@ -325,11 +325,13 @@ class ITantraForegroundService : Service() {
             vadModule = vadModule,
             sttModule = sttModule,
             callbacks = audioCallbacks,
-            onSpeechReady = { audioBuffer, lang ->
+            onSpeechReady = { audioBuffer, lang, cutNs ->
                 val utt = Telemetry.begin(lang)
-                utt.captureEndNs = System.nanoTime()
+                // Speech ended when the phrase was cut, not when it left the queue (T71).
+                utt.captureEndNs = cutNs
                 utt.audioDurationMs = audioBuffer.size * 1000L / STTModule.SAMPLE_RATE
                 sttModule.ensureLoaded(lang)
+                utt.sttStartNs = System.nanoTime()
                 sttModule.currentUtterance = utt
                 sttModule.transcribe(audioBuffer, lang)
                 utt.inferDoneNs = System.nanoTime()

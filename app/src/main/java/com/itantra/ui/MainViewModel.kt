@@ -232,7 +232,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         vadModule = vadModule,
         sttModule = sttModule,
         callbacks = audioCallbacks,
-        onSpeechReady = { pcm, lang ->
+        onSpeechReady = { pcm, lang, _ ->
             sttModule.ensureLoaded(lang)
             val result = sttModule.transcribe(pcm, lang)
             if (result is AppResult.Success && result.data.isNotBlank()) {

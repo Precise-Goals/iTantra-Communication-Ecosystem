@@ -32,7 +32,8 @@ class AudioCaptureModule(
     private val vadModule: VADModule,
     private val sttModule: STTModule,
     private val callbacks: AudioCallbacks,
-    private val onSpeechReady: suspend (FloatArray, String) -> Unit
+    /** (audio, language, cutNs): cutNs is System.nanoTime() when the phrase was cut (T71). */
+    private val onSpeechReady: suspend (FloatArray, String, Long) -> Unit
 ) {
     companion object {
         private const val TAG = "AudioCapture"
@@ -51,7 +52,9 @@ class AudioCaptureModule(
     private class Segment(
         val audio: FloatArray,
         val language: String,
-        val done: kotlinx.coroutines.CompletableDeferred<Unit>? = null
+        val done: kotlinx.coroutines.CompletableDeferred<Unit>? = null,
+        /** When this phrase was cut (VAD pause or PTT release), not when it left the queue (T71). */
+        val cutNs: Long = System.nanoTime()
     )
 
     /**
@@ -67,7 +70,7 @@ class AudioCaptureModule(
         scope.launch {
             for (segment in segmentQueue) {
                 try {
-                    onSpeechReady(segment.audio, segment.language)
+                    onSpeechReady(segment.audio, segment.language, segment.cutNs)
                 } catch (e: Exception) {
                     Log.e(TAG, "segment processing failed: ${e.message}", e)
                 } finally {

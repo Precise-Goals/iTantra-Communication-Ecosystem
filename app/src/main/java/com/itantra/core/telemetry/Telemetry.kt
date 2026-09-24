@@ -33,6 +33,8 @@ object Telemetry {
         var lang: String = "",
         // ── send path ──
         var captureEndNs: Long = 0,
+        /** When STT processing actually started: after any queue wait and model load (T71). */
+        var sttStartNs: Long = 0,
         var featureDoneNs: Long = 0,
         var inferDoneNs: Long = 0,
         var txNs: Long = 0,
@@ -49,12 +51,20 @@ object Telemetry {
         /** Rubric metric 2, milliseconds. */
         val ttsLatencyMs: Double get() = ns(rxNs, firstAudioFrameNs)
         /** Feature extraction only, milliseconds. */
-        val featureMs: Double get() = ns(captureEndNs, featureDoneNs)
+        val featureMs: Double get() = ns(procStartNs, featureDoneNs)
+        /** Queue wait + model load before STT processing began, milliseconds (T71). */
+        val waitMs: Double get() = ns(captureEndNs, sttStartNs)
+        /** Receive -> synthesis finished, milliseconds. Excludes playback-queue wait, which
+         *  ttsLatencyMs includes (T71). */
+        val ttsSynthMs: Double get() = ns(rxNs, ttsDoneNs)
+        /** Start of processing: sttStartNs when recorded, else the older captureEndNs stamp. */
+        private val procStartNs: Long get() = if (sttStartNs != 0L) sttStartNs else captureEndNs
         /** ONNX session only, milliseconds. */
         val inferMs: Double get() = ns(featureDoneNs, inferDoneNs)
         /** Rubric metric 3. Below 1.0 means faster than real time. */
         val rtf: Double get() =
-            if (audioDurationMs <= 0) 0.0 else (sttLatencyMs / audioDurationMs)
+            // Processing time only: queue wait and model load are not the model's speed (T71).
+            if (audioDurationMs <= 0) 0.0 else (ns(procStartNs, inferDoneNs) / audioDurationMs)
 
         private fun ns(a: Long, b: Long): Double =
             if (a == 0L || b == 0L || b < a) 0.0 else (b - a) / 1_000_000.0
@@ -93,8 +103,8 @@ object Telemetry {
             recentRtf.addLast(u.rtf)
             while (recentRtf.size > 20) recentRtf.removeFirst()
         }
-        Log.d(TAG, "utt=${u.id} lang=${u.lang} rtf=%.3f stt=%.0fms feat=%.0fms infer=%.0fms tts=%.0fms"
-            .format(u.rtf, u.sttLatencyMs, u.featureMs, u.inferMs, u.ttsLatencyMs))
+        Log.d(TAG, "utt=${u.id} lang=${u.lang} rtf=%.3f stt=%.0fms wait=%.0fms feat=%.0fms infer=%.0fms tts=%.0fms synth=%.0fms"
+            .format(u.rtf, u.sttLatencyMs, u.waitMs, u.featureMs, u.inferMs, u.ttsLatencyMs, u.ttsSynthMs))
         appendCsv(context, u)
     }
 
@@ -102,13 +112,13 @@ object Telemetry {
         try {
             val f = File(context.filesDir, "telemetry.csv")
             if (!f.exists()) {
-                f.appendText("id,lang,audio_ms,chars,stt_ms,feature_ms,infer_ms,rtf,tts_ms,tts_audio_ms\n")
+                f.appendText("id,lang,audio_ms,chars,stt_ms,wait_ms,feature_ms,infer_ms,rtf,tts_ms,tts_synth_ms,tts_audio_ms\n")
             }
             f.appendText(
-                "%d,%s,%d,%d,%.1f,%.1f,%.1f,%.4f,%.1f,%d\n".format(
+                "%d,%s,%d,%d,%.1f,%.1f,%.1f,%.1f,%.4f,%.1f,%.1f,%d\n".format(
                     u.id, u.lang, u.audioDurationMs, u.charCount,
-                    u.sttLatencyMs, u.featureMs, u.inferMs, u.rtf,
-                    u.ttsLatencyMs, u.ttsAudioDurationMs
+                    u.sttLatencyMs, u.waitMs, u.featureMs, u.inferMs, u.rtf,
+                    u.ttsLatencyMs, u.ttsSynthMs, u.ttsAudioDurationMs
                 )
             )
         } catch (e: Exception) {
