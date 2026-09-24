@@ -2,7 +2,8 @@
 
 > Continues [`IMPLEMENTATION_SPEC.md`](IMPLEMENTATION_SPEC.md). **Read §0 of Part 1 first — the rules contract applies here unchanged.**
 > Covers the tasks Part 1 left unspecified. As of 2026-09-22 · PS-26173
-> **Revised 2026-09-23:** Group G adds T62–T69 from the second audit; T33 and T50 are amended. See [`IMPROVEMENT_PLAN.md` §10](IMPROVEMENT_PLAN.md#10-addendum--second-audit-2026-09-23).
+> **Revised 2026-09-23:** Group G adds T62–T69 from the second audit; T33 and T50 are amended.
+> **Revised 2026-09-24:** T45 rewritten after the first device measurements; T70–T72 added at the end of Group G. T62 and T65 are implemented on `feature/latency-pipeline`. See [`IMPROVEMENT_PLAN.md` §10](IMPROVEMENT_PLAN.md#10-addendum--second-audit-2026-09-23).
 
 ---
 
@@ -739,46 +740,95 @@ Do not add a punctuation-restoration neural model. It is the wrong trade against
 
 ---
 
-## T45 · Warm the models at service start
+## T45 · Warm the models at app start and on language change (revised 2026-09-24)
 
-**File:** `core/service/ITantraForegroundService.kt`
+**Files:** `core/audio/TTSModule.kt`, `core/service/ITantraForegroundService.kt`, `ui/MainViewModel.kt`
 **Criterion:** LAT
+**Depends on:** T70 (Step 1 uses its `ttsLock`). Check: `grep -n "ttsLock" app/src/main/java/com/itantra/core/audio/TTSModule.kt` must match.
 
-### ANCHOR
+### Why (measured)
 
-```kotlin
-        serviceScope.launch {
-            val vadOk = vadModule.initialize()
-            if (vadOk && connectionMode == ConnectionMode.PHONE_MODE) {
-                audioCaptureModule.startCapture()
-            }
-        }
-```
+`docs/latency-evidence/` shows `STT('hi') loaded in 2306ms` **during** the first PTT phrase. Phrase 1 could not be transcribed until the load finished, phrase 2 queued behind it, and the mid-hold head start was lost. Load the models before the user speaks.
 
-### REPLACEMENT
+> The first version of this task warmed the models inside the service's start-up `launch`, using the service's own language fields. That only ever warms Hindi: nothing changes those fields until T72. This revision adds a reusable `warmUp()` and calls it when the ViewModel binds to the service; T72 then calls it again whenever the language changes.
+
+### Step 1 — `core/audio/TTSModule.kt`: a warm-up that loads without synthesizing
+
+ANCHOR:
 
 ```kotlin
-        serviceScope.launch {
-            val vadOk = vadModule.initialize()
-            if (vadOk && connectionMode == ConnectionMode.PHONE_MODE) {
-                audioCaptureModule.startCapture()
-            }
-            // Load the configured pair off the critical path. Otherwise the first message of
-            // every session pays a ~197MB ONNX load plus a VITS voice load before it can start.
-            launch {
-                runCatching { sttModule.ensureLoaded(sttLanguage) }
-                    .onFailure { Log.w(TAG, "STT warmup failed: ${it.message}") }
-            }
-            launch {
-                runCatching { ttsModule.synthesize(" ", ttsLanguage) }
-                    .onFailure { Log.w(TAG, "TTS warmup failed: ${it.message}") }
-            }
-        }
+    fun getLoadedLanguages(): Set<String> = ttsCache.keys.toSet()
 ```
+
+REPLACEMENT:
+
+```kotlin
+    /**
+     * Load [languageCode]'s voice into the cache without synthesizing anything (T45), so the first
+     * received message does not pay the load. Returns false if there is no voice for it or its
+     * pack is not downloaded. Takes the same lock as synthesize() (T70).
+     */
+    suspend fun warmUp(languageCode: String): Boolean =
+        ttsLock.withLock { withContext(Dispatchers.Default) { getOrLoadTts(languageCode) != null } }
+
+    fun getLoadedLanguages(): Set<String> = ttsCache.keys.toSet()
+```
+
+### Step 2 — `core/service/ITantraForegroundService.kt`: a public `warmUp()`
+
+ANCHOR:
+
+```kotlin
+    fun unloadTTSLanguage(lang: String) = ttsModule.unloadLanguage(lang)
+```
+
+REPLACEMENT:
+
+```kotlin
+    fun unloadTTSLanguage(lang: String) = ttsModule.unloadLanguage(lang)
+
+    /**
+     * Load the STT model and TTS voice now, off the critical path (T45). Cheap to call again: both
+     * loads return at once when the model is already cached. A PTT phrase that arrives during the
+     * warm-up simply waits for the load via the STT lock, as it would have anyway.
+     */
+    fun warmUp(sttLang: String = sttLanguage, ttsLang: String = ttsLanguage) {
+        serviceScope.launch {
+            val t0 = System.nanoTime()
+            val sttOk = runCatching { sttModule.ensureLoaded(sttLang) }.getOrDefault(false)
+            val ttsOk = runCatching { ttsModule.warmUp(ttsLang) }.getOrDefault(false)
+            Log.d(TAG, "Warm-up stt=$sttLang:$sttOk tts=$ttsLang:$ttsOk in ${(System.nanoTime() - t0) / 1_000_000}ms")
+        }
+    }
+```
+
+### Step 3 — `ui/MainViewModel.kt`: warm up as soon as the service is bound
+
+ANCHOR (inside `onServiceConnected`):
+
+```kotlin
+                viewModelScope.launch { it.isBluetoothListening.collect { b -> _isBluetoothListening.value = b } }
+```
+
+REPLACEMENT:
+
+```kotlin
+                viewModelScope.launch { it.isBluetoothListening.collect { b -> _isBluetoothListening.value = b } }
+                it.warmUp()
+```
+
+T66 uses the same ANCHOR line and also keeps it. If T66 is already done, the line is followed by T66's `alertFlow` line — put `it.warmUp()` after that line instead.
+
+### VERIFY
+
+1. `./gradlew :app:compileDebugKotlin`
+2. Cold-start the app and wait ~5 s. `adb logcat -s iTantraService:* STTModule:*` shows `STT('hi') loaded in …` and then `Warm-up stt=hi:true tts=hi:true` **before** any PTT press.
+3. Hold PTT and speak two phrases with a pause: no `loaded in` line appears during the hold, and phrase 1's STT line follows its `Speech segment complete` line by well under a second.
 
 ### DO NOT
 
-Do not warm all ten languages. That is the RAM criterion pointing the other way. Warm only the configured pair.
+- Do not warm all ten languages. That is the RAM criterion pointing the other way. Warm only the selected language.
+- Do not call `synthesize(" ", …)` to warm TTS: it runs a real synthesis nobody hears and logs a synthesis-complete event for it. Use `warmUp()`.
 
 ---
 
@@ -2693,6 +2743,364 @@ Do not remove `isBluetoothFallbackActive`: it still controls whether the Bluetoo
 
 ---
 
+## T70 · Serialise `TTSModule` (the same fix T65 made to `STTModule`)
+
+**File:** `core/audio/TTSModule.kt`
+**Criterion:** EFF (RAM), LAT
+**Depends on:** nothing. Do it before T45.
+
+### Why
+
+`ITantraForegroundService.onTextReceived` starts a new coroutine for every received message, and each calls `ttsModule.synthesize()`. `TTSModule.ttsCache` is a plain `HashMap` and `getOrLoadTts()` has no lock. When two messages arrive while the voice is still loading, both miss the cache and both load the voice: double RAM, and the first instance is overwritten in the map and never released. The two calls can also run sherpa-onnx `generate()` on one instance at once. `docs/latency-evidence/receiver_logcat.txt` fits this (two syntheses finishing 92 ms apart after arriving 374 ms apart) but does not prove it — that capture has no `TTSModule` tag.
+
+Serialising synthesis costs nothing in practice: the playback queue (T38) already plays messages one at a time.
+
+### Step 1 — imports
+
+ANCHOR:
+
+```kotlin
+import kotlinx.coroutines.withContext
+```
+
+REPLACEMENT:
+
+```kotlin
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+```
+
+### Step 2 — the lock
+
+ANCHOR:
+
+```kotlin
+    private val ttsCache = mutableMapOf<String, OfflineTts>()
+```
+
+REPLACEMENT:
+
+```kotlin
+    private val ttsCache = mutableMapOf<String, OfflineTts>()
+
+    /** One synthesis or voice load at a time (T70). The cache is a plain HashMap, and two
+     *  messages arriving during a cold load would otherwise both load the same voice. */
+    private val ttsLock = kotlinx.coroutines.sync.Mutex()
+```
+
+### Step 3 — wrap `synthesize`
+
+ANCHOR:
+
+```kotlin
+    suspend fun synthesize(text: String, languageCode: String): SynthesisResult? =
+        withContext(Dispatchers.Default) {
+```
+
+REPLACEMENT:
+
+```kotlin
+    suspend fun synthesize(text: String, languageCode: String): SynthesisResult? =
+        ttsLock.withLock { synthesizeUnlocked(text, languageCode) }
+
+    private suspend fun synthesizeUnlocked(text: String, languageCode: String): SynthesisResult? =
+        withContext(Dispatchers.Default) {
+```
+
+The body is unchanged; `return@withContext` labels keep working. The KDoc stays above the public `synthesize`. `Mutex` is not re-entrant: nothing inside the body may call `synthesize` or `warmUp` (nothing does).
+
+### VERIFY
+
+1. `./gradlew :app:compileDebugKotlin`
+2. Cold-start the receiver. From the sender, send two short PTT messages within about half a second. `adb logcat -s TTSModule:*` on the receiver shows **one** `sherpa-onnx TTS loaded for 'hi'` line, not two. Both messages still play, in order.
+
+### DO NOT
+
+- Do not lock `unloadLanguage()` or `release()` in this task (they are not `suspend`). Note it in the PR if you think they need it.
+
+---
+
+## T71 · Make the telemetry stamps mean what the rubric asks
+
+**Files:** `core/telemetry/Telemetry.kt`, `core/audio/AudioCaptureModule.kt`, `core/service/ITantraForegroundService.kt`
+**Criterion:** LAT, DOC
+**Depends on:** T65 (the `Segment` class is its code).
+
+### Why
+
+Two stamps are in the wrong place today (found in the `docs/latency-evidence/` run):
+
+1. `captureEndNs` ("speech ended") is stamped in the service's `onSpeechReady` — which, since T65, runs when the queue **picks the phrase up**, not when the VAD cut it. So `stt_ms` leaves out queue wait: phrase 2 waited ~1.2 s behind phrase 1, and its `stt_ms` of 360 ms does not show that. The rubric's first metric is *words said → STT complete*, which must include it.
+2. `ensureLoaded()` runs after that stamp and before feature extraction, so a model load lands in `feature_ms`, `stt_ms` **and** `rtf`. Phrase 1's `feature_ms` of 2439 ms was 2306 ms of model load.
+
+Fix: stamp the cut time in `AudioCaptureModule`, add a stamp after the model is ready, and report the waiting (queue + load) as its own column. Also add a synthesis-only TTS column, because `tts_ms` includes waiting in the playback queue.
+
+### Step 1 — `core/telemetry/Telemetry.kt`
+
+**1a.** ANCHOR:
+
+```kotlin
+        var featureDoneNs: Long = 0,
+```
+
+REPLACEMENT:
+
+```kotlin
+        /** When STT processing actually started: after any queue wait and model load (T71). */
+        var sttStartNs: Long = 0,
+        var featureDoneNs: Long = 0,
+```
+
+**1b.** ANCHOR:
+
+```kotlin
+        /** Feature extraction only, milliseconds. */
+        val featureMs: Double get() = ns(captureEndNs, featureDoneNs)
+```
+
+REPLACEMENT:
+
+```kotlin
+        /** Feature extraction only, milliseconds. */
+        val featureMs: Double get() = ns(procStartNs, featureDoneNs)
+        /** Queue wait + model load before STT processing began, milliseconds (T71). */
+        val waitMs: Double get() = ns(captureEndNs, sttStartNs)
+        /** Receive -> synthesis finished, milliseconds. Excludes playback-queue wait, which
+         *  ttsLatencyMs includes (T71). */
+        val ttsSynthMs: Double get() = ns(rxNs, ttsDoneNs)
+        /** Start of processing: sttStartNs when recorded, else the older captureEndNs stamp. */
+        private val procStartNs: Long get() = if (sttStartNs != 0L) sttStartNs else captureEndNs
+```
+
+**1c.** ANCHOR:
+
+```kotlin
+            if (audioDurationMs <= 0) 0.0 else (sttLatencyMs / audioDurationMs)
+```
+
+REPLACEMENT:
+
+```kotlin
+            // Processing time only: queue wait and model load are not the model's speed (T71).
+            if (audioDurationMs <= 0) 0.0 else (ns(procStartNs, inferDoneNs) / audioDurationMs)
+```
+
+**1d.** CSV header. ANCHOR:
+
+```kotlin
+                f.appendText("id,lang,audio_ms,chars,stt_ms,feature_ms,infer_ms,rtf,tts_ms,tts_audio_ms\n")
+```
+
+REPLACEMENT:
+
+```kotlin
+                f.appendText("id,lang,audio_ms,chars,stt_ms,wait_ms,feature_ms,infer_ms,rtf,tts_ms,tts_synth_ms,tts_audio_ms\n")
+```
+
+**1e.** CSV row. ANCHOR:
+
+```kotlin
+                "%d,%s,%d,%d,%.1f,%.1f,%.1f,%.4f,%.1f,%d\n".format(
+                    u.id, u.lang, u.audioDurationMs, u.charCount,
+                    u.sttLatencyMs, u.featureMs, u.inferMs, u.rtf,
+                    u.ttsLatencyMs, u.ttsAudioDurationMs
+                )
+```
+
+REPLACEMENT:
+
+```kotlin
+                "%d,%s,%d,%d,%.1f,%.1f,%.1f,%.1f,%.4f,%.1f,%.1f,%d\n".format(
+                    u.id, u.lang, u.audioDurationMs, u.charCount,
+                    u.sttLatencyMs, u.waitMs, u.featureMs, u.inferMs, u.rtf,
+                    u.ttsLatencyMs, u.ttsSynthMs, u.ttsAudioDurationMs
+                )
+```
+
+**1f.** Log line. ANCHOR:
+
+```kotlin
+        Log.d(TAG, "utt=${u.id} lang=${u.lang} rtf=%.3f stt=%.0fms feat=%.0fms infer=%.0fms tts=%.0fms"
+            .format(u.rtf, u.sttLatencyMs, u.featureMs, u.inferMs, u.ttsLatencyMs))
+```
+
+REPLACEMENT:
+
+```kotlin
+        Log.d(TAG, "utt=${u.id} lang=${u.lang} rtf=%.3f stt=%.0fms wait=%.0fms feat=%.0fms infer=%.0fms tts=%.0fms synth=%.0fms"
+            .format(u.rtf, u.sttLatencyMs, u.waitMs, u.featureMs, u.inferMs, u.ttsLatencyMs, u.ttsSynthMs))
+```
+
+### Step 2 — `core/audio/AudioCaptureModule.kt`: carry the cut time
+
+**2a.** ANCHOR:
+
+```kotlin
+    private val onSpeechReady: suspend (FloatArray, String) -> Unit
+```
+
+REPLACEMENT:
+
+```kotlin
+    /** (audio, language, cutNs): cutNs is System.nanoTime() when the phrase was cut (T71). */
+    private val onSpeechReady: suspend (FloatArray, String, Long) -> Unit
+```
+
+**2b.** ANCHOR:
+
+```kotlin
+    private class Segment(
+        val audio: FloatArray,
+        val language: String,
+        val done: kotlinx.coroutines.CompletableDeferred<Unit>? = null
+    )
+```
+
+REPLACEMENT:
+
+```kotlin
+    private class Segment(
+        val audio: FloatArray,
+        val language: String,
+        val done: kotlinx.coroutines.CompletableDeferred<Unit>? = null,
+        /** When this phrase was cut (VAD pause or PTT release), not when it left the queue (T71). */
+        val cutNs: Long = System.nanoTime()
+    )
+```
+
+The default value is correct for both producers: the capture loop builds the `Segment` right at the cut, and `submitAndAwait` builds it right at PTT release.
+
+**2c.** ANCHOR:
+
+```kotlin
+                    onSpeechReady(segment.audio, segment.language)
+```
+
+REPLACEMENT:
+
+```kotlin
+                    onSpeechReady(segment.audio, segment.language, segment.cutNs)
+```
+
+### Step 3 — `core/service/ITantraForegroundService.kt`
+
+ANCHOR:
+
+```kotlin
+            onSpeechReady = { audioBuffer, lang ->
+                val utt = Telemetry.begin(lang)
+                utt.captureEndNs = System.nanoTime()
+                utt.audioDurationMs = audioBuffer.size * 1000L / STTModule.SAMPLE_RATE
+                sttModule.ensureLoaded(lang)
+                sttModule.currentUtterance = utt
+```
+
+REPLACEMENT:
+
+```kotlin
+            onSpeechReady = { audioBuffer, lang, cutNs ->
+                val utt = Telemetry.begin(lang)
+                // Speech ended when the phrase was cut, not when it left the queue (T71).
+                utt.captureEndNs = cutNs
+                utt.audioDurationMs = audioBuffer.size * 1000L / STTModule.SAMPLE_RATE
+                sttModule.ensureLoaded(lang)
+                utt.sttStartNs = System.nanoTime()
+                sttModule.currentUtterance = utt
+```
+
+### VERIFY
+
+1. `./gradlew :app:compileDebugKotlin` and `./gradlew :app:testDebugUnitTest`
+2. **Delete the old CSV first** — its header has fewer columns: `adb shell run-as com.itantra.debug rm files/telemetry.csv`
+3. Two-phone run as in `docs/latency-evidence/`. The sender CSV has the new header; for a phrase queued behind another, `wait_ms` is large and `feature_ms` small; `rtf` stays around 0.2–0.3 even on the first phrase. The receiver's `tts_synth_ms` is less than or equal to `tts_ms`.
+
+### DO NOT
+
+- Do not change `sttLatencyMs` itself — it is correctly `captureEndNs → inferDoneNs`; only the stamps feeding it move.
+- Do not add parameters to `AudioCallbacks` (frozen). `onSpeechReady` is a constructor lambda, not a contract, so changing it is allowed.
+
+---
+
+## T72 🎨 · Let the user choose the walkie-talkie's language
+
+**Files:** `ui/MainViewModel.kt`, `ui/screen/TransceiverScreen.kt`
+**Criterion:** REQ — ten languages must be demonstrable on the walkie-talkie itself.
+**Depends on:** T45 (uses `warmUp`).
+
+### Why
+
+`ITantraForegroundService.sttLanguage` and `ttsLanguage` start as `"hi"`, and **nothing calls `setSTTLanguage()` or `setTTSLanguage()`** (`grep -rn "setSTTLanguage\|setTTSLanguage" app/src/main/java/com/itantra/ui` returns nothing). The only language picker is on the AI Assistant screen: it calls `MainViewModel.setManualLanguage()`, which updates `_selectedLanguage` for the assistant only. So every PTT message is recognised by the Hindi model and spoken with the Hindi voice, whatever language is spoken. The Transceiver screen's "Auto" pill toggles a flag that the transceiver never reads (`IMPROVEMENT_PLAN.md` §7.3).
+
+Decision recorded here: **one app-wide language.** The same selection drives the assistant and the walkie-talkie.
+
+### Step 1 — `ui/MainViewModel.kt`: push the selection to the service
+
+ANCHOR:
+
+```kotlin
+    fun setManualLanguage(bcp47Code: String) {
+        _selectedLanguage.value = bcp47Code
+        if (!_isAutoDetectEnabled.value) {
+            _detectedLanguage.value = bcp47Code
+        }
+    }
+```
+
+REPLACEMENT:
+
+```kotlin
+    fun setManualLanguage(bcp47Code: String) {
+        _selectedLanguage.value = bcp47Code
+        if (!_isAutoDetectEnabled.value) {
+            _detectedLanguage.value = bcp47Code
+        }
+        // The walkie-talkie previously ignored this and always used Hindi (T72).
+        foregroundService?.let {
+            it.setSTTLanguage(bcp47Code)
+            it.setTTSLanguage(bcp47Code)
+            it.warmUp(bcp47Code, bcp47Code)
+        }
+    }
+```
+
+### Step 2 — `ui/MainViewModel.kt`: sync when the service binds
+
+ANCHOR (added by T45 Step 3; 16 spaces of indentation):
+
+```kotlin
+                it.warmUp()
+```
+
+REPLACEMENT:
+
+```kotlin
+                // Push the current selection before warming, so the right model is loaded (T72).
+                it.setSTTLanguage(_selectedLanguage.value)
+                it.setTTSLanguage(_selectedLanguage.value)
+                it.warmUp()
+```
+
+### Step 3 — UI 🎨 (`ui/screen/TransceiverScreen.kt`)
+
+- Collect `viewModel.selectedLanguage`.
+- Add a row of language chips **copied from the AI Assistant picker** (`AIAssistantScreen.kt`: the `LazyRow` over `STT_LANGUAGES`, same `Box` styling, `.clickable { viewModel.setManualLanguage(code) }`). `STT_LANGUAGES` is `private` in that file: move it to a shared place (for example a top-level `val` in a new `ui/component/Languages.kt`) and import it in both screens. Do not duplicate the list. When T64 adds Odia STT, add `"or" to "ଓଡ଼ିଆ"` there once.
+- Replace the existing "Auto" pill's behaviour: its `clickable` should no longer call `setAutoDetect`, and its label should show the selected language (the `nativeName` of `IndicLanguage.fromCode(selectedLanguage)`). The transceiver has no working auto-detect; do not show one.
+- Disable the chips while PTT is held (switching model mid-hold would transcribe half a phrase with the wrong model).
+
+### VERIFY
+
+1. `./gradlew :app:compileDebugKotlin`
+2. Pick Tamil on the Transceiver screen. Logcat shows `STT('ta') loaded` and `Warm-up stt=ta:true …`. Hold PTT and speak Tamil: `STT inference: '<Tamil text>' … [ta]`.
+3. Kill and restart the app: the transceiver uses the selection again. (It resets to Hindi if the ViewModel's default is used; persisting the choice is optional polish, not part of this task.)
+4. Languages without a TTS voice yet (Marathi, Kannada, Tamil, Telugu until T17b) will transcribe and send, but the receiver reports a real "TTS not available" error instead of speaking. That is expected and honest.
+
+### DO NOT
+
+- Do not implement audio language detection here; that is a separate, larger task.
+- Do not let two different languages be selected for the assistant and the transceiver in this task.
+
+---
+
 # Group F — Dossier (T56–T61)
 
 Not code. Commands and procedure.
@@ -2734,7 +3142,8 @@ Before/after table from the week-0 and week-6 CSVs; rehearsed two-device demo; d
 | D — bundle/UI | T20, T21 🎨, T22 | Specced |
 | E — deferred | T23, T29, T30, T48, T49, T50 | Specced as procedures 🔬 |
 | F — dossier | T56–T61 | Commands given |
-| G — second audit | T62 🔬, T63, T64 🔬, T65, T66 🎨, T67 🎨, T68, T69 | Specced, anchors verified against committed code and working tree on 2026-09-23 |
+| G — second audit | T62 🔬, T63, T64 🔬, T65, T66 🎨, T67 🎨, T68, T69 | Specced, anchors verified against committed code and working tree on 2026-09-23. T62, T65 done |
+| G — after first device run | T70, T71, T72 🎨; T45 revised | Anchors verified against `feature/latency-pipeline` @ `e57fb7d` on 2026-09-24 |
 | Judgement only | T01, T03, T04, T16, T25–T28, T36, T54 | Trivial, or covered inline in Part 1 |
 | Superseded | T19 → T64; T55 → merged into T64 Step 6 | — |
 

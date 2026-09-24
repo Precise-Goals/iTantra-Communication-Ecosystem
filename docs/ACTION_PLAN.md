@@ -1,6 +1,8 @@
 # iTantra — Action Plan to Compete for a Top-5 Placement
 
 > Smart India Hackathon 2026 · Problem Statement PS-26173
+> **Status 2026-09-24:** week-1 work plus T41, T38, T65 and T62 are committed on `feature/latency-pipeline`; next are T70 → T45 → T72 → T71 (see [`TASKS.md`](TASKS.md) "Do these next"). T72 matters most: the walkie-talkie is currently Hindi-only.
+>
 > As of 2026-09-22 · **Revised 2026-09-23** after a second audit — see [`IMPROVEMENT_PLAN.md` §10](IMPROVEMENT_PLAN.md#10-addendum--second-audit-2026-09-23)
 >
 > **Assumption:** ~6 working weeks and two people (Gaurav on engine, Sarthak on shell). If the real window is shorter, cut from the bottom of §7 — the order is already by value.

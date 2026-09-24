@@ -10,26 +10,47 @@
 
 ## Progress
 
-| Week | Theme | Tasks | Done | 🟡 In working tree |
+| Week | Theme | Tasks | Done | 🟡 Partial |
 | --- | --- | --- | --- | --- |
 | 0 | Stop work / clear the decks | 4 | 0 / 4 | — |
-| 1 | Make it fast, make it measurable | 12 | 0 / 12 | 9 (T05–T10, T12–T14; T11 partial) |
+| 1 | Make it fast, make it measurable | 12 | 9 / 12 | T11 |
 | 2 | Close the language gap | 7 | 0 / 7 | — |
-| 3 | Accuracy — the 40% week | 15 | 0 / 15 | 2 (T25, T27; T26, T28 partial) |
-| 4 | PS compliance + remaining latency | 16 | 0 / 16 | — |
+| 3 | Accuracy — the 40% week | 15 | 3 / 15 | T26, T28 |
+| 4 | PS compliance + remaining latency | 19 | 3 / 19 | T39 |
 | 5 | Quality and headroom | 8 | 0 / 8 | — |
 | 6 | The dossier | 6 | 0 / 6 | — |
-| — | **Total** | **70** (T19, T55 superseded) | **0 / 70** | |
+| — | **Total** | **73** (T19, T55 superseded) | **15 / 73** | |
 
 ### Status key
 
-- `[ ]` not started · `[x]` done **and committed and measured**
-- 🟡 **implemented in the uncommitted working tree** of `docs/comprehensive-documentation` (as of 2026-09-23), not yet committed or measured on a device. For these, the job is: review the diff, commit it under the task ID, then run the task's "Done when" check. Do **not** re-implement them.
-- ⚠️ corrected or superseded on 2026-09-23 — read the note before starting.
+- `[ ]` not started · `[x]` done and committed — on branch **`feature/latency-pipeline`** until that branch is merged to `main`
+- 🟡 partly done — the note on the task says which part remains
+- ⚠️ corrected or superseded — read the note before starting
 
-### The first thing to do
+### Status as of 2026-09-24
 
-Commit the 🟡 work (one commit per task ID where the diff allows it), build, install on the T03 phone, and take the T16 baseline. Until then the RTF fix is a desktop benchmark, not a measurement.
+Committed on `feature/latency-pipeline` and checked in review:
+
+| Commit | Tasks |
+| --- | --- |
+| `2c181fe` | T05–T10, T12–T14, T25, T27 (and the done parts of T11, T26, T28) |
+| `c60c609` | T41 adaptive endpointing |
+| `5c3ea07` | T38 playback queue (and the focus-hardening part of T39) |
+| `9c5c7e4` | T65 phrase-level pipelining |
+| `ccdb9a4` | T62 Silero VAD repair — verified in `model-export/check_silero_results.txt` and on two phones |
+| `e57fb7d` | First two-phone latency evidence, in `docs/latency-evidence/` |
+
+**Measured so far** (from `docs/latency-evidence/`): warm STT runs at **0.20–0.26× real time**; phrases are cut mid-hold from real speech by the neural VAD; received phrases play in order without overlap.
+
+### Do these next, in this order
+
+Ordered by dependency (T45 needs T70's lock; T72 needs T45's `warmUp()`):
+
+1. **T70** — lock `TTSModule`; likely double-load of the TTS voice under two quick messages. (1 h)
+2. **T45** (revised) — the first phrase of a session waits 2.3 s for the STT model to load, which erased the mid-hold head start in the evidence run. (3 h)
+3. **T72** — the walkie-talkie is hard-wired to Hindi; no screen changes its language. Without this, 8 of the 9 installed languages cannot be demonstrated. **Most important of the four.** (0.5 d)
+4. **T71** — fix the telemetry stamps so the latency numbers mean what the rubric asks. (2 h)
+5. Re-run the two-phone evidence test (`docs/latency-evidence/README.md` → "Next capture").
 
 > **Code-level specs** for the most error-prone tasks — exact before/after text, verify commands and explicit guardrails — are in [`IMPLEMENTATION_SPEC.md`](IMPLEMENTATION_SPEC.md). Hand that file to any agent doing the edits.
 
@@ -63,29 +84,29 @@ Nothing after this week can be evaluated until this week lands.
 
 ### The FFT fix
 
-- [ ] 🟡 **T05 · Replace the naive DFT with a radix-2 FFT-512** — *G · LAT/EFF · 1d*
+- [x] **T05 · Replace the naive DFT with a radix-2 FFT-512** — *G · LAT/EFF · 1d*
   `core/audio/STTModule.kt` → `computePowerSpectrum()`. Currently O(N²) with `sin`/`cos` in the inner loop: 47.9M transcendental calls per utterance. Zero-pad the 400-sample window to 512.
   **Done when:** measured feature-extraction time drops ≥ 20× on a 3 s utterance.
 
-- [ ] 🟡 **T06 · Precompute the mel filterbank once** — *G · LAT/EFF · 3h*
+- [x] **T06 · Precompute the mel filterbank once** — *G · LAT/EFF · 3h*
   `STTModule.applyMelFilterbank()` rebuilds 82 `pow()`/`log10()` calls + 80×201 weights every frame. Build a sparse `(startBin, endBin, weights[])` table at init.
   **Done when:** no transcendental calls remain in the per-frame path.
 
-- [ ] 🟡 **T07 · Pool the frame buffer** — *G · EFF · 1h*
+- [x] **T07 · Pool the frame buffer** — *G · EFF · 1h*
   `STTModule.extractLogMelSpectrogram()` — `copyOfRange` allocates a fresh `FloatArray(400)` per frame.
   **Done when:** one reused buffer; allocation count per utterance is constant.
 
 ### Instrumentation
 
-- [ ] 🟡 **T08 · Stamp the send path** — *G · LAT · 4h*
+- [x] **T08 · Stamp the send path** — *G · LAT · 4h*
   `captureEndNs`, `featureDoneNs`, `inferDoneNs`, `txNs` through `AudioCaptureModule` → `STTModule` → `ITantraForegroundService`.
   **Done when:** speech-end → STT-complete is a real logged number.
 
-- [ ] 🟡 **T09 · Stamp the receive path** — *G · LAT · 4h*
+- [x] **T09 · Stamp the receive path** — *G · LAT · 4h*
   `rxNs`, `ttsDoneNs`, `firstAudioFrameNs`. Take `firstAudioFrameNs` immediately before the first `AudioTrack.write()`, not after synthesis — the rubric asks when audio *played*.
   **Done when:** text-received → first-audio is a real logged number.
 
-- [ ] 🟡 **T10 · Compute and log RTF per utterance** — *G · LAT · 2h*
+- [x] **T10 · Compute and log RTF per utterance** — *G · LAT · 2h*
   `inference_wall_time / audio_duration`, reported separately for feature extraction and the ONNX session so T05's effect is visible.
   **Done when:** RTF appears per utterance in logcat and in the UI as a rolling median.
 
@@ -94,17 +115,17 @@ Nothing after this week can be evaluated until this week lands.
   **Done when:** the two-device delta is measurable without external timing gear.
   🟡 *Partial:* the offset (`Telemetry.peerClockOffsetMs = latency / 2`) is recorded in the working tree; nothing yet computes `firstAudioFrame(B) − speechEnd(A)`.
 
-- [ ] 🟡 **T12 · CSV export of all metrics** — *G · DOC · 3h*
+- [x] **T12 · CSV export of all metrics** — *G · DOC · 3h*
   One row per utterance to `filesDir`, pullable via adb.
   **Done when:** a CSV with real rows can be opened in a spreadsheet.
 
 ### Size and audio quality
 
-- [ ] 🟡 **T13 · Delete `resampleTo16k`, play at native 22050 Hz** — *G · ACC · 1h*
+- [x] **T13 · Delete `resampleTo16k`, play at native 22050 Hz** — *G · ACC · 1h*
   `core/audio/TTSModule.kt` + `AudioPlaybackManager.kt`. Linear interpolation with no anti-alias filter is aliasing every voice for no benefit.
   **Done when:** `AudioTrack` is built at `audio.sampleRate`; the resampler is gone.
 
-- [ ] 🟡 **T14 · ABI split to arm64-v8a** — *S · EFF · 2h*
+- [x] **T14 · ABI split to arm64-v8a** — *S · EFF · 2h*
   `app/build.gradle.kts` — currently a universal APK carrying `arm64-v8a`, `armeabi-v7a`, `x86_64`.
   **Done when:** judged APK is arm64-only.
 
@@ -172,14 +193,14 @@ Treat this as the most important week in the plan.
 - [ ] **T24 · Add preemphasis** — *G · ACC · 1h*
   `x[i] − 0.97·x[i−1]`, absent today. Likely the largest remaining WER term.
 
-- [ ] 🟡 **T25 · Slaney mel normalization** — *G · ACC · 2h*
+- [x] **T25 · Slaney mel normalization** — *G · ACC · 2h*
   Area-normalize the filters; currently raw triangles, so wide high-frequency bands run hot.
 
 - [ ] 🟡 **T26 · n_fft = 512 with `center=True`** — *G · ACC · 2h*
   Currently 400-point and uncentred — wrong bin resolution and a half-window frame offset. Folds into T05.
   🟡 *Partial:* n_fft 512 is done in the working tree; `center=True` is not.
 
-- [ ] 🟡 **T27 · Periodic Hann window** — *G · ACC · 30m*
+- [x] **T27 · Periodic Hann window** — *G · ACC · 30m*
   Currently symmetric (`/(N−1)`); torch uses periodic (`/N`).
 
 - [ ] 🟡 **T28 · Log guard and unbiased std** — *G · ACC · 30m*
@@ -198,7 +219,7 @@ Treat this as the most important week in the plan.
 
 ### Fix the front of the pipeline
 
-- [ ] **T62 · Repair the Silero VAD and make it primary** — *G · ACC/EFF · 1d* 🔬
+- [x] **T62 · Repair the Silero VAD and make it primary** — *G · ACC/EFF · 1d* 🔬
   It was disabled after returning ~0 for silence, a sine wave and noise — the correct output for non-speech; it was never tested on speech. The downloaded file is v5+, which needs a 64-sample context prefix that `process()` omits. Prove it in Python on recorded speech first, then add the context, hysteresis, and pin the model to a release tag.
   **Done when:** logcat shows `backend: NEURAL`, speech is detected in quiet and noise, noise alone is not. Spec: `IMPLEMENTATION_SPEC_2.md` T62.
 
@@ -242,13 +263,14 @@ Treat this as the most important week in the plan.
   Bluetooth is used only if *this* phone started the Bluetooth server, so a phone connected as the Bluetooth client sends over TCP to nobody (Bluetooth works in one direction unless both phones have Host Beacon on). Send on every transport with a peer; drop the duplicate on receive.
   **Done when:** B (beacon off) connected to A over Bluetooth can send to A. Spec: `IMPLEMENTATION_SPEC_2.md` T69.
 
-- [ ] **T38 · Single-consumer playback queue** — *G · REQ · 4h*
+- [x] **T38 · Single-consumer playback queue** — *G · REQ · 4h*
   `AudioPlaybackManager.play()` builds a new `AudioTrack` per call with no mutex; concurrent messages overlap and garble.
   **Done when:** messages play strictly in sequence.
 
-- [ ] **T39 · ALERT pre-emption** — *G · REQ · 3h*
+- [ ] 🟡 **T39 · ALERT pre-emption** — *G · REQ · 3h*
   An ALERT jumps the queue head and cannot be ducked. Add `setWillPauseWhenDucked(false)` and `setAcceptsDelayedFocusGain`.
   **Done when:** an alert interrupts a playing voice note at max volume.
+  🟡 *Partial:* `setWillPauseWhenDucked(false)` is in (`5c3ea07`). Pre-emption is not: an ALERT still waits behind queued messages.
 
 - [ ] **T66 · SOS: send and show alerts** — *S+G · REQ · 1d* 🎨
   Nothing in `ui/` calls `broadcastAlert()`, and nothing collects `alertFlow`, so alerts can be neither sent nor seen. Add preset-alert and "next message is an ALERT" controls, and a full-screen receiver dialog. Depends on T69.
@@ -261,13 +283,13 @@ Treat this as the most important week in the plan.
 - [ ] **T40 · Streaming TTS on sentence boundaries** — *G · LAT · 1d*
   Split text on sentence/clause boundaries; play chunk 1 while chunk 2 synthesizes.
 
-- [ ] **T41 · Adaptive endpointing** — *G · LAT · 4h*
+- [x] **T41 · Adaptive endpointing** — *G · LAT · 4h*
   Replace the fixed `SILENCE_DURATION_MS = 800` floor with 400–600 ms on a confident endpoint.
 
 - [ ] **T42 · Sentence formation after pauses** — *G · REQ · 4h*
   The PS asks the STT module to *"form the sentences detected"*. Add punctuation/segmentation rather than emitting one flat string.
 
-- [ ] **T65 · Phrase-level pipelining while PTT is held** — *G · LAT/REQ · 1d*
+- [x] **T65 · Phrase-level pipelining while PTT is held** — *G · LAT/REQ · 1d*
   Mid-hold phrases are already cut at 800 ms, but STT runs *inside* the capture loop (the microphone stops being read during inference) and can run concurrently with the release flush (corrupting the shared FFT buffers). Add an inference lock, a single segment queue, and a 400 ms cut while PTT is held. Depends on T41 and, on the receiver, T38.
   **Done when:** phone B starts speaking phrase 1 while phone A is still holding PTT. Spec: `IMPLEMENTATION_SPEC_2.md` T65.
 
@@ -278,8 +300,22 @@ Treat this as the most important week in the plan.
 - [ ] **T44 · Softmax the confidence score** — *G · ACC · 1h*
   `STTModule.estimateConfidence()` averages raw **logits** and clamps to [0,1] — meaningless, and it goes on the wire.
 
-- [ ] **T45 · Warm the language pair at service start** — *G · LAT · 3h*
+- [ ] ⚠️ **T45 · Warm the models at service start and on language change** — *G · LAT · 3h*
   Both STT (~197 MB) and TTS (~70 MB) lazy-load on first use; the first message of every session pays it.
+  **Measured 2026-09-24:** `STT('hi') loaded in 2306ms` on the first phrase — this alone erased the mid-hold head start in `docs/latency-evidence/`. Spec revised to also warm when the language changes (via T72).
+  **Done when:** the first phrase after app start or a language change shows no `loaded in` line during PTT. Spec: `IMPLEMENTATION_SPEC_2.md` T45.
+
+- [ ] **T70 · Lock `TTSModule` like `STTModule`** — *G · EFF/LAT · 1h*
+  Each received message synthesizes on its own coroutine, and `TTSModule`'s cache is an unsynchronised map, so two quick messages can load the same voice twice (extra RAM, one instance never released) and call sherpa-onnx concurrently. Suspected from the evidence logs, not confirmed.
+  **Done when:** two messages 300 ms apart log exactly one `sherpa-onnx TTS loaded`. Spec: `IMPLEMENTATION_SPEC_2.md` T70.
+
+- [ ] **T71 · Make the telemetry stamps mean what the rubric asks** — *G · LAT/DOC · 2h*
+  Today "capture ended" is stamped after the phrase leaves the queue and before the model load, so `stt_ms` omits queue wait but includes model load. Stamp the VAD cut time, record model-load/queue time as its own column, compute RTF from processing only, and add a synthesis-only TTS column.
+  **Done when:** the CSV has `wait_ms` and `tts_synth_ms` columns and `stt_ms` starts at the VAD cut. Spec: `IMPLEMENTATION_SPEC_2.md` T71.
+
+- [ ] **T72 · Let the user choose the walkie-talkie's language** — *S+G · REQ · 0.5d* 🎨
+  `sttLanguage`/`ttsLanguage` in the service default to `"hi"` and nothing ever calls `setSTTLanguage()`/`setTTSLanguage()`. The only language picker is on the AI Assistant screen and it does not reach the transceiver. So every PTT message is recognised as Hindi and spoken with the Hindi voice.
+  **Done when:** picking Tamil on the Transceiver screen makes the next PTT message decode with `STT('ta')`. Spec: `IMPLEMENTATION_SPEC_2.md` T72.
 
 - [ ] **T46 · LRU model cache** — *G · EFF · 4h*
   `STTModule.sessionCache` and `TTSModule.ttsCache` are never evicted. Cap at 1–2 with `release()` on eviction.
@@ -371,7 +407,7 @@ flowchart LR
   T56 --> T59["T59 deck"]
 ```
 
-**Cannot be cut:** T05, T10, T13, T14, T16, T17, T18, T23–T30, T37, T38, **T43, T62 or T32, T63, T64, T66, T67, T69**, T56, T57, T59.
+**Cannot be cut:** T05, T10, T13, T14, T16, T17, T18, T23–T30, T37, T38, **T43, T45, T62 or T32, T63, T64, T66, T67, T69, T72**, T56, T57, T59.
 
 ### Not a task: translation
 

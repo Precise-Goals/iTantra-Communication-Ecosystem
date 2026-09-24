@@ -464,6 +464,16 @@ Consequences:
 
 T43 (and §7.1) fixes the receiver ignoring the wire's language by switching to `message.dstLang`. But the sender fills `dstLang` from **its own** TTS setting, and no translation exists (§10.12). The text is always in the language that was spoken — `srcLang`. Whenever a sender's STT and TTS settings differ, `dstLang` voicing reproduces the Devanagari-into-a-Malayalam-voice bug. The spec now uses `message.srcLang` and reports a real error if that language has no voice yet — never a different language's voice.
 
+### 10.14 First implementation round — what the device run showed (2026-09-24)
+
+T05–T14, T41, T38, T65 and T62 are committed on `feature/latency-pipeline` and reviewed. `docs/latency-evidence/` holds the first two-phone capture. What it established:
+
+- **Measured:** warm STT at 0.20–0.26× real time; neural VAD cutting phrases from real speech while PTT is held; received phrases playing strictly in order.
+- **The mid-hold head start was lost to a lazy model load**, not to user behaviour: `STT('hi') loaded in 2306ms` happened during the first phrase. T45 is revised to warm models when the app binds and when the language changes.
+- **The telemetry mislabels two things:** model load lands in `feature_ms`, `stt_ms` and `rtf`; and since T65, queue wait is missing from `stt_ms`. The receiver's `tts_ms` includes playback-queue wait (phrase 2's 4.7 s was waiting for phrase 1's audio to finish). Fixed by T71.
+- **The walkie-talkie only ever runs Hindi.** Nothing calls `setSTTLanguage()`/`setTTSLanguage()`; the only picker is on the AI Assistant screen. A PS requirement (ten languages) cannot be shown until T72.
+- **Likely concurrency bug in `TTSModule`** — no lock around an unsynchronised model cache. T70.
+
 ### 10.10 Revised top of the work order
 
 Items 1–4 below slot in ahead of §8's list; the rest of §8 is unchanged.
