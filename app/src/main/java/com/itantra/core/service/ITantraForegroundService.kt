@@ -571,9 +571,11 @@ class ITantraForegroundService : Service() {
         serviceScope.launch {
             while (true) {
                 kotlinx.coroutines.delay(5000)
-                val runtime = Runtime.getRuntime()
-                val usedMb = (runtime.totalMemory() - runtime.freeMemory()) / (1024f * 1024f)
-                _ramUsageMbFlow.value = usedMb
+                // Java heap only misses every ONNX model, which are native allocations — the
+                // reported figure was a small fraction of real usage. totalPss counts native.
+                val memInfo = android.os.Debug.MemoryInfo()
+                android.os.Debug.getMemoryInfo(memInfo)
+                _ramUsageMbFlow.value = memInfo.totalPss / 1024f
             }
         }
     }
