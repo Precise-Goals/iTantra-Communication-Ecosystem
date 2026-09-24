@@ -474,6 +474,21 @@ T05–T14, T41, T38, T65 and T62 are committed on `feature/latency-pipeline` and
 - **The walkie-talkie only ever runs Hindi.** Nothing calls `setSTTLanguage()`/`setTTSLanguage()`; the only picker is on the AI Assistant screen. A PS requirement (ten languages) cannot be shown until T72.
 - **Likely concurrency bug in `TTSModule`** — no lock around an unsynchronised model cache. T70.
 
+### 10.15 Second implementation round — review of PR #17 and run 2 (2026-09-24)
+
+T70, T45, T72 and T71 are implemented in PR #17 exactly as specced, plus two cleanups. The run-2 evidence was re-checked number by number against the raw logcat and CSV files; every figure in its write-up matches. Headline: with warm models, phrase 1 was ready **4.39 s before** PTT release and phrase 2 **0.20 s before**; warm STT at 0.28× real time; one TTS voice load for a 10-message session.
+
+Run 2 also exposed four problems, now Stage A in `TASKS.md` (specs in `IMPLEMENTATION_SPEC_2.md` Group H):
+
+- **T43 is now visible in any demo.** With T72 the sender can speak Tamil, and the receiver reads the Tamil text with its own Hindi voice (`run2/receiver_logcat.txt`, every message tagged `[hi]`). The fix was specced on 2026-09-23 but its anchor had gone stale; it is re-anchored.
+- **VAD on a first install (T73).** The service initialises the VAD once, at start; on a fresh install the model is still downloading, so the energy detector is used until the app is force-stopped. Run 2 hit this on the new receiver phone.
+- **Memory grows with every language tapped (T46, raised).** T72 warms a model on each language change and nothing evicts one. T46's LRU was already specced; T65 and T70's locks now make eviction safe.
+- **The Assistant duplicates the models (T74).** `MainViewModel` owns separate STT/TTS/playback instances; since both features share one language, the same model is loaded twice, and Assistant speech can overlap walkie-talkie audio.
+
+One spec error of mine, caught by the implementer: T71's file list missed that `MainViewModel` constructs a second `AudioCaptureModule`, which also needed the new `onSpeechReady` signature. It was fixed minimally and disclosed in the commit. And T72's VERIFY step predicted a "TTS not available" error for Tamil; that could only happen after T43, which the evidence write-up correctly pointed out.
+
+Housekeeping: an Office lock file (`~$Falcons_SIH26173_iTantra.pptx`) was committed to `main` in `db1e8d6`; removed and `~$*` gitignored on this docs branch.
+
 ### 10.10 Revised top of the work order
 
 Items 1–4 below slot in ahead of §8's list; the rest of §8 is unchanged.

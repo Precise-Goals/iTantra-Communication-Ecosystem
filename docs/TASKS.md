@@ -16,41 +16,66 @@
 | 1 | Make it fast, make it measurable | 12 | 9 / 12 | T11 |
 | 2 | Close the language gap | 7 | 0 / 7 | — |
 | 3 | Accuracy — the 40% week | 15 | 3 / 15 | T26, T28 |
-| 4 | PS compliance + remaining latency | 19 | 3 / 19 | T39 |
+| 4 | PS compliance + remaining latency | 21 | 7 / 21 | T39 |
 | 5 | Quality and headroom | 8 | 0 / 8 | — |
 | 6 | The dossier | 6 | 0 / 6 | — |
-| — | **Total** | **73** (T19, T55 superseded) | **15 / 73** | |
+| — | **Total** | **75** (T19, T55 superseded) | **19 / 75** | |
 
 ### Status key
 
-- `[ ]` not started · `[x]` done and committed — on branch **`feature/latency-pipeline`** until that branch is merged to `main`
+- `[ ]` not started · `[x]` done and committed — merged to `main`, or in **open PR #17** where the task says so
 - 🟡 partly done — the note on the task says which part remains
 - ⚠️ corrected or superseded — read the note before starting
 
-### Status as of 2026-09-24
+### Status as of 2026-09-24 (evening)
 
-Committed on `feature/latency-pipeline` and checked in review:
+Merged to `main` via PR #15, or open in **PR #17** (`feature/latency-pipeline-2`), all reviewed against the code and the raw evidence:
 
-| Commit | Tasks |
-| --- | --- |
-| `2c181fe` | T05–T10, T12–T14, T25, T27 (and the done parts of T11, T26, T28) |
-| `c60c609` | T41 adaptive endpointing |
-| `5c3ea07` | T38 playback queue (and the focus-hardening part of T39) |
-| `9c5c7e4` | T65 phrase-level pipelining |
-| `ccdb9a4` | T62 Silero VAD repair — verified in `model-export/check_silero_results.txt` and on two phones |
-| `e57fb7d` | First two-phone latency evidence, in `docs/latency-evidence/` |
+| Commit | Tasks | Where |
+| --- | --- | --- |
+| `2c181fe` | T05–T10, T12–T14, T25, T27 (and the done parts of T11, T26, T28) | `main` |
+| `c60c609` | T41 adaptive endpointing | `main` |
+| `5c3ea07` | T38 playback queue (and the focus-hardening part of T39) | `main` |
+| `9c5c7e4` | T65 phrase-level pipelining | `main` |
+| `ccdb9a4` | T62 Silero VAD repair — verified in `model-export/check_silero_results.txt` and on two phones | `main` |
+| `e57fb7d` | Run 1 two-phone latency evidence, in `docs/latency-evidence/` | `main` |
+| `a8ff983` | T70 `TTSModule` lock | PR #17 |
+| `47644f1` | T45 model warm-up | PR #17 |
+| `d33f8ac` | T72 walkie-talkie language picker | PR #17 |
+| `6a45bd3` | T71 telemetry stamps | PR #17 |
+| `bda505c` | T38/T62 comment and log cleanups | PR #17 |
+| `71b2c17` | Run 2 evidence, in `docs/latency-evidence/run2/` | PR #17 |
 
-**Measured so far** (from `docs/latency-evidence/`): warm STT runs at **0.20–0.26× real time**; phrases are cut mid-hold from real speech by the neural VAD; received phrases play in order without overlap.
+**Measured so far** (from `docs/latency-evidence/`, run 2, warm models; every figure re-checked against the raw files):
+- Phrase 1 finished transcribing **4.39 s before** PTT release and phrase 2 **0.20 s before** (run 1, cold models: +0.24 s / −0.14 s).
+- Warm STT: **0.28× real time** (≈570 ms for a 2 s phrase); receiver synthesis **≈230–260 ms** per phrase.
+- One TTS voice load for a whole 10-message session (T70 lock confirmed).
+- The neural VAD cuts phrases mid-hold from real speech; received phrases play in order without overlap.
+
+⚠️ Run 2's receiver was a different phone (realme RMX5000) from run 1's (OPPO CPH2721), so receiver-side before/after numbers are not a like-for-like hardware comparison. Sender-side numbers are.
 
 ### Do these next, in this order
 
-Ordered by dependency (T45 needs T70's lock; T72 needs T45's `warmUp()`):
+**0. Merge PR #17** (a human has to; agents are blocked from merging). Everything below is specced against its code.
 
-1. **T70** — lock `TTSModule`; likely double-load of the TTS voice under two quick messages. (1 h)
-2. **T45** (revised) — the first phrase of a session waits 2.3 s for the STT model to load, which erased the mid-hold head start in the evidence run. (3 h)
-3. **T72** — the walkie-talkie is hard-wired to Hindi; no screen changes its language. Without this, 8 of the 9 installed languages cannot be demonstrated. **Most important of the four.** (0.5 d)
-4. **T71** — fix the telemetry stamps so the latency numbers mean what the rubric asks. (2 h)
-5. Re-run the two-phone evidence test (`docs/latency-evidence/README.md` → "Next capture").
+**Stage A — bugs the run-2 evidence exposed (≈ 1 day).** Specs: `IMPLEMENTATION_SPEC_2.md` Group H, anchors verified against PR #17.
+1. **T43** — the receiver speaks Tamil/Kannada text with the Hindi voice (`run2/receiver_logcat.txt`). 1 h.
+2. **T73** — on a first install the VAD falls back to the energy detector for the whole session, because its model finishes downloading after the service starts. 2 h.
+3. **T46** + **T47** — since T72, every language tapped loads another ~197 MB model and none is ever unloaded; and the RAM figure the app reports ignores native memory, so this can't even be seen. 4 h + 2 h.
+4. **T74** — the AI Assistant loads its own second copy of the same models, and has its own playback queue. 2 h.
+
+**Stage B — PS requirements that are still pass/fail (≈ 3 days).** Specs: `IMPLEMENTATION_SPEC_2.md` Group G.
+5. **T37 + T63** — phone mode with the echo gate (same PR).
+6. **T69** — Bluetooth in both directions.
+7. **T66** — send and show alerts; then finish **T39** (alert jumps the playback queue).
+8. **T67** — voice notes.
+
+**Stage C — the 40% Accuracy criterion and the footprint (needs a human for hosting).**
+9. **T17b + T64** — the five missing TTS voices and Odia STT (10/10 languages). Needs a hosting URL from a human.
+10. **T20 + T21** — download only the selected language (2.18 GB → ~250 MB). Easy now that T72 gives the app a selected language.
+11. **T23 → T29 → T30** — match the NeMo preprocessor, golden test, WER table.
+
+Re-run the two-phone evidence test after Stage A and after Stage B, on the **same two phones** each time.
 
 > **Code-level specs** for the most error-prone tasks — exact before/after text, verify commands and explicit guardrails — are in [`IMPLEMENTATION_SPEC.md`](IMPLEMENTATION_SPEC.md). Hand that file to any agent doing the edits.
 
@@ -293,35 +318,50 @@ Treat this as the most important week in the plan.
   Mid-hold phrases are already cut at 800 ms, but STT runs *inside* the capture loop (the microphone stops being read during inference) and can run concurrently with the release flush (corrupting the shared FFT buffers). Add an inference lock, a single segment queue, and a 400 ms cut while PTT is held. Depends on T41 and, on the receiver, T38.
   **Done when:** phone B starts speaking phrase 1 while phone A is still holding PTT. Spec: `IMPLEMENTATION_SPEC_2.md` T65.
 
-- [ ] ⚠️ **T43 · Voice the text in its own language (`srcLang`)** — *G · ACC/REQ · 1h*
+- [ ] ⚠️ **T43 · Voice the text in its own language (`srcLang`)** — *G · ACC/REQ · 1h* — **Stage A, do first**
   `ITantraForegroundService.onTextReceived()` uses the receiver's local `ttsLanguage`, so Hindi text can be fed to a Malayalam voice.
   **Corrected 2026-09-23:** use `message.srcLang`, not `dstLang`. There is no translation, so the text is always in the spoken language; `dstLang` is only the sender's own TTS setting.
+  **Measured 2026-09-24 (run 2):** every Kannada and Tamil message was synthesized `[hi]` on the receiver. Re-anchored spec: `IMPLEMENTATION_SPEC_2.md` Group H → T43.
 
 - [ ] **T44 · Softmax the confidence score** — *G · ACC · 1h*
   `STTModule.estimateConfidence()` averages raw **logits** and clamps to [0,1] — meaningless, and it goes on the wire.
 
-- [ ] ⚠️ **T45 · Warm the models at service start and on language change** — *G · LAT · 3h*
+- [x] ⚠️ **T45 · Warm the models at service start and on language change** — *G · LAT · 3h*
   Both STT (~197 MB) and TTS (~70 MB) lazy-load on first use; the first message of every session pays it.
   **Measured 2026-09-24:** `STT('hi') loaded in 2306ms` on the first phrase — this alone erased the mid-hold head start in `docs/latency-evidence/`. Spec revised to also warm when the language changes (via T72).
   **Done when:** the first phrase after app start or a language change shows no `loaded in` line during PTT. Spec: `IMPLEMENTATION_SPEC_2.md` T45.
+  ✅ `47644f1`, PR #17. Run 2: phrase 1 ready 4.39 s before release.
 
-- [ ] **T70 · Lock `TTSModule` like `STTModule`** — *G · EFF/LAT · 1h*
+- [x] **T70 · Lock `TTSModule` like `STTModule`** — *G · EFF/LAT · 1h*
   Each received message synthesizes on its own coroutine, and `TTSModule`'s cache is an unsynchronised map, so two quick messages can load the same voice twice (extra RAM, one instance never released) and call sherpa-onnx concurrently. Suspected from the evidence logs, not confirmed.
   **Done when:** two messages 300 ms apart log exactly one `sherpa-onnx TTS loaded`. Spec: `IMPLEMENTATION_SPEC_2.md` T70.
+  ✅ `a8ff983`, PR #17. Run 2: one voice load across 10 messages.
 
-- [ ] **T71 · Make the telemetry stamps mean what the rubric asks** — *G · LAT/DOC · 2h*
+- [x] **T71 · Make the telemetry stamps mean what the rubric asks** — *G · LAT/DOC · 2h*
   Today "capture ended" is stamped after the phrase leaves the queue and before the model load, so `stt_ms` omits queue wait but includes model load. Stamp the VAD cut time, record model-load/queue time as its own column, compute RTF from processing only, and add a synthesis-only TTS column.
   **Done when:** the CSV has `wait_ms` and `tts_synth_ms` columns and `stt_ms` starts at the VAD cut. Spec: `IMPLEMENTATION_SPEC_2.md` T71.
+  ✅ `6a45bd3`, PR #17. `wait_ms` caught a real 701 ms wait on the first phrase after switching to Tamil.
 
-- [ ] **T72 · Let the user choose the walkie-talkie's language** — *S+G · REQ · 0.5d* 🎨
+- [x] **T72 · Let the user choose the walkie-talkie's language** — *S+G · REQ · 0.5d* 🎨
   `sttLanguage`/`ttsLanguage` in the service default to `"hi"` and nothing ever calls `setSTTLanguage()`/`setTTSLanguage()`. The only language picker is on the AI Assistant screen and it does not reach the transceiver. So every PTT message is recognised as Hindi and spoken with the Hindi voice.
   **Done when:** picking Tamil on the Transceiver screen makes the next PTT message decode with `STT('ta')`. Spec: `IMPLEMENTATION_SPEC_2.md` T72.
+  ✅ `d33f8ac`, PR #17. Tamil and Kannada STT verified on device. Side effects now tracked as T46 (models never unloaded) and T43 (receiver voice).
 
-- [ ] **T46 · LRU model cache** — *G · EFF · 4h*
-  `STTModule.sessionCache` and `TTSModule.ttsCache` are never evicted. Cap at 1–2 with `release()` on eviction.
+- [ ] **T73 · Re-initialise the VAD after its model downloads** — *G · ACC/EFF · 2h* — **Stage A**
+  `VADModule.initialize()` runs once at service start. On a first install that is before the VAD model has downloaded, so the app uses the energy detector until it is force-stopped (`run2/receiver_logcat_prelim_connectivity_check.txt`: `physical path: null`). React to the VAD pack's download completing.
+  **Done when:** after clearing app data and downloading, logcat shows `backend: NEURAL` without a restart. Spec: `IMPLEMENTATION_SPEC_2.md` Group H → T73.
+
+- [ ] **T74 · The AI Assistant shares the service's models and playback queue** — *G · EFF/REQ · 2h* — **Stage A**
+  `MainViewModel` has its own `STTModule`, `TTSModule` and `AudioPlaybackManager`. Since T72 both features use the same language, so the Assistant loads a second copy of the same ~197 MB model, and its replies can play over walkie-talkie messages.
+  **Done when:** one `STT('hi') loaded` per session across walkie-talkie and Assistant use. Spec: `IMPLEMENTATION_SPEC_2.md` Group H → T74.
+
+- [ ] ⚠️ **T46 · LRU model cache** — *G · EFF · 4h* — **Stage A (priority raised 2026-09-24)**
+  `STTModule.sessionCache` and `TTSModule.ttsCache` are never evicted. Cap at 2 with `close()`/`release()` on eviction.
+  Since T72, every language tapped loads another ~197 MB model that stays resident. The T65/T70 locks make eviction safe. Explicit spec (both modules written out): `IMPLEMENTATION_SPEC_2.md` Group H → T46.
 
 - [ ] **T47 · RAM metric → total PSS** — *G · EFF/DOC · 2h*
   `startRamMonitoring()` reads `Runtime.totalMemory() − freeMemory()` = **Java heap only**, so every native ONNX allocation is invisible. Switch to `Debug.getMemoryInfo().totalPss`.
+  **Stage A:** do it with T46, so the memory saving is visible in the app's own number.
   **Done when:** the reported figure matches `dumpsys meminfo`.
 
 **Week 4 exit:** every compliance row green — phone mode without echo, alerts sent and shown, voice notes, Bluetooth in both directions · sentence→audio < 2 s.
@@ -407,7 +447,7 @@ flowchart LR
   T56 --> T59["T59 deck"]
 ```
 
-**Cannot be cut:** T05, T10, T13, T14, T16, T17, T18, T23–T30, T37, T38, **T43, T45, T62 or T32, T63, T64, T66, T67, T69, T72**, T56, T57, T59.
+**Cannot be cut:** T05, T10, T13, T14, T16, T17, T18, T23–T30, T37, T38, **T43, T45, T46, T62 or T32, T63, T64, T66, T67, T69, T72, T73**, T56, T57, T59.
 
 ### Not a task: translation
 

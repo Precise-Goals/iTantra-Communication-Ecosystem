@@ -4,6 +4,20 @@
 > Read this before starting new work — it says what's actually true on `main` right now,
 > what's still open, and a few real gotchas that cost time to rediscover.
 
+## Update — 2026-09-24 evening (read first)
+
+- **PR #17** (`feature/latency-pipeline-2`, open) implements **T70, T45, T72, T71** and adds run-2
+  evidence in `docs/latency-evidence/run2/`. Reviewed against the code and the raw files: phrase 1
+  was ready 4.39 s before PTT release with warm models. A human needs to merge it.
+- The three "not implemented" bullets below for **T45, T71 and T70 are done in PR #17**.
+- **Next work** is in [`docs/TASKS.md`](docs/TASKS.md) → "Do these next": Stage A (T43, T73,
+  T46+T47, T74 — bugs run 2 exposed), then Stage B (phone mode + echo gate, two-way Bluetooth,
+  SOS, voice notes), then Stage C (10/10 languages, per-language downloads, WER). Stage A specs are
+  in `docs/IMPLEMENTATION_SPEC_2.md` Group H, anchored to PR #17's code.
+- New gotcha: on a **first install** the VAD starts before its model has downloaded and stays on
+  the energy detector until a force-stop (T73 fixes it). Force-stop and relaunch after the first
+  download before any measurement.
+
 ## What's on `main` right now
 
 T41 (adaptive endpointing), T38 (playback queue), T65 (phrase-level pipelining), and T62
@@ -28,18 +42,18 @@ These are called out honestly in the README's Roadmap and in `docs/latency-evide
   ALERT message does not jump ahead of queued normal messages. Verify this is still true in
   `AudioPlaybackManager.kt` before claiming otherwise — it was originally mis-documented as done
   and had to be corrected mid-session.
-- **T45 (preload STT/TTS models at service start)** — not implemented. The committed latency-evidence
+- **T45 (preload STT/TTS models at service start)** — ✅ done in PR #17 (see update above). Original note: The committed latency-evidence
   test's head-start-before-release number was largely erased by a one-time ~2.3s STT model load on
   the first phrase of the session. `docs/latency-evidence/README.md` has a *projected* (not
   measured) head-start with warm models (~1–2.5s) — re-run the same test after T45 lands to turn
   that projection into a real number.
-- **T71 (telemetry timestamp fix)** — not implemented. Right now `feature_ms`/`stt_ms` are
+- **T71 (telemetry timestamp fix)** — ✅ done in PR #17. Original note: Right now `feature_ms`/`stt_ms` are
   measured from `captureEndNs`, which is stamped at *queue dequeue* time (post-T65), not at the
   original VAD cut — so per-phrase `stt_ms` hides any time a phrase spent waiting in the queue
   behind an earlier phrase. Also, `feature_ms` on a session's first STT call includes the full
   `ensureLoaded()` model-load time, not just feature extraction. Both are documented, neither is
   fixed.
-- **T70 (possible unsynchronized double voice load in `TTSModule`)** — flagged, unconfirmed. Two
+- **T70 (possible unsynchronized double voice load in `TTSModule`)** — ✅ lock added in PR #17; run 2 shows one voice load for 10 messages. Original note: Two
   phrases' TTS synthesis finished suspiciously close together (92ms apart) despite arriving 374ms
   apart in one test run. `TTSModule`'s model cache is an unsynchronized map with no lock — this
   might mean two concurrent messages in the same new language both trigger a full voice load. Add
