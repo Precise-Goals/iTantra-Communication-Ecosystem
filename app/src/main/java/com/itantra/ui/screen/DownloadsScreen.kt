@@ -1,11 +1,9 @@
 package com.itantra.ui.screen
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,11 +24,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.ExpandLess
-import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.RecordVoiceOver
-import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material3.Button
@@ -43,9 +38,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -70,7 +62,6 @@ import com.itantra.ui.theme.iTantraWhite
 @Composable
 fun DownloadsScreen(viewModel: MainViewModel) {
     val downloadStates by viewModel.downloadStates.collectAsState()
-    var showOptionalAssistant by remember { mutableStateOf(false) }
 
     val corePacks = ModelPack.coreTransceiverPacks()
     val allCoreDownloaded = corePacks.all { downloadStates[it] is DownloadState.Downloaded }
@@ -173,7 +164,7 @@ fun DownloadsScreen(viewModel: MainViewModel) {
                                     color = if (allCoreDownloaded) iTantraBlack else iTantraWhite
                                 )
                                 Text(
-                                    text = if (allCoreDownloaded) "All 10 Language Models Installed" else "Compulsory · All 10 Indian Languages & STT",
+                                    text = if (allCoreDownloaded) "Core transceiver pack installed" else "Compulsory · speech recognition, voices and VAD",
                                     style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
                                     color = if (allCoreDownloaded) iTantraSuccess else Color(0xFFD4D4D4)
                                 )
@@ -200,7 +191,7 @@ fun DownloadsScreen(viewModel: MainViewModel) {
                     Spacer(Modifier.height(14.dp))
 
                     Text(
-                        text = "Installs complete bundle: Silero VAD (2.3MB), AI4Bharat IndicConformer STT (197MB), FastText Language Auto-Detector (0.9MB), and real espeak-ng-phonemized Voice Packs for Hindi, Gujarati, Malayalam, Bengali and English — the only languages with a verified free offline TTS source today. Kannada, Tamil, Telugu, Marathi and Odia have no known source yet and aren't offered.",
+                        text = "Installs complete bundle: Silero VAD (2.3MB), AI4Bharat IndicConformer STT (197MB per language) for 9 languages, and real espeak-ng-phonemized voices for Hindi, Gujarati, Malayalam, Bengali and English — the only languages with a verified free offline TTS source today. Kannada, Tamil, Telugu, Marathi and Odia voices and Odia speech recognition are not available yet.",
                         style = MaterialTheme.typography.bodySmall,
                         color = if (allCoreDownloaded) iTantraBlack60 else Color(0xFFCCCCCC)
                     )
@@ -220,7 +211,7 @@ fun DownloadsScreen(viewModel: MainViewModel) {
                             Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = iTantraSuccess, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(8.dp))
                             Text(
-                                text = "All 10 language models and neural transceiver are fully active.",
+                                text = "All installed language models and the neural transceiver are active.",
                                 style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
                                 color = iTantraBlack
                             )
@@ -266,76 +257,6 @@ fun DownloadsScreen(viewModel: MainViewModel) {
                 onDownload = { viewModel.downloadModel(pack) },
                 onDelete = { viewModel.deleteModel(pack) }
             )
-        }
-
-        // ── Optional Section: AI Assistant (Hidden / Collapsible) ─────
-        item {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(iTantraCardAlt)
-                    .border(1.dp, iTantraBorder, RoundedCornerShape(20.dp))
-                    .clickable { showOptionalAssistant = !showOptionalAssistant }
-                    .padding(16.dp)
-            ) {
-                Column {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Filled.SmartToy, contentDescription = null, tint = iTantraBlack60, modifier = Modifier.size(20.dp))
-                            Spacer(Modifier.width(10.dp))
-                            Column {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(
-                                        text = "Optional: Phi-3 Mini GGUF",
-                                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                                        color = iTantraBlack
-                                    )
-                                    Spacer(Modifier.width(8.dp))
-                                    Box(
-                                        modifier = Modifier
-                                            .clip(RoundedCornerShape(6.dp))
-                                            .background(iTantraBorder)
-                                            .padding(horizontal = 6.dp, vertical = 2.dp)
-                                    ) {
-                                        Text(
-                                            text = "OPTIONAL",
-                                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
-                                            color = iTantraBlack60
-                                        )
-                                    }
-                                }
-                                Text(
-                                    text = "2.39 GB · Heavy LLM weights (Assistant already works without this)",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = iTantraBlack60
-                                )
-                            }
-                        }
-
-                        Icon(
-                            imageVector = if (showOptionalAssistant) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
-                            contentDescription = null,
-                            tint = iTantraBlack
-                        )
-                    }
-
-                    AnimatedVisibility(visible = showOptionalAssistant) {
-                        Column(modifier = Modifier.padding(top = 16.dp)) {
-                            ModelPackRowItem(
-                                pack = ModelPack.AI_ASSISTANT,
-                                state = downloadStates[ModelPack.AI_ASSISTANT] ?: DownloadState.NotDownloaded,
-                                onDownload = { viewModel.downloadModel(ModelPack.AI_ASSISTANT) },
-                                onDelete = { viewModel.deleteModel(ModelPack.AI_ASSISTANT) }
-                            )
-                        }
-                    }
-                }
-            }
         }
     }
 }

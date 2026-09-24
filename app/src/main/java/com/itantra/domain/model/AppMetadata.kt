@@ -29,8 +29,6 @@ object AppMetadata {
     const val STT_MODEL = "AI4Bharat IndicConformer (INT8 ONNX, ~150MB)"
     const val TTS_MODEL = "AI4Bharat IndicTTS VITS (INT8 ONNX, ~14MB per language)"
     const val VAD_MODEL = "Silero VAD v4 (ONNX, ~2MB)"
-    const val LID_MODEL = "FastText Language ID (lid.176.ftz, ~900KB)"
-    const val AI_MODEL = "Phi-3 Mini 3.8B Q4 Quantized (Offline GGUF / ONNX, ~2.2GB)"
 
     // Supported Indic Languages
     val SUPPORTED_LANGUAGES = listOf(

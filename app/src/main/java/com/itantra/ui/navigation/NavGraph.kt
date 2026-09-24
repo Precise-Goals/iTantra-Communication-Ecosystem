@@ -11,12 +11,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.Radar
 import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.GraphicEq
 import androidx.compose.material.icons.outlined.Home
-import androidx.compose.material.icons.outlined.Psychology
 import androidx.compose.material.icons.outlined.Radar
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -27,7 +25,6 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import com.itantra.ui.MainViewModel
-import com.itantra.ui.screen.AIAssistantScreen
 import com.itantra.ui.screen.DownloadsScreen
 import com.itantra.ui.screen.HomeScreen
 import com.itantra.ui.screen.PeerSessionScreen
@@ -38,7 +35,6 @@ sealed class NavRoute(val route: String) {
     data object Home : NavRoute("home")
     data object Transceiver : NavRoute("transceiver")
     data object Radar : NavRoute("radar")
-    data object AIAssistant : NavRoute("ai_assistant")
     data object Downloads : NavRoute("downloads")
     data object PeerSession : NavRoute("peer_session/{peerId}") {
         fun withPeer(peerId: String) = "peer_session/$peerId"
@@ -56,8 +52,7 @@ val bottomNavItems = listOf(
     BottomNavItem(NavRoute.Home.route, "Home", Icons.Filled.Home, Icons.Outlined.Home),
     BottomNavItem(NavRoute.Radar.route, "Radar", Icons.Filled.Radar, Icons.Outlined.Radar),
     BottomNavItem(NavRoute.Transceiver.route, "Radio", Icons.Filled.GraphicEq, Icons.Outlined.GraphicEq),
-    BottomNavItem(NavRoute.Downloads.route, "Downloads", Icons.Filled.Download, Icons.Outlined.Download),
-    BottomNavItem(NavRoute.AIAssistant.route, "Assistant", Icons.Filled.Psychology, Icons.Outlined.Psychology)
+    BottomNavItem(NavRoute.Downloads.route, "Downloads", Icons.Filled.Download, Icons.Outlined.Download)
 )
 
 @Composable
@@ -93,12 +88,6 @@ fun ITantraNavHost(
         }
         composable(NavRoute.Radar.route) {
             RadarScreen(viewModel = viewModel)
-        }
-        composable(NavRoute.AIAssistant.route) {
-            AIAssistantScreen(
-                viewModel = viewModel,
-                onNavigateToDownloads = { navController.navigate(NavRoute.Downloads.route) }
-            )
         }
         composable(NavRoute.Downloads.route) {
             DownloadsScreen(viewModel = viewModel)

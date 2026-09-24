@@ -86,13 +86,6 @@ enum class ModelPack(
         isRequired = false,
         requiredFor = "Transceiver"
     ),
-    LANG_DETECTION(
-        "Language Auto-Detector",
-        "FastText LID — identifies spoken language automatically",
-        sizeMb = 1,
-        isRequired = false,
-        requiredFor = "Transceiver"
-    ),
     ESPEAK_NG_DATA(
         "Speech Phonemizer Data",
         "Shared espeak-ng phoneme data — required by every voice pack below for real speech synthesis",
@@ -169,18 +162,11 @@ enum class ModelPack(
         sizeMb = 64,
         isRequired = false,
         requiredFor = "Transceiver"
-    ),
-    AI_ASSISTANT(
-        "AI Assistant (Phi-3 Mini)",
-        "Phi-3 Mini Q4 — offline AI assistant, India-aware (MIT License)",
-        sizeMb = 2200,
-        isRequired = false,
-        requiredFor = "AI Assistant"
     );
 
     companion object {
         /**
-         * Returns compulsory packs needed for full multilingual Transceiver & auto-LID.
+         * Returns compulsory packs needed for the full multilingual Transceiver.
          *
          * Only the languages with a real, verified TTS source are included — Kannada, Tamil,
          * Telugu, Marathi and Odia are deliberately absent: no free offline TTS source exists
@@ -198,7 +184,6 @@ enum class ModelPack(
             STT_TELUGU,
             STT_BENGALI,
             STT_ENGLISH,
-            LANG_DETECTION,
             ESPEAK_NG_DATA,
             TTS_HINDI,
             TTS_GUJARATI,
