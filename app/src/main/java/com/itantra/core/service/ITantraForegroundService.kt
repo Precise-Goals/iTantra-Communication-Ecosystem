@@ -190,9 +190,13 @@ class ITantraForegroundService : Service() {
             serviceScope.launch(Dispatchers.Default) {
                 val isAlert = message.type == MessageType.ALERT
                 _pipelineStage.value = PipelineStage.SPEAKING
-                val utt = Telemetry.begin(ttsLanguage)
+                // Voice the text in the language it is WRITTEN in (T43). There is no translation,
+                // so using this phone's own ttsLanguage fed e.g. Tamil text to the Hindi voice
+                // (docs/latency-evidence/run2/receiver_logcat.txt).
+                val targetLang = message.srcLang.ifBlank { ttsLanguage }
+                val utt = Telemetry.begin(targetLang)
                 utt.rxNs = rxStampNs
-                val synth = ttsModule.synthesize(message.text, ttsLanguage)
+                val synth = ttsModule.synthesize(message.text, targetLang)
                 utt.ttsDoneNs = System.nanoTime()
                 if (synth != null) {
                     utt.ttsAudioDurationMs = synth.samples.size * 1000L / synth.sampleRate
