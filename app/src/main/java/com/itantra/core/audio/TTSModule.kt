@@ -32,6 +32,8 @@ class TTSModule(
 ) {
     companion object {
         private const val TAG = "TTSModule"
+        /** TTS voices kept resident (T46). 2 covers speaking two senders' languages in turn. */
+        private const val MAX_CACHED_VOICES = 2
         const val PLAYBACK_SAMPLE_RATE = 16000
 
         /** Only languages with a real, verified sherpa-onnx voice source — see ModelRegistry. */
@@ -44,7 +46,18 @@ class TTSModule(
         )
     }
 
-    private val ttsCache = mutableMapOf<String, OfflineTts>()
+    // Bounded LRU (T46). Eviction happens inside getOrLoadTts(), which only runs under ttsLock
+    // (T70), so a voice is never released while synthesizing.
+    private val ttsCache = object : LinkedHashMap<String, OfflineTts>(4, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, OfflineTts>): Boolean {
+            if (size > MAX_CACHED_VOICES) {
+                runCatching { eldest.value.release() }
+                Log.d(TAG, "Evicted TTS voice '${eldest.key}' (LRU)")
+                return true
+            }
+            return false
+        }
+    }
 
     /** One synthesis or voice load at a time (T70). The cache is a plain HashMap, and two
      *  messages arriving during a cold load would otherwise both load the same voice. */
