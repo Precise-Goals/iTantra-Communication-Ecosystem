@@ -35,6 +35,8 @@ class STTModule(
 ) {
     companion object {
         private const val TAG = "STTModule"
+        /** STT sessions kept resident (T46). 2 covers switching back and forth between two languages. */
+        private const val MAX_CACHED_LANGUAGES = 2
         const val SAMPLE_RATE = 16000
         private const val N_MELS = 80
         private const val FRAME_LENGTH = 400   // 25ms window at 16kHz
@@ -50,7 +52,21 @@ class STTModule(
     }
 
     private val ortEnv: OrtEnvironment by lazy { OrtEnvironment.getEnvironment() }
-    private val sessionCache = mutableMapOf<String, OrtSession>()
+    // Bounded LRU (T46). Each session is a ~197MB native allocation; caching every language a
+    // user ever tapped held them all for the process lifetime. Eviction only happens inside
+    // ensureLoaded(), which holds inferenceLock, so a session is never closed while in use.
+    private val sessionCache = object : LinkedHashMap<String, OrtSession>(4, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, OrtSession>): Boolean {
+            if (size > MAX_CACHED_LANGUAGES) {
+                runCatching { eldest.value.close() }
+                vocabCache.remove(eldest.key)
+                ioNamesCache.remove(eldest.key)
+                Log.d(TAG, "Evicted STT session '${eldest.key}' (LRU)")
+                return true
+            }
+            return false
+        }
+    }
     private val vocabCache = mutableMapOf<String, Array<String>>()
     private val ioNamesCache = mutableMapOf<String, IoNames>()
 

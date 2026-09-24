@@ -1,0 +1,123 @@
+--------- beginning of main
+09-24 19:45:44.259 D/iTantraService(19601): Service created
+09-24 19:46:00.812 D/iTantraService(19714): Service created
+09-24 19:47:34.016 D/iTantraService(21295): Service created
+09-24 19:47:34.362 D/VADModule(21295): VAD real signature — inputs=[input, state, sr] outputs=[output, stateN]
+09-24 19:47:34.363 D/VADModule(21295): VAD input 'input': [-1, -1]
+09-24 19:47:34.364 D/VADModule(21295): VAD input 'state': [2, -1, 128]
+09-24 19:47:34.364 D/VADModule(21295): VAD input 'sr': []
+09-24 19:47:34.364 D/VADModule(21295): VAD initialized — backend: NEURAL (physical path: /data/user/0/com.itantra.debug/files/models/silero_vad_v4.onnx, neural session loaded: true)
+09-24 19:47:34.877 D/iTantraService(21295): VAD re-init after download — neural: true
+09-24 19:47:35.597 D/STTModule(21295): STT('hi'): NNAPI delegate enabled
+09-24 19:47:45.649 D/STTModule(21295): STT('hi') loaded in 10774ms — vocab size 5633, inputs=IoNames(featureInput=audio_signal, lengthInput=length, outputName=logprobs)
+09-24 19:47:46.634 D/STTModule(21295): STT('mr'): NNAPI delegate enabled
+09-24 19:47:48.333 D/TTSModule(21295): sherpa-onnx TTS loaded for 'hi' from hi_IN-pratham-medium.onnx
+09-24 19:47:48.333 D/iTantraService(21295): Warm-up stt=hi:true tts=hi:true in 13458ms
+09-24 19:47:57.354 D/STTModule(21295): STT('mr') loaded in 10840ms — vocab size 5633, inputs=IoNames(featureInput=audio_signal, lengthInput=length, outputName=logprobs)
+09-24 19:47:57.354 D/iTantraService(21295): Warm-up stt=mr:true tts=mr:false in 10840ms
+09-24 19:48:39.953 D/iTantraService(21295): Node connected: POCO X6 5G
+09-24 19:48:46.959 D/iTantraService(21295): Received from 5aeaefd8-1860-4b05-b53e-c3883ef16cad: 'है' [SPEECH]
+09-24 19:48:47.278 D/TTSModule(21295): sherpa-onnx TTS synthesized 7424 samples @ 22050Hz in 318ms [hi]
+09-24 19:48:47.279 D/iTantraService(21295): TTS synthesis complete: 336ms audio
+09-24 19:48:47.370 D/iTantraService(21295): Received from 5aeaefd8-1860-4b05-b53e-c3883ef16cad: 'इसके मा का' [SPEECH]
+09-24 19:48:47.453 D/Telemetry(21295): utt=1 lang=hi rtf=0.000 stt=0ms wait=0ms feat=0ms infer=0ms tts=492ms synth=321ms
+09-24 19:48:47.694 D/TTSModule(21295): sherpa-onnx TTS synthesized 20148 samples @ 22050Hz in 316ms [hi]
+09-24 19:48:47.694 D/iTantraService(21295): TTS synthesis complete: 913ms audio
+09-24 19:48:47.735 D/Telemetry(21295): utt=2 lang=hi rtf=0.000 stt=0ms wait=0ms feat=0ms infer=0ms tts=365ms synth=324ms
+09-24 19:48:50.070 D/iTantraService(21295): Received from 5aeaefd8-1860-4b05-b53e-c3883ef16cad: 'सागेना का' [SPEECH]
+09-24 19:48:50.282 D/TTSModule(21295): sherpa-onnx TTS synthesized 20212 samples @ 22050Hz in 211ms [hi]
+09-24 19:48:50.282 D/iTantraService(21295): TTS synthesis complete: 916ms audio
+09-24 19:48:50.322 D/Telemetry(21295): utt=3 lang=hi rtf=0.000 stt=0ms wait=0ms feat=0ms infer=0ms tts=252ms synth=212ms
+09-24 19:49:07.423 D/iTantraService(21295): Received from 5aeaefd8-1860-4b05-b53e-c3883ef16cad: 'बोल के बावा' [SPEECH]
+09-24 19:49:07.427 D/Telemetry(21295): utt=4 lang=mr rtf=0.000 stt=0ms wait=0ms feat=0ms infer=0ms tts=0ms synth=4ms
+09-24 19:49:23.427 D/iTantraService(21295): Received from 5aeaefd8-1860-4b05-b53e-c3883ef16cad: 'हॅलो कॅन यू हेअर मी' [SPEECH]
+09-24 19:49:23.429 D/Telemetry(21295): utt=5 lang=mr rtf=0.000 stt=0ms wait=0ms feat=0ms infer=0ms tts=0ms synth=1ms
+09-24 19:49:28.182 D/iTantraService(21295): Received from 5aeaefd8-1860-4b05-b53e-c3883ef16cad: 'हॅलो टेस्टिंग वन टू थ्री' [SPEECH]
+09-24 19:49:28.185 D/Telemetry(21295): utt=6 lang=mr rtf=0.000 stt=0ms wait=0ms feat=0ms infer=0ms tts=0ms synth=2ms
+09-24 19:49:44.923 D/iTantraService(21295): Received from 5aeaefd8-1860-4b05-b53e-c3883ef16cad: 'हॅलो कॅन यू हेअर मी' [SPEECH]
+09-24 19:49:44.924 D/Telemetry(21295): utt=7 lang=mr rtf=0.000 stt=0ms wait=0ms feat=0ms infer=0ms tts=0ms synth=1ms
+09-24 19:49:48.122 D/AudioCapture(21295): Audio capture started at 16000Hz
+09-24 19:49:50.439 D/AudioCapture(21295): Speech segment complete: 27200 samples
+09-24 19:49:52.705 D/AudioCapture(21295): Audio capture stopped
+09-24 19:49:54.012 D/STTModule(21295): STT inference: 'हॅलो कॅन यू हिअर मी' in 3571ms [mr]
+09-24 19:49:54.042 D/Telemetry(21295): utt=8 lang=mr rtf=2.118 stt=3603ms wait=1ms feat=149ms infer=3452ms tts=0ms synth=0ms
+09-24 19:49:54.712 D/STTModule(21295): STT inference: 'हॅलो' in 668ms [mr]
+09-24 19:49:54.717 D/Telemetry(21295): utt=9 lang=mr rtf=1.121 stt=2011ms wait=1339ms feat=12ms infer=661ms tts=0ms synth=0ms
+09-24 19:50:04.922 D/iTantraService(21295): Received from 5aeaefd8-1860-4b05-b53e-c3883ef16cad: 'हेलो' [SPEECH]
+09-24 19:50:05.191 D/TTSModule(21295): sherpa-onnx TTS synthesized 10527 samples @ 22050Hz in 268ms [hi]
+09-24 19:50:05.191 D/iTantraService(21295): TTS synthesis complete: 477ms audio
+09-24 19:50:05.261 D/Telemetry(21295): utt=10 lang=hi rtf=0.000 stt=0ms wait=0ms feat=0ms infer=0ms tts=338ms synth=269ms
+09-24 19:50:08.919 D/iTantraService(21295): Received from 5aeaefd8-1860-4b05-b53e-c3883ef16cad: 'आपको मेरी आवाज आ रही है' [SPEECH]
+09-24 19:50:09.296 D/TTSModule(21295): sherpa-onnx TTS synthesized 38676 samples @ 22050Hz in 376ms [hi]
+09-24 19:50:09.296 D/iTantraService(21295): TTS synthesis complete: 1754ms audio
+09-24 19:50:09.334 D/Telemetry(21295): utt=11 lang=hi rtf=0.000 stt=0ms wait=0ms feat=0ms infer=0ms tts=416ms synth=377ms
+09-24 19:50:15.428 D/iTantraService(21295): Received from 5aeaefd8-1860-4b05-b53e-c3883ef16cad: 'हए हाय हाय' [SPEECH]
+09-24 19:50:15.676 D/TTSModule(21295): sherpa-onnx TTS synthesized 25296 samples @ 22050Hz in 247ms [hi]
+09-24 19:50:15.676 D/iTantraService(21295): TTS synthesis complete: 1147ms audio
+09-24 19:50:15.711 D/Telemetry(21295): utt=12 lang=hi rtf=0.000 stt=0ms wait=0ms feat=0ms infer=0ms tts=283ms synth=248ms
+09-24 19:50:17.792 D/iTantraService(21295): Received from 5aeaefd8-1860-4b05-b53e-c3883ef16cad: 'हलो हैलो हैलो' [SPEECH]
+09-24 19:50:18.037 D/TTSModule(21295): sherpa-onnx TTS synthesized 25430 samples @ 22050Hz in 244ms [hi]
+09-24 19:50:18.037 D/iTantraService(21295): TTS synthesis complete: 1153ms audio
+09-24 19:50:18.073 D/Telemetry(21295): utt=13 lang=hi rtf=0.000 stt=0ms wait=0ms feat=0ms infer=0ms tts=281ms synth=245ms
+09-24 19:51:09.929 D/iTantraService(21295): Received from 5aeaefd8-1860-4b05-b53e-c3883ef16cad: 'हैलो कैन यू हियर मी' [SPEECH]
+09-24 19:51:10.255 D/TTSModule(21295): sherpa-onnx TTS synthesized 30100 samples @ 22050Hz in 325ms [hi]
+09-24 19:51:10.255 D/iTantraService(21295): TTS synthesis complete: 1365ms audio
+09-24 19:51:10.302 D/Telemetry(21295): utt=14 lang=hi rtf=0.000 stt=0ms wait=0ms feat=0ms infer=0ms tts=373ms synth=326ms
+09-24 19:51:12.661 D/iTantraService(21295): Received from 5aeaefd8-1860-4b05-b53e-c3883ef16cad: 'हैलो वन टू थ्रीियर' [SPEECH]
+09-24 19:51:12.951 D/TTSModule(21295): sherpa-onnx TTS synthesized 33280 samples @ 22050Hz in 289ms [hi]
+09-24 19:51:12.951 D/iTantraService(21295): TTS synthesis complete: 1509ms audio
+09-24 19:51:12.992 D/Telemetry(21295): utt=15 lang=hi rtf=0.000 stt=0ms wait=0ms feat=0ms infer=0ms tts=330ms synth=290ms
+09-24 19:51:15.525 D/iTantraService(21295): Received from 5aeaefd8-1860-4b05-b53e-c3883ef16cad: 'हैलो वन टू थ्री हीयर' [SPEECH]
+09-24 19:51:15.841 D/TTSModule(21295): sherpa-onnx TTS synthesized 30652 samples @ 22050Hz in 314ms [hi]
+09-24 19:51:15.841 D/iTantraService(21295): TTS synthesis complete: 1390ms audio
+09-24 19:51:15.882 D/Telemetry(21295): utt=16 lang=hi rtf=0.000 stt=0ms wait=0ms feat=0ms infer=0ms tts=357ms synth=316ms
+09-24 19:51:29.921 D/iTantraService(21295): Received from 5aeaefd8-1860-4b05-b53e-c3883ef16cad: 'भहन चौथ' [SPEECH]
+09-24 19:51:30.092 D/TTSModule(21295): sherpa-onnx TTS synthesized 18944 samples @ 22050Hz in 170ms [hi]
+09-24 19:51:30.092 D/iTantraService(21295): TTS synthesis complete: 859ms audio
+09-24 19:51:30.138 D/Telemetry(21295): utt=17 lang=hi rtf=0.000 stt=0ms wait=0ms feat=0ms infer=0ms tts=216ms synth=171ms
+09-24 19:51:32.162 D/iTantraService(21295): Received from 5aeaefd8-1860-4b05-b53e-c3883ef16cad: 'बोकाचोर एचौथ' [SPEECH]
+09-24 19:51:32.396 D/TTSModule(21295): sherpa-onnx TTS synthesized 27648 samples @ 22050Hz in 233ms [hi]
+09-24 19:51:32.396 D/iTantraService(21295): TTS synthesis complete: 1253ms audio
+09-24 19:51:32.432 D/Telemetry(21295): utt=18 lang=hi rtf=0.000 stt=0ms wait=0ms feat=0ms infer=0ms tts=270ms synth=234ms
+09-24 19:51:34.618 D/iTantraService(21295): Received from 5aeaefd8-1860-4b05-b53e-c3883ef16cad: 'और अचोरे चौद' [SPEECH]
+09-24 19:51:34.843 D/TTSModule(21295): sherpa-onnx TTS synthesized 26112 samples @ 22050Hz in 223ms [hi]
+09-24 19:51:34.844 D/iTantraService(21295): TTS synthesis complete: 1184ms audio
+09-24 19:51:34.882 D/Telemetry(21295): utt=19 lang=hi rtf=0.000 stt=0ms wait=0ms feat=0ms infer=0ms tts=264ms synth=226ms
+09-24 19:51:37.047 D/iTantraService(21295): Received from 5aeaefd8-1860-4b05-b53e-c3883ef16cad: 'औरना चौरे चौद' [SPEECH]
+09-24 19:51:37.281 D/TTSModule(21295): sherpa-onnx TTS synthesized 27904 samples @ 22050Hz in 233ms [hi]
+09-24 19:51:37.281 D/iTantraService(21295): TTS synthesis complete: 1265ms audio
+09-24 19:51:37.317 D/Telemetry(21295): utt=20 lang=hi rtf=0.000 stt=0ms wait=0ms feat=0ms infer=0ms tts=270ms synth=235ms
+09-24 19:51:39.688 D/iTantraService(21295): Received from 5aeaefd8-1860-4b05-b53e-c3883ef16cad: 'और नचौरी चाद' [SPEECH]
+09-24 19:51:39.919 D/TTSModule(21295): sherpa-onnx TTS synthesized 27648 samples @ 22050Hz in 227ms [hi]
+09-24 19:51:39.919 D/iTantraService(21295): TTS synthesis complete: 1253ms audio
+09-24 19:51:39.959 D/Telemetry(21295): utt=21 lang=hi rtf=0.000 stt=0ms wait=0ms feat=0ms infer=0ms tts=270ms synth=231ms
+09-24 19:51:41.452 D/iTantraService(21295): Received from 5aeaefd8-1860-4b05-b53e-c3883ef16cad: 'तोवा है' [SPEECH]
+09-24 19:51:41.596 D/TTSModule(21295): sherpa-onnx TTS synthesized 16128 samples @ 22050Hz in 142ms [hi]
+09-24 19:51:41.596 D/iTantraService(21295): TTS synthesis complete: 731ms audio
+09-24 19:51:41.648 D/Telemetry(21295): utt=22 lang=hi rtf=0.000 stt=0ms wait=0ms feat=0ms infer=0ms tts=196ms synth=144ms
+09-24 19:51:56.924 D/iTantraService(21295): Received from 5aeaefd8-1860-4b05-b53e-c3883ef16cad: 'भैन चौद' [SPEECH]
+09-24 19:51:57.220 D/TTSModule(21295): sherpa-onnx TTS synthesized 20992 samples @ 22050Hz in 295ms [hi]
+09-24 19:51:57.220 D/iTantraService(21295): TTS synthesis complete: 952ms audio
+09-24 19:51:57.270 D/Telemetry(21295): utt=23 lang=hi rtf=0.000 stt=0ms wait=0ms feat=0ms infer=0ms tts=346ms synth=297ms
+09-24 19:51:59.576 D/iTantraService(21295): Received from 5aeaefd8-1860-4b05-b53e-c3883ef16cad: 'हंचौद' [SPEECH]
+09-24 19:51:59.735 D/TTSModule(21295): sherpa-onnx TTS synthesized 15872 samples @ 22050Hz in 157ms [hi]
+09-24 19:51:59.735 D/iTantraService(21295): TTS synthesis complete: 719ms audio
+09-24 19:51:59.776 D/Telemetry(21295): utt=24 lang=hi rtf=0.000 stt=0ms wait=0ms feat=0ms infer=0ms tts=199ms synth=159ms
+09-24 19:52:01.999 D/iTantraService(21295): Received from 5aeaefd8-1860-4b05-b53e-c3883ef16cad: 'हचौर' [SPEECH]
+09-24 19:52:02.231 D/TTSModule(21295): sherpa-onnx TTS synthesized 14592 samples @ 22050Hz in 229ms [hi]
+09-24 19:52:02.233 D/iTantraService(21295): TTS synthesis complete: 661ms audio
+09-24 19:52:02.286 D/Telemetry(21295): utt=25 lang=hi rtf=0.000 stt=0ms wait=0ms feat=0ms infer=0ms tts=284ms synth=235ms
+09-24 19:52:05.731 D/iTantraService(21295): Received from 5aeaefd8-1860-4b05-b53e-c3883ef16cad: 'अच्छा और' [SPEECH]
+09-24 19:52:05.952 D/TTSModule(21295): sherpa-onnx TTS synthesized 17672 samples @ 22050Hz in 220ms [hi]
+09-24 19:52:05.952 D/iTantraService(21295): TTS synthesis complete: 801ms audio
+09-24 19:52:05.997 D/Telemetry(21295): utt=26 lang=hi rtf=0.000 stt=0ms wait=0ms feat=0ms infer=0ms tts=267ms synth=221ms
+09-24 19:52:07.889 D/iTantraService(21295): Received from 5aeaefd8-1860-4b05-b53e-c3883ef16cad: 'अच्छा पाँच' [SPEECH]
+09-24 19:52:08.110 D/TTSModule(21295): sherpa-onnx TTS synthesized 20224 samples @ 22050Hz in 220ms [hi]
+09-24 19:52:08.110 D/iTantraService(21295): TTS synthesis complete: 917ms audio
+09-24 19:52:08.155 D/Telemetry(21295): utt=27 lang=hi rtf=0.000 stt=0ms wait=0ms feat=0ms infer=0ms tts=265ms synth=222ms
+09-24 19:52:44.928 D/iTantraService(21295): Received from 5aeaefd8-1860-4b05-b53e-c3883ef16cad: 'எண்ணப்போடி' [SPEECH]
+09-24 19:52:44.929 D/Telemetry(21295): utt=28 lang=ta rtf=0.000 stt=0ms wait=0ms feat=0ms infer=0ms tts=0ms synth=1ms
+09-24 19:52:52.932 D/iTantraService(21295): Received from 5aeaefd8-1860-4b05-b53e-c3883ef16cad: 'அப்படி போட போட போட' [SPEECH]
+09-24 19:52:52.933 D/Telemetry(21295): utt=29 lang=ta rtf=0.000 stt=0ms wait=0ms feat=0ms infer=0ms tts=0ms synth=2ms
+09-24 19:53:01.429 D/iTantraService(21295): Received from 5aeaefd8-1860-4b05-b53e-c3883ef16cad: 'என்ன போடி அப்படி போட போட போடு' [SPEECH]
+09-24 19:53:01.431 D/Telemetry(21295): utt=30 lang=ta rtf=0.000 stt=0ms wait=0ms feat=0ms infer=0ms tts=0ms synth=1ms

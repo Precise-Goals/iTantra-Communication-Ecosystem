@@ -190,9 +190,13 @@ class ITantraForegroundService : Service() {
             serviceScope.launch(Dispatchers.Default) {
                 val isAlert = message.type == MessageType.ALERT
                 _pipelineStage.value = PipelineStage.SPEAKING
-                val utt = Telemetry.begin(ttsLanguage)
+                // Voice the text in the language it is WRITTEN in (T43). There is no translation,
+                // so using this phone's own ttsLanguage fed e.g. Tamil text to the Hindi voice
+                // (docs/latency-evidence/run2/receiver_logcat.txt).
+                val targetLang = message.srcLang.ifBlank { ttsLanguage }
+                val utt = Telemetry.begin(targetLang)
                 utt.rxNs = rxStampNs
-                val synth = ttsModule.synthesize(message.text, ttsLanguage)
+                val synth = ttsModule.synthesize(message.text, targetLang)
                 utt.ttsDoneNs = System.nanoTime()
                 if (synth != null) {
                     utt.ttsAudioDurationMs = synth.samples.size * 1000L / synth.sampleRate
@@ -540,6 +544,20 @@ class ITantraForegroundService : Service() {
         }
     }
 
+    /** Called when the VAD model pack finishes downloading (T73). No-op if already neural. */
+    fun reinitVadIfNeeded() {
+        serviceScope.launch {
+            val neural = vadModule.reinitializeIfNeeded()
+            Log.d(TAG, "VAD re-init after download — neural: $neural")
+        }
+    }
+
+    /** Shared with the AI Assistant so one model instance, one lock and one playback queue serve
+     *  both features (T74). Valid only after onCreate(). */
+    val sharedStt: STTModule get() = sttModule
+    val sharedTts: TTSModule get() = ttsModule
+    val sharedPlayback: AudioPlaybackManager get() = audioPlayback
+
     // ==================== INTERNALS ====================
 
     private fun appendMessage(message: TransceiverMessage) {
@@ -559,9 +577,11 @@ class ITantraForegroundService : Service() {
         serviceScope.launch {
             while (true) {
                 kotlinx.coroutines.delay(5000)
-                val runtime = Runtime.getRuntime()
-                val usedMb = (runtime.totalMemory() - runtime.freeMemory()) / (1024f * 1024f)
-                _ramUsageMbFlow.value = usedMb
+                // Java heap only misses every ONNX model, which are native allocations — the
+                // reported figure was a small fraction of real usage. totalPss counts native.
+                val memInfo = android.os.Debug.MemoryInfo()
+                android.os.Debug.getMemoryInfo(memInfo)
+                _ramUsageMbFlow.value = memInfo.totalPss / 1024f
             }
         }
     }
