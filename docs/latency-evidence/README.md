@@ -163,3 +163,139 @@ is an unsynchronised map. The logcat here is filtered to other tags, so it canno
    directly comparable with this run.
 - Behavior under sustained real background noise (only tested in whatever ambient conditions the
   test room had; not a controlled noise test).
+
+## Run 2
+
+Raw artifacts from a second two-phone test, after implementing T70 (serialised `TTSModule`), T45
+(warm models at start), T72 (per-language walkie-talkie), and T71 (fixed telemetry stamps).
+
+**Commit under test:** `bda505c` (`T38/T62: doc-comment and log-label cleanup`, tip of
+`feature/latency-pipeline-2` — includes all four tasks above) — `gradlew assembleDebug` was run
+from this commit, both devices were force-stopped and cold-started on the resulting APK, and
+`Warm-up stt=hi:true tts=hi:true` was confirmed in logcat on both before any PTT press.
+
+**Devices — ⚠️ receiver changed from Run 1, not directly comparable hardware:**
+- Sender: `23122PCD1I` (POCO) — **same physical device as Run 1**, fingerprint
+  `POCO/garnetp_in/garnet:16/BP2A.250605.031.A3/OS3.0.301.0.WNRINXM:user/release-keys`.
+- Receiver: `RMX5000` (realme) — **different device from Run 1's OPPO CPH2721** (that phone
+  wasn't available for this session). Fingerprint
+  `realme/RMX5000IN/RE6066L1:16/UKQ1.231108.001/U.R4T2.1e7c4a4_6ef579_5c30fb:user/release-keys`.
+  Any receiver-side timing difference between the two runs may be partly hardware, not purely
+  code. The sender-side numbers (where the phrase-cut/STT work happens) are directly comparable.
+
+**Files** (all raw, unedited, in [`run2/`](run2/)):
+- `sender_logcat.txt` / `receiver_logcat.txt` — `adb logcat -v time -s iTantraService:*
+  AudioCapture:* STTModule:* TTSModule:* VADModule:* Telemetry:*`, streamed continuously to a file
+  from cold start through the end of testing (the `TTSModule` tag, missing in Run 1, is included
+  this time per the "Next capture" note above).
+- `sender_telemetry.csv` / `receiver_telemetry.csv` — raw `files/telemetry.csv`, pulled via `adb
+  shell run-as com.itantra.debug cat files/telemetry.csv` after the test. Contains rows from
+  several things tried in the same session before the clean two-phrase take (a connectivity check
+  after the very first cold start, a fragmented take, a Kannada check) plus a Tamil check
+  afterward — all left in unedited, same policy as Run 1.
+
+### A real gotcha hit during this capture — VAD backend on cold start
+
+The receiver's *first* cold start logged `VAD initialized — backend: BASIC_ENERGY (physical path:
+null, neural session loaded: false)` at 18:50:01.774 — the NEURAL backend Run 1 used on both
+devices. `adb shell run-as com.itantra.debug ls -la files/models/silero_vad_v4.onnx` showed the
+model file *was* present, but with an mtime of 18:51 — about 90 seconds **after** `VADModule` had
+already initialized and fallen back to the energy detector. The file wasn't in place yet at the
+moment `VADModule` checked for it. A second force-stop + cold start (once the file was actually
+there) produced `VAD initialized — backend: NEURAL` on both devices, confirmed before testing —
+see `sender_logcat.txt`/`receiver_logcat.txt` line 7–8. The very first cold start's log is
+preserved separately as `run2/sender_logcat_prelim_connectivity_check.txt` /
+`run2/receiver_logcat_prelim_connectivity_check.txt` for the record, but is **not** part of the
+timing analysis below — only the second, NEURAL-confirmed cold start is.
+
+### The clean take — same-device-clock facts
+
+From `sender_logcat.txt` (all one clock), the deliberate two-phrase take starting at 18:57:53:
+
+| Time | Event |
+| --- | --- |
+| 18:57:53.477 | PTT pressed, capture starts |
+| 18:57:56.149 | **Speech segment complete: 32000 samples** — VAD cut phrase 1, still holding |
+| 18:57:56.718 | Phrase 1 STT done: `'हलो कैनो हेयर में'` (573.4ms, telemetry `id=11`) |
+| 18:58:00.341 | **Speech segment complete: 32000 samples** — VAD cut phrase 2, still holding |
+| 18:58:00.907 | Phrase 2 STT done: `'हलो वन टू थ्री'` (565.2ms, telemetry `id=12`) |
+| 18:58:01.111 | PTT released, capture stops |
+
+Unlike Run 1, **both** phrases finished transcribing before release this time — no model load
+landed on either phrase, and neither queued meaningfully behind the other (`wait_ms` ≈ 1ms for
+both, see table below).
+
+### Before / after vs Run 1
+
+Run 1's numbers are the committed rows from `../sender_telemetry.csv` / `../receiver_telemetry.csv`
+(`id=1`/`id=2`, the ones the top-level `../README.md` describes). Run 2's are `id=11`/`id=12`
+(sender) and the matching two rows (receiver) from this run's CSVs, `wait_ms`/`tts_synth_ms` are
+new columns T71 added and did not exist in Run 1.
+
+| Metric | Run 1, phrase 1 | Run 2, phrase 1 | Run 1, phrase 2 | Run 2, phrase 2 |
+| --- | --- | --- | --- | --- |
+| Head start before release | **+235 ms** | **+4393 ms** | **−140 ms** (finished *after* release) | **+204 ms** |
+| `stt_ms` | 3076.8 ms (incl. ~2306 ms model load) | 573.4 ms | 360.6 ms | 565.2 ms |
+| `wait_ms` (new, T71) | not recorded | 1.0 ms | not recorded | 0.9 ms |
+| `rtf` | 0.9925 (model-load-polluted) | 0.2862 | 0.2576 | 0.2821 |
+| `tts_synth_ms` (new, T71, receiver) | not recorded | 255.7 ms | not recorded | 230.1 ms |
+| `tts_ms` (receiver, incl. queue wait) | 2343.4 ms | 292.3 ms | 4731.4 ms | 268.1 ms |
+
+**Reading this honestly:**
+- **Head start is real and large now**, not merely projected: phrase 1 finished **4.39 s** before
+  release (vs. a projected 2.5 s), phrase 2 **204 ms** before release, flipping from *after*
+  release in Run 1 to *before* it. This is one run, on one phrase pair, on the pairing described
+  above — not a guaranteed number for every utterance length, but it directly demonstrates T45
+  doing what it was for: the one-time model load is gone from the hot path.
+- `stt_ms` for phrase 1 dropped from 3076.8 ms to 573.4 ms because the ~2306 ms model load that
+  used to land inside it (Run 1) is gone (T45) and no longer double-counted into `stt_ms` even
+  when it does happen elsewhere (T71). Phrase 2's `rtf` (0.2576 → 0.2821) is in the same band as
+  Run 1 — real per-phrase processing speed is unchanged, as expected; T45/T71 do not touch
+  inference itself.
+- `wait_ms` (new) is ≈1ms for both phrases here because nothing queued behind anything — see the
+  Tamil section below for a case where it captured a real wait.
+- Receiver `tts_ms` fell from seconds to a few hundred ms mainly because T45 preloads the Hindi
+  voice (no cold `sherpa-onnx TTS loaded` mid-message) and because, in this run, phrase 2 arrived
+  4.2 s after phrase 1 — long enough for phrase 1's 1.3 s of audio to finish playing well before
+  phrase 2 needed the queue, unlike Run 1's tighter timing. `tts_synth_ms` (new) isolates the
+  synthesis-only cost for the first time: 255.7 ms / 230.1 ms, both close to `tts_ms` since there
+  was no queue wait to inflate the difference this run.
+
+### T70 — no double voice load, now directly observable
+
+Run 1 could only flag a ⚠️ *possible* double-load from timing coincidence; the `TTSModule` tag was
+missing from its logcat filter. This run includes it. Across the **entire** receiver session —
+warm-up plus 10 messages received and spoken (5 Hindi, 3 Kannada, 2 Tamil) — the string
+`sherpa-onnx TTS loaded for 'hi'` appears **exactly once**, at warm-up (18:54:19.704). Every
+subsequent message reused the cached voice; none loaded it again, even when messages arrived
+seconds apart. Run 1's ⚠️ note is resolved: no double-load was observed with the lock in place.
+
+### T72 — language switch works, and a real gap it surfaced
+
+On the sender, switching to Tamil produced `Warm-up stt=ta:true tts=ta:false in 3442ms` — STT
+loaded correctly, and TTS correctly reports unavailable (Tamil has no voice yet, per
+`ModelRegistry`) rather than pretending to have one. A held PTT phrase was transcribed correctly:
+`STT inference: 'என்ன பாடா' ... [ta]`. Switching to Kannada similarly produced correct `[kn]`
+transcriptions.
+
+One of the Tamil phrases (`sender_telemetry.csv id=16`) shows `wait_ms=701.2` — that phrase was
+captured and queued while `ensureLoaded('ta')` was still running from the language switch, and
+`sttStartNs` wasn't stamped until the load finished. This is exactly the scenario T71's `wait_ms`
+column exists to surface, caught in the wild on the very first phrase after a language switch.
+
+**What did *not* happen, and is worth writing down plainly:** the T72 spec's own VERIFY step
+predicted the receiver would report a real "TTS not available" error for a language without a
+voice. Instead, the receiver spoke every Kannada and Tamil message **in the Hindi voice**
+(`receiver_logcat.txt`: `Received from ...: 'என்ன பாடா' [SPEECH]` at 19:00:04.537, immediately
+followed by `sherpa-onnx TTS synthesized ... [hi]` — same `[hi]` tag on every Kannada/Tamil
+message received), because it mispronounced the text rather than refusing it. The reason
+is in `ITantraForegroundService.onTextReceived` (`app/src/main/java/com/itantra/core/service/ITantraForegroundService.kt`,
+around the `onTextReceived` override): it calls
+`ttsModule.synthesize(message.text, ttsLanguage)` using the **receiver's own locally-selected**
+`ttsLanguage`, not `message.srcLang`/`dstLang` — fields `TransceiverMessage` actually carries and
+the sender does set. Since the receiver in this test never switched off Hindi, it always had a
+voice to (mis-)use. `IMPLEMENTATION_SPEC.md`'s T43 correction says "the receiver's voice must
+match the language the text is written in (`srcLang`)" — that is the documented intent, but
+`onTextReceived` does not implement it; it was out of scope for T70/T45/T72/T71 to fix, so it
+wasn't touched here. Flagging it for whoever picks up the next task, rather than leaving it to be
+rediscovered as a mystery mispronunciation bug.

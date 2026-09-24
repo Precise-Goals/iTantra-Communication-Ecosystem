@@ -1,0 +1,23 @@
+--------- beginning of main
+09-24 18:49:59.175 D/iTantraService(18416): Service created
+09-24 18:49:59.473 D/STTModule(18416): STT('hi'): NNAPI delegate enabled
+09-24 18:49:59.588 D/VADModule(18416): VAD real signature — inputs=[input, state, sr] outputs=[output, stateN]
+09-24 18:49:59.590 D/VADModule(18416): VAD input 'input': [-1, -1]
+09-24 18:49:59.590 D/VADModule(18416): VAD input 'state': [2, -1, 128]
+09-24 18:49:59.590 D/VADModule(18416): VAD input 'sr': []
+09-24 18:49:59.590 D/VADModule(18416): VAD initialized — backend: NEURAL (physical path: /data/user/0/com.itantra.debug/files/models/silero_vad_v4.onnx, neural session loaded: true)
+09-24 18:50:02.285 D/STTModule(18416): STT('hi') loaded in 3015ms — vocab size 5633, inputs=IoNames(featureInput=audio_signal, lengthInput=length, outputName=logprobs)
+09-24 18:50:04.547 D/TTSModule(18416): sherpa-onnx TTS loaded for 'hi' from hi_IN-pratham-medium.onnx
+09-24 18:50:04.547 D/iTantraService(18416): Warm-up stt=hi:true tts=hi:true in 5278ms
+09-24 18:51:35.355 D/iTantraService(18416): Node connected: realme 13+ 5G
+09-24 18:51:51.410 D/iTantraService(18416): Node connected: realme 13+ 5G
+09-24 18:51:51.449 D/iTantraService(18416): Node connected: realme 13+ 5G
+09-24 18:51:51.802 D/iTantraService(18416): Node connected: realme 13+ 5G
+09-24 18:52:06.557 D/iTantraService(18416): Received from eb5794c0-855c-4b24-b68f-b3f3b467b411: 'हेलो केैन यू हेयर में हेलो हैेलो' [SPEECH]
+09-24 18:52:07.435 D/TTSModule(18416): sherpa-onnx TTS synthesized 51495 samples @ 22050Hz in 877ms [hi]
+09-24 18:52:07.435 D/iTantraService(18416): TTS synthesis complete: 2335ms audio
+09-24 18:52:07.628 D/Telemetry(18416): utt=1 lang=hi rtf=0.000 stt=0ms wait=0ms feat=0ms infer=0ms tts=1069ms synth=879ms
+09-24 18:52:15.160 D/AudioCapture(18416): Audio capture started at 16000Hz
+09-24 18:52:16.974 D/AudioCapture(18416): Audio capture stopped
+09-24 18:52:17.317 D/STTModule(18416): STT inference: 'हैेलो कैन्यू हेयर में हैेलो हैेलो' in 339ms [hi]
+09-24 18:52:17.338 D/Telemetry(18416): utt=2 lang=hi rtf=0.258 stt=363ms wait=2ms feat=69ms infer=292ms tts=0ms synth=0ms

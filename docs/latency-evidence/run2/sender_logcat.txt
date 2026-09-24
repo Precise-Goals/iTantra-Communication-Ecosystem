@@ -1,0 +1,85 @@
+--------- beginning of main
+09-24 18:54:05.701 D/iTantraService( 1437): Service created
+09-24 18:54:06.084 D/VADModule( 1437): VAD real signature — inputs=[input, state, sr] outputs=[output, stateN]
+09-24 18:54:06.086 D/VADModule( 1437): VAD input 'input': [-1, -1]
+09-24 18:54:06.086 D/VADModule( 1437): VAD input 'state': [2, -1, 128]
+09-24 18:54:06.086 D/VADModule( 1437): VAD input 'sr': []
+09-24 18:54:06.086 D/VADModule( 1437): VAD initialized — backend: NEURAL (physical path: /data/user/0/com.itantra.debug/files/models/silero_vad_v4.onnx, neural session loaded: true)
+09-24 18:54:06.161 D/STTModule( 1437): STT('hi'): NNAPI delegate enabled
+09-24 18:54:08.661 D/STTModule( 1437): STT('hi') loaded in 2852ms — vocab size 5633, inputs=IoNames(featureInput=audio_signal, lengthInput=length, outputName=logprobs)
+09-24 18:54:11.316 D/TTSModule( 1437): sherpa-onnx TTS loaded for 'hi' from hi_IN-pratham-medium.onnx
+09-24 18:54:11.316 D/iTantraService( 1437): Warm-up stt=hi:true tts=hi:true in 5507ms
+09-24 18:54:23.045 D/iTantraService( 1437): Node connected: realme 13+ 5G
+09-24 18:54:29.277 D/iTantraService( 1437): Received from 5776ee3b-f9da-41ca-94d5-e9d04702278a: 'हेलो कैन्यू हेयर में हेलो' [SPEECH]
+09-24 18:54:29.784 D/TTSModule( 1437): sherpa-onnx TTS synthesized 34543 samples @ 22050Hz in 503ms [hi]
+09-24 18:54:29.784 D/iTantraService( 1437): TTS synthesis complete: 1566ms audio
+09-24 18:54:29.972 D/Telemetry( 1437): utt=1 lang=hi rtf=0.000 stt=0ms wait=0ms feat=0ms infer=0ms tts=689ms synth=508ms
+09-24 18:54:35.969 D/AudioCapture( 1437): Audio capture started at 16000Hz
+09-24 18:54:39.090 D/AudioCapture( 1437): Audio capture stopped
+09-24 18:54:40.013 D/STTModule( 1437): STT inference: 'क्या आप मुझे सुन सकते हो क्या आप मुझे सुन सकते हो' in 917ms [hi]
+09-24 18:54:40.038 D/Telemetry( 1437): utt=2 lang=hi rtf=0.350 stt=948ms wait=1ms feat=168ms infer=778ms tts=0ms synth=0ms
+09-24 18:55:41.592 D/iTantraService( 1437): Received from 5776ee3b-f9da-41ca-94d5-e9d04702278a: 'हैलो' [SPEECH]
+09-24 18:55:41.771 D/TTSModule( 1437): sherpa-onnx TTS synthesized 10143 samples @ 22050Hz in 178ms [hi]
+09-24 18:55:41.771 D/iTantraService( 1437): TTS synthesis complete: 460ms audio
+09-24 18:55:41.918 D/Telemetry( 1437): utt=3 lang=hi rtf=0.000 stt=0ms wait=0ms feat=0ms infer=0ms tts=326ms synth=179ms
+09-24 18:55:43.513 D/iTantraService( 1437): Received from 5776ee3b-f9da-41ca-94d5-e9d04702278a: 'कैन्यू हेयरमी' [SPEECH]
+09-24 18:55:43.794 D/TTSModule( 1437): sherpa-onnx TTS synthesized 22528 samples @ 22050Hz in 280ms [hi]
+09-24 18:55:43.794 D/iTantraService( 1437): TTS synthesis complete: 1021ms audio
+09-24 18:55:43.934 D/Telemetry( 1437): utt=4 lang=hi rtf=0.000 stt=0ms wait=0ms feat=0ms infer=0ms tts=421ms synth=281ms
+09-24 18:55:57.575 D/iTantraService( 1437): Received from 5776ee3b-f9da-41ca-94d5-e9d04702278a: 'हेलो कैन यू हेयर्मी' [SPEECH]
+09-24 18:55:57.961 D/TTSModule( 1437): sherpa-onnx TTS synthesized 29440 samples @ 22050Hz in 382ms [hi]
+09-24 18:55:57.961 D/iTantraService( 1437): TTS synthesis complete: 1335ms audio
+09-24 18:55:58.122 D/Telemetry( 1437): utt=5 lang=hi rtf=0.000 stt=0ms wait=0ms feat=0ms infer=0ms tts=547ms synth=386ms
+09-24 18:56:04.557 D/iTantraService( 1437): Received from 5776ee3b-f9da-41ca-94d5-e9d04702278a: 'हेलो' [SPEECH]
+09-24 18:56:04.781 D/TTSModule( 1437): sherpa-onnx TTS synthesized 13219 samples @ 22050Hz in 223ms [hi]
+09-24 18:56:04.781 D/iTantraService( 1437): TTS synthesis complete: 599ms audio
+09-24 18:56:04.922 D/Telemetry( 1437): utt=6 lang=hi rtf=0.000 stt=0ms wait=0ms feat=0ms infer=0ms tts=364ms synth=224ms
+09-24 18:56:06.300 D/iTantraService( 1437): Received from 5776ee3b-f9da-41ca-94d5-e9d04702278a: 'है' [SPEECH]
+09-24 18:56:06.402 D/TTSModule( 1437): sherpa-onnx TTS synthesized 6400 samples @ 22050Hz in 99ms [hi]
+09-24 18:56:06.402 D/iTantraService( 1437): TTS synthesis complete: 290ms audio
+09-24 18:56:06.537 D/Telemetry( 1437): utt=7 lang=hi rtf=0.000 stt=0ms wait=0ms feat=0ms infer=0ms tts=238ms synth=102ms
+09-24 18:56:14.580 D/AudioCapture( 1437): Audio capture started at 16000Hz
+09-24 18:56:15.527 D/AudioCapture( 1437): Speech segment complete: 14400 samples
+09-24 18:56:15.845 D/STTModule( 1437): STT inference: 'वाद' in 314ms [hi]
+09-24 18:56:15.848 D/Telemetry( 1437): utt=8 lang=hi rtf=0.352 stt=321ms wait=4ms feat=17ms infer=300ms tts=0ms synth=0ms
+09-24 18:56:18.630 D/AudioCapture( 1437): Speech segment complete: 49600 samples
+09-24 18:56:19.458 D/STTModule( 1437): STT inference: 'ह क्या न यू हेयर में' in 824ms [hi]
+09-24 18:56:19.463 D/Telemetry( 1437): utt=9 lang=hi rtf=0.268 stt=833ms wait=3ms feat=43ms infer=787ms tts=0ms synth=0ms
+09-24 18:56:21.230 D/AudioCapture( 1437): Speech segment complete: 14400 samples
+09-24 18:56:21.551 D/STTModule( 1437): STT inference: 'क' in 316ms [hi]
+09-24 18:56:21.553 D/Telemetry( 1437): utt=10 lang=hi rtf=0.356 stt=323ms wait=2ms feat=22ms infer=299ms tts=0ms synth=0ms
+09-24 18:56:21.632 D/AudioCapture( 1437): Audio capture stopped
+09-24 18:56:24.707 D/AudioCapture( 1437): Audio capture started at 16000Hz
+09-24 18:56:27.850 D/AudioCapture( 1437): Audio capture stopped
+09-24 18:57:53.477 D/AudioCapture( 1437): Audio capture started at 16000Hz
+09-24 18:57:56.149 D/AudioCapture( 1437): Speech segment complete: 32000 samples
+09-24 18:57:56.718 D/STTModule( 1437): STT inference: 'हलो कैनो हेयर में' in 568ms [hi]
+09-24 18:57:56.722 D/Telemetry( 1437): utt=11 lang=hi rtf=0.286 stt=573ms wait=1ms feat=31ms infer=541ms tts=0ms synth=0ms
+09-24 18:58:00.341 D/AudioCapture( 1437): Speech segment complete: 32000 samples
+09-24 18:58:00.903 D/STTModule( 1437): STT inference: 'हलो वन टू थ्री' in 561ms [hi]
+09-24 18:58:00.907 D/Telemetry( 1437): utt=12 lang=hi rtf=0.282 stt=565ms wait=1ms feat=28ms infer=537ms tts=0ms synth=0ms
+09-24 18:58:01.111 D/AudioCapture( 1437): Audio capture stopped
+09-24 18:59:39.900 D/STTModule( 1437): STT('kn'): NNAPI delegate enabled
+09-24 18:59:43.332 D/STTModule( 1437): STT('kn') loaded in 3470ms — vocab size 5633, inputs=IoNames(featureInput=audio_signal, lengthInput=length, outputName=logprobs)
+09-24 18:59:43.332 D/iTantraService( 1437): Warm-up stt=kn:true tts=kn:false in 3471ms
+09-24 18:59:45.047 D/AudioCapture( 1437): Audio capture started at 16000Hz
+09-24 18:59:46.911 D/AudioCapture( 1437): Speech segment complete: 24000 samples
+09-24 18:59:47.369 D/STTModule( 1437): STT inference: 'ಚನ್ನಪ್ಪಾಡ' in 454ms [kn]
+09-24 18:59:47.373 D/Telemetry( 1437): utt=13 lang=kn rtf=0.307 stt=461ms wait=1ms feat=22ms infer=438ms tts=0ms synth=0ms
+09-24 18:59:49.908 D/AudioCapture( 1437): Speech segment complete: 27200 samples
+09-24 18:59:50.399 D/STTModule( 1437): STT inference: 'ಪಾಡ ಪಾಡ' in 490ms [kn]
+09-24 18:59:50.403 D/Telemetry( 1437): utt=14 lang=kn rtf=0.290 stt=495ms wait=1ms feat=26ms infer=467ms tts=0ms synth=0ms
+09-24 18:59:51.646 D/AudioCapture( 1437): Audio capture stopped
+09-24 18:59:51.948 D/STTModule( 1437): STT inference: 'ಆನ್ ಆನ್' in 298ms [kn]
+09-24 18:59:51.950 D/Telemetry( 1437): utt=15 lang=kn rtf=0.429 stt=303ms wait=3ms feat=21ms infer=279ms tts=0ms synth=0ms
+09-24 19:00:00.138 D/STTModule( 1437): STT('ta'): NNAPI delegate enabled
+09-24 19:00:00.876 D/AudioCapture( 1437): Audio capture started at 16000Hz
+09-24 19:00:02.846 D/AudioCapture( 1437): Speech segment complete: 24000 samples
+09-24 19:00:03.546 D/STTModule( 1437): STT('ta') loaded in 3442ms — vocab size 5633, inputs=IoNames(featureInput=audio_signal, lengthInput=length, outputName=logprobs)
+09-24 19:00:03.546 D/iTantraService( 1437): Warm-up stt=ta:true tts=ta:false in 3442ms
+09-24 19:00:04.021 D/STTModule( 1437): STT inference: 'என்ன பாடா' in 473ms [ta]
+09-24 19:00:04.025 D/Telemetry( 1437): utt=16 lang=ta rtf=0.318 stt=1178ms wait=701ms feat=21ms infer=456ms tts=0ms synth=0ms
+09-24 19:00:05.745 D/AudioCapture( 1437): Speech segment complete: 24000 samples
+09-24 19:00:06.205 D/STTModule( 1437): STT inference: 'பாட பாட' in 459ms [ta]
+09-24 19:00:06.209 D/Telemetry( 1437): utt=17 lang=ta rtf=0.308 stt=464ms wait=1ms feat=20ms infer=442ms tts=0ms synth=0ms
+09-24 19:00:07.373 D/AudioCapture( 1437): Audio capture stopped
