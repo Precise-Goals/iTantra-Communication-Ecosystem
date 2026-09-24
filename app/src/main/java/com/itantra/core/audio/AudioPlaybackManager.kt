@@ -43,6 +43,31 @@ class AudioPlaybackManager(
     private var audioFocusRequest: AudioFocusRequest? = null
     private var savedVolume: Int = -1
 
+    /** Tracks currently between requestAudioFocus() and releaseAudioFocus() (T63). */
+    private val activePlaybacks = java.util.concurrent.atomic.AtomicInteger(0)
+    /** System.nanoTime() of the most recent playback start and end (T63). */
+    @Volatile private var lastPlaybackStartNs: Long = 0L
+    @Volatile private var lastPlaybackEndNs: Long = 0L
+
+    /**
+     * True while this device is playing audio, or within [tailMs] after it stopped. Used by
+     * AudioCaptureModule as an echo gate so a received message played on the loudspeaker is not
+     * re-captured, transcribed and sent back (T63). The tail covers room reverberation and the
+     * AudioTrack drain after the last write.
+     *
+     * Stale guard: if a playback start was never matched by an end (e.g. AudioTrack.Builder
+     * threw between requestAudioFocus and the try block), stop gating after 60 s so the
+     * microphone can never be muted permanently. No single message plays that long.
+     */
+    fun isOutputActive(tailMs: Long = 250L): Boolean {
+        val now = System.nanoTime()
+        if (activePlaybacks.get() > 0) {
+            if (now - lastPlaybackStartNs < 60_000_000_000L) return true
+            activePlaybacks.set(0)
+        }
+        return lastPlaybackEndNs != 0L && now - lastPlaybackEndNs < tailMs * 1_000_000L
+    }
+
     private class PlaybackItem(
         val waveform: FloatArray,
         val sampleRate: Int,
@@ -192,6 +217,8 @@ class AudioPlaybackManager(
     }
 
     private fun requestAudioFocus(isAlert: Boolean) {
+        lastPlaybackStartNs = System.nanoTime()
+        activePlaybacks.incrementAndGet()
         val focusGain = if (isAlert) AudioManager.AUDIOFOCUS_GAIN else AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -223,6 +250,8 @@ class AudioPlaybackManager(
     }
 
     private fun releaseAudioFocus() {
+        lastPlaybackEndNs = System.nanoTime()
+        activePlaybacks.updateAndGet { if (it > 0) it - 1 else 0 }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             audioFocusRequest?.let { audioManager.abandonAudioFocusRequest(it) }
         } else {

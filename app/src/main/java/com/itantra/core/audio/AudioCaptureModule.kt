@@ -120,6 +120,13 @@ class AudioCaptureModule(
 
     var currentLanguage: String = "hi"
 
+    /**
+     * Echo gate (T63). When this returns true, captured audio is discarded instead of being fed
+     * to VAD/STT. The service wires it to AudioPlaybackManager.isOutputActive(). A lambda rather
+     * than a constructor parameter so the service's construction order does not change.
+     */
+    @Volatile var isSuppressed: () -> Boolean = { false }
+
     @SuppressLint("MissingPermission")
     fun startCapture() {
         if (isCapturing) return
@@ -161,6 +168,17 @@ class AudioCaptureModule(
                 // Normalize PCM Short → Float [-1.0, 1.0]
                 val floatChunk = FloatArray(samplesRead) { i ->
                     rawBuffer[i].toFloat() / Short.MAX_VALUE
+                }
+
+                // Echo gate (T63): while this phone is playing a received message, whatever the
+                // microphone hears is our own loudspeaker. Discard it and any half-built segment.
+                if (isSuppressed()) {
+                    synchronized(bufferLock) {
+                        speechBuffer.clear()
+                        silenceChunkCount = 0
+                        speechChunkCount = 0
+                    }
+                    continue
                 }
 
                 // Run VAD
