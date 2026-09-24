@@ -9,7 +9,7 @@
 - **PR #17 is merged.** Stage A (T43, T73, T46, T47, T74) is on `feature/stage-a`, pushed, **no PR yet**; its run-3 two-phone evidence is still to be captured.
 - **The AI Assistant is removed** in **PR #19**, stacked on `feature/stage-a`: merge Stage A first, then retarget #19 to `main`. Debug APK 99.3 MB → 60.8 MB. Tag `assistant-last` keeps the old code.
 - **Scope decisions** (`docs/IMPROVEMENT_PLAN.md` §10.16): no translation, no Android/Google voice packs, no audio-instead-of-text; SOS is trimmed to a "next message is an ALERT" toggle (T66 minimum).
-- **Next:** Stage B in `docs/TASKS.md` → "Do these next".
+- **Next:** Stage B in `docs/TASKS.md` → "Do these next". **Who does what, with prompts:** `docs/WORK_SPLIT.md` (Gaurav + Claude Sonnet, Sarthak + Gemini).
 
 ## Update — 2026-09-24 evening
 

@@ -892,6 +892,8 @@ Do not set the limit to 1. A device sending in one language and receiving in ano
 
 ## T20 · Make the core bundle a language pair
 
+> **Superseded 2026-09-24:** use **Group I → "T20 (revised 2026-09-24)"**. This version's ANCHOR lists the language-ID pack removed in PR #19, and its `ttsPackFor` returns placeholder voices that would lock the download gate.
+
 **File:** `app/src/main/java/com/itantra/domain/model/ModelManifest.kt`
 **Criterion:** EFF — currently forces 2.18 GB.
 
@@ -3507,7 +3509,169 @@ Leave `sttModule = sttModule` in the `AudioCaptureModule(...)` constructor call 
 
 ---
 
-# Group I — Evaluations (offline, no app code)
+# Group I — Revised specs and evaluations
+
+## T20 (revised 2026-09-24) · Download only the selected language
+
+**Files:** `domain/model/ModelManifest.kt`, `ui/MainViewModel.kt`, `ui/screen/DownloadsScreen.kt`, `ui/screen/HomeScreen.kt`, `ui/screen/TransceiverScreen.kt`, `core/download/ModelDownloadManager.kt`
+**Criterion:** EFF — the compulsory download is 2.18 GB today.
+**Depends on:** PR #19 (AI Assistant removal) merged. The anchors below match the code after it.
+
+> Replaces T20 in Group D, whose ANCHOR still lists the language-ID pack (removed in PR #19) and whose `ttsPackFor` returned placeholder voice packs that can never finish downloading — the download gate would then stay locked forever for Tamil, Kannada, Telugu, Marathi and Odia.
+
+### Step 1 — `domain/model/ModelManifest.kt`
+
+ANCHOR:
+
+```kotlin
+        fun coreTransceiverPacks(): List<ModelPack> = listOf(
+            VAD_MODEL,
+            STT_HINDI,
+            STT_GUJARATI,
+            STT_MARATHI,
+            STT_KANNADA,
+            STT_MALAYALAM,
+            STT_TAMIL,
+            STT_TELUGU,
+            STT_BENGALI,
+            STT_ENGLISH,
+            ESPEAK_NG_DATA,
+            TTS_HINDI,
+            TTS_GUJARATI,
+            TTS_MALAYALAM,
+            TTS_BENGALI,
+            TTS_ENGLISH
+        )
+```
+
+REPLACEMENT:
+
+```kotlin
+        /** Always needed, whatever language is selected (T20). ~9 MB. */
+        fun baselinePacks(): List<ModelPack> = listOf(VAD_MODEL, ESPEAK_NG_DATA)
+
+        /** STT model for [code]; null if none exists yet (Odia, until T64). */
+        fun sttPackFor(code: String): ModelPack? = when (code) {
+            "hi" -> STT_HINDI; "gu" -> STT_GUJARATI; "mr" -> STT_MARATHI
+            "kn" -> STT_KANNADA; "ml" -> STT_MALAYALAM; "ta" -> STT_TAMIL
+            "te" -> STT_TELUGU; "bn" -> STT_BENGALI; "en" -> STT_ENGLISH
+            else -> null
+        }
+
+        /**
+         * TTS voice for [code]; null if no voice source exists yet. Only the five languages with a
+         * real voice are listed: the other five packs are empty placeholders that can never reach
+         * Downloaded, so returning them would keep the download gate locked forever. T17b adds
+         * "mr", "kn", "ta", "te" and "or" here once those voices are hosted.
+         */
+        fun ttsPackFor(code: String): ModelPack? = when (code) {
+            "hi" -> TTS_HINDI; "gu" -> TTS_GUJARATI; "ml" -> TTS_MALAYALAM
+            "bn" -> TTS_BENGALI; "en" -> TTS_ENGLISH
+            else -> null
+        }
+
+        /**
+         * The compulsory set for one selected language (T20): roughly 210–280 MB instead of the
+         * 2.18 GB that downloading all nine STT models plus every voice required. Model and flash
+         * footprint are 20% of the evaluation.
+         */
+        fun coreTransceiverPacks(languageCode: String): List<ModelPack> =
+            (baselinePacks() + listOfNotNull(sttPackFor(languageCode), ttsPackFor(languageCode))).distinct()
+
+        /** Every pack a full multilingual install uses: all nine STT models and the five voices. */
+        fun allTransceiverPacks(): List<ModelPack> = listOf(
+            VAD_MODEL,
+            STT_HINDI,
+            STT_GUJARATI,
+            STT_MARATHI,
+            STT_KANNADA,
+            STT_MALAYALAM,
+            STT_TAMIL,
+            STT_TELUGU,
+            STT_BENGALI,
+            STT_ENGLISH,
+            ESPEAK_NG_DATA,
+            TTS_HINDI,
+            TTS_GUJARATI,
+            TTS_MALAYALAM,
+            TTS_BENGALI,
+            TTS_ENGLISH
+        )
+```
+
+There is deliberately **no** zero-argument `coreTransceiverPacks()` any more: the compiler will then list every call site that still needs updating. Steps 2–4 cover all five that exist today.
+
+### Step 2 — `ui/MainViewModel.kt`
+
+ANCHOR:
+
+```kotlin
+    fun downloadCorePacks() = downloadManager.downloadAll(ModelPack.coreTransceiverPacks())
+```
+
+REPLACEMENT:
+
+```kotlin
+    fun downloadCorePacks() = downloadManager.downloadAll(ModelPack.coreTransceiverPacks(_selectedLanguage.value))
+```
+
+### Step 3 — the three screens
+
+**`ui/screen/DownloadsScreen.kt`** and **`ui/screen/HomeScreen.kt`** — the same edit in each file. ANCHOR:
+
+```kotlin
+    val corePacks = ModelPack.coreTransceiverPacks()
+```
+
+REPLACEMENT:
+
+```kotlin
+    val selectedLanguage by viewModel.selectedLanguage.collectAsState()
+    val corePacks = ModelPack.coreTransceiverPacks(selectedLanguage)
+```
+
+**`ui/screen/TransceiverScreen.kt`** — `selectedLanguage` is already collected there (T72), so only the second line changes. ANCHOR:
+
+```kotlin
+    val corePacks = ModelPack.coreTransceiverPacks()
+```
+
+REPLACEMENT:
+
+```kotlin
+    val corePacks = ModelPack.coreTransceiverPacks(selectedLanguage)
+```
+
+### Step 4 — `core/download/ModelDownloadManager.kt`
+
+ANCHOR:
+
+```kotlin
+        downloadAll(ModelPack.coreTransceiverPacks())
+```
+
+REPLACEMENT:
+
+```kotlin
+        downloadAll(ModelPack.allTransceiverPacks())
+```
+
+### VERIFY
+
+1. `./gradlew :app:compileDebugKotlin` passes, and `grep -rn "coreTransceiverPacks()" app/src/main/java` returns nothing.
+2. On a phone with app data cleared: select Tamil, open Downloads. The "Download the Pack" button shows about 200–210 MB (Tamil STT + VAD + phonemizer data; Tamil has no voice yet), not 2.18 GB. After the download, the Transceiver screen unlocks.
+3. Select Hindi: the gate asks for the Hindi packs (~270 MB total), not everything.
+
+### Known limitation (say it in the demo)
+
+With T43, the receiver speaks each message in the **sender's** language. A phone that downloaded only its own language has no voice for other languages, so those messages arrive as text only. T21 lets the user download extra voices from the Downloads screen.
+
+### DO NOT
+
+- Do not add the five placeholder voice packs to `ttsPackFor` before T17b hosts real voices.
+- Do not keep a zero-argument `coreTransceiverPacks()`; its absence is how the compiler finds every call site.
+
+---
 
 ## T76 🔬 · Evaluate SraVaani 1.0 against the current IndicConformer models
 

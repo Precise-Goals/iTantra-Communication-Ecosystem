@@ -62,6 +62,8 @@ On `main` (PRs #15, #17), on **`feature/stage-a`** (pushed, no PR yet, run 3 pen
 
 ### Do these next, in this order
 
+> **Who does what:** [`WORK_SPLIT.md`](WORK_SPLIT.md) splits everything below between Gaurav (Claude Sonnet) and Sarthak (Gemini), with a day-by-day timeline, merge order, and a ready-to-paste prompt for every run.
+
 **0. Finish Stage A and the removal.** Stage A's code (T43, T73, T46, T47, T74) is on `feature/stage-a`. Remaining: the run-3 two-phone evidence, then a PR for `feature/stage-a` → `main`. After that merges, retarget **PR #19** (AI Assistant removal) to `main` and merge it. A human has to merge; agents are blocked from it.
 
 **Stage B — PS requirements that are still pass/fail (≈ 2.5 days).** Specs: `IMPLEMENTATION_SPEC_2.md` Group G.
@@ -73,7 +75,7 @@ On `main` (PRs #15, #17), on **`feature/stage-a`** (pushed, no PR yet, run 3 pen
 **Stage C — the 40% Accuracy criterion and the footprint (needs a human for hosting).**
 8a. **T76 (optional, priority)** — evaluate **SraVaani 1.0** (IISc, one open model for 65 Indian languages including Odia) against the current IndicConformer models on the same test clips. Offline Python work, no app code, so it can **start now in parallel** with Stage A and B. Its verdict decides T64 (Odia) and whether the STT model should change at all.
 9. **T17b + T64** — the five missing TTS voices and Odia STT (10/10 languages). Needs a hosting URL from a human.
-10. **T20 + T21** — download only the selected language (2.18 GB → ~250 MB). Easy now that T72 gives the app a selected language.
+10. **T20 (revised) + T21** — download only the selected language (2.18 GB → ~250 MB). Easy now that T72 gives the app a selected language.
 11. **T23 → T29 → T30** — match the NeMo preprocessor, golden test, WER table.
 12. **T15** — two ONNX runtimes still ship in the APK (`libsherpa-onnx-jni.so` 23.7 MB with its own runtime, plus `libonnxruntime.so` 16.3 MB). Consolidating is the next APK-size win after the Assistant removal.
 13. **T75** — remove stale claims from `app_metadata.json`, `AppMetadata.kt` and the manifest metadata (small).
