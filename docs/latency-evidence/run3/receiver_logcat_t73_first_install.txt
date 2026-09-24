@@ -1,0 +1,15 @@
+--------- beginning of main
+09-24 19:31:57.618 D/iTantraService(14023): Service created
+09-24 19:32:12.174 D/iTantraService(14517): Service created
+09-24 19:33:28.437 D/iTantraService(15073): Service created
+09-24 19:33:32.923 D/iTantraService(15176): Service created
+09-24 19:33:37.214 D/iTantraService(15326): Service created
+09-24 19:33:37.320 D/VADModule(15326): VAD initialized — backend: BASIC_ENERGY (physical path: null, neural session loaded: false)
+09-24 19:33:38.087 W/STTModule(15326): STT model or tokenizer not available on disk for 'hi' (model=null, vocab=null)
+09-24 19:33:38.088 D/iTantraService(15326): Warm-up stt=hi:false tts=hi:false in 1ms
+09-24 19:33:58.510 D/VADModule(15326): VAD real signature — inputs=[input, state, sr] outputs=[output, stateN]
+09-24 19:33:58.518 D/VADModule(15326): VAD input 'input': [-1, -1]
+09-24 19:33:58.518 D/VADModule(15326): VAD input 'state': [2, -1, 128]
+09-24 19:33:58.518 D/VADModule(15326): VAD input 'sr': []
+09-24 19:33:58.519 D/VADModule(15326): VAD initialized — backend: NEURAL (physical path: /data/user/0/com.itantra.debug/files/models/silero_vad_v4.onnx, neural session loaded: true)
+09-24 19:33:58.519 D/iTantraService(15326): VAD re-init after download — neural: true

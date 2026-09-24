@@ -1,0 +1,52 @@
+T46/T47 check -- sender (POCO, 23122PCD1I), commit 0d6bde5 (tip of feature/stage-a)
+adb -s 862f253e shell dumpsys meminfo com.itantra.debug
+
+Chip taps landed on different languages than the planned "Hindi -> Tamil -> Kannada -> Hindi" script
+(the chip row scrolled / mis-taps happened -- see the earlier Marathi mixup), so this ended up as a
+longer, more thorough test: 15 "Warm-up stt=..." lines and 12 "Evicted STT session '<lang>' (LRU)"
+lines total across the session (grep -c on sender_logcat.txt). Every eviction paired 1:1 with a new
+language's session being loaded, and the cache size never exceeded 2 -- see sender_logcat.txt for
+the full, exact sequence of switches and their timestamps.
+
+Reading 1 -- taken 19:54:34-19:54:40, right after "Evicted STT session 'ta'" / "Warm-up stt=hi"
+at 19:54:34.382-383 (cache = {kn, hi} by the log's exact timestamps):
+        TOTAL   991918   767128    38384   170893   927020  1001560   940142    52967
+           TOTAL PSS:   991918            TOTAL RSS:   927020       TOTAL SWAP PSS:   170893
+(991918 KB = 968.67 MB)
+
+Reading 2 -- taken ~19:57:00, after 2 more taps; closest log anchor is "Evicted STT session 'mr'" /
+"Warm-up stt=hi" at 19:56:06.932-933 (cache = {gu, hi} by the log's exact timestamps):
+           TOTAL PSS:  1212180            TOTAL RSS:  1154760       TOTAL SWAP PSS:   163924
+(1212180 KB = 1183.77 MB, +220.26 MB vs reading 1)
+
+Reading 3 -- taken ~19:57:13-15, after 2 more taps; falls right at the boundary between
+"Warm-up stt=gu" (19:57:10.563, cache {en, gu}) and the next eviction "Evicted STT session 'en'" /
+"Warm-up stt=hi" (19:57:13.434-435, cache {gu, hi}) -- exact cache membership at the instant of
+this reading is not pinned down (monitoring latency), but it was one of those two 2-entry states:
+           TOTAL PSS:  1281000            TOTAL RSS:  1223984       TOTAL SWAP PSS:   162249
+(1281000 KB = 1251.00 MB, +67.19 MB vs reading 2 -- growth rate slowing sharply, not linear)
+
+Honest read: the STT session object cache is verifiably bounded to 2 entries at all times (every
+tap beyond the 2nd distinct language logs exactly one "Evicted STT session" line; grep count in
+sender_logcat.txt confirms this). But TOTAL PSS is NOT flat across repeated switches -- it grew by
++220MB then +67MB across two rounds of two-taps-each, even though the object count stayed constant.
+Most likely cause: OrtSession.close() releases the Kotlin object and the model's file mapping, but
+onnxruntime's internal memory arena does not necessarily munmap/return freed native allocations to
+the OS immediately -- so switching between many *different* models (each with its own arena) can
+still show elevated PSS from allocator fragmentation, even though no single model is duplicated.
+The growth is decelerating (220 -> 67 MB across equal-sized two-tap intervals), consistent with the
+allocator starting to reuse already-freed blocks rather than an unbounded per-tap leak, but it is
+real and should not be reported as "RAM stays flat."
+
+T47 note: the app's own displayed RAM figure could NOT be compared against dumpsys, because
+ITantraForegroundService.ramUsageMbFlow (fixed by T47 to use Debug.MemoryInfo().totalPss) has no
+consumer anywhere in ui/ -- grep -rn "ramUsageMbFlow" app/src/main/java/com/itantra/ui/ returns
+nothing. T47's fix is verified correct by reading the code (it now uses the same totalPss basis as
+dumpsys), but there is no on-screen number to visually cross-check against these dumpsys readings.
+This is a pre-existing gap, outside T47's scope to add a UI consumer.
+
+Also found incidentally, unrelated to Stage A: TTSModule failed to load the Gujarati voice --
+"sherpa-onnx TTS load failed for 'gu': OfflineTts_newFromFile: Load model from
+.../tts/gu/gu_IN-cmu-indic_low.onnx failed:Protobuf parsing failed." (sender_logcat.txt,
+19:57:10.562) -- looks like a corrupted/truncated download of that specific voice file on this
+phone. Not investigated further; out of scope for Stage A.
