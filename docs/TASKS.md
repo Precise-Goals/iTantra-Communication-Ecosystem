@@ -85,6 +85,8 @@ Re-run the two-phone evidence test after Stage A and after Stage B, on the **sam
 
 > **Code-level specs** for the most error-prone tasks — exact before/after text, verify commands and explicit guardrails — are in [`IMPLEMENTATION_SPEC.md`](IMPLEMENTATION_SPEC.md). Hand that file to any agent doing the edits.
 
+> **Known issues found in passing, not yet scheduled:** see [`KNOWN_ISSUES.md`](KNOWN_ISSUES.md) — currently one entry, a truncated on-device Malayalam TTS file (`core/download/**`).
+
 ---
 
 ## Week 0 — Stop work
