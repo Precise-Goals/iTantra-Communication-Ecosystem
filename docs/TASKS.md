@@ -12,14 +12,14 @@
 
 | Week | Theme | Tasks | Done | 🟡 Partial |
 | --- | --- | --- | --- | --- |
-| 0 | Stop work / clear the decks | 4 | 0 / 4 | — |
+| 0 | Stop work / clear the decks | 4 | 1 / 4 | — |
 | 1 | Make it fast, make it measurable | 12 | 9 / 12 | T11 |
 | 2 | Close the language gap | 7 | 0 / 7 | — |
 | 3 | Accuracy — the 40% week | 15 | 3 / 15 | T26, T28 |
-| 4 | PS compliance + remaining latency | 21 | 7 / 21 | T39 |
-| 5 | Quality and headroom | 8 | 0 / 8 | — |
+| 4 | PS compliance + remaining latency | 22 | 12 / 22 | T39 |
+| 5 | Quality and headroom | 9 | 0 / 9 | — |
 | 6 | The dossier | 6 | 0 / 6 | — |
-| — | **Total** | **75** (T19, T55 superseded) | **19 / 75** | |
+| — | **Total** | **77** (T19, T55 superseded) | **25 / 77** | |
 
 ### Status key
 
@@ -27,9 +27,9 @@
 - 🟡 partly done — the note on the task says which part remains
 - ⚠️ corrected or superseded — read the note before starting
 
-### Status as of 2026-09-24 (evening)
+### Status as of 2026-09-24 (night)
 
-Merged to `main` via PR #15, or open in **PR #17** (`feature/latency-pipeline-2`), all reviewed against the code and the raw evidence:
+On `main` (PRs #15, #17), on **`feature/stage-a`** (pushed, no PR yet, run 3 pending), or in **PR #19** (AI Assistant removal, stacked on `feature/stage-a`):
 
 | Commit | Tasks | Where |
 | --- | --- | --- |
@@ -39,12 +39,18 @@ Merged to `main` via PR #15, or open in **PR #17** (`feature/latency-pipeline-2`
 | `9c5c7e4` | T65 phrase-level pipelining | `main` |
 | `ccdb9a4` | T62 Silero VAD repair — verified in `model-export/check_silero_results.txt` and on two phones | `main` |
 | `e57fb7d` | Run 1 two-phone latency evidence, in `docs/latency-evidence/` | `main` |
-| `a8ff983` | T70 `TTSModule` lock | PR #17 |
-| `47644f1` | T45 model warm-up | PR #17 |
-| `d33f8ac` | T72 walkie-talkie language picker | PR #17 |
-| `6a45bd3` | T71 telemetry stamps | PR #17 |
-| `bda505c` | T38/T62 comment and log cleanups | PR #17 |
-| `71b2c17` | Run 2 evidence, in `docs/latency-evidence/run2/` | PR #17 |
+| `a8ff983` | T70 `TTSModule` lock | `main` |
+| `47644f1` | T45 model warm-up | `main` |
+| `d33f8ac` | T72 walkie-talkie language picker | `main` |
+| `6a45bd3` | T71 telemetry stamps | `main` |
+| `bda505c` | T38/T62 comment and log cleanups | `main` |
+| `71b2c17` | Run 2 evidence, in `docs/latency-evidence/run2/` | `main` |
+| `489cccb` | T43 receiver speaks the text's own language | `feature/stage-a` |
+| `2e897d6` | T73 VAD re-initialised after its model downloads | `feature/stage-a` |
+| `2006d4c` | T46 LRU model caches (2 per module) | `feature/stage-a` |
+| `7559320` | T47 RAM figure includes native memory | `feature/stage-a` |
+| `0d6bde5` | T74 Assistant shares the service's models — superseded by the removal below | `feature/stage-a` |
+| `a0850da` | **AI Assistant removed** (T02), plus the unused fastText pack — debug APK 99.3 MB → 60.8 MB | PR #19 |
 
 **Measured so far** (from `docs/latency-evidence/`, run 2, warm models; every figure re-checked against the raw files):
 - Phrase 1 finished transcribing **4.39 s before** PTT release and phrase 2 **0.20 s before** (run 1, cold models: +0.24 s / −0.14 s).
@@ -56,24 +62,24 @@ Merged to `main` via PR #15, or open in **PR #17** (`feature/latency-pipeline-2`
 
 ### Do these next, in this order
 
-**0. Merge PR #17** (a human has to; agents are blocked from merging). Everything below is specced against its code.
+> **Who does what:** [`WORK_SPLIT.md`](WORK_SPLIT.md) splits everything below between Gaurav (Claude Sonnet) and Sarthak (Gemini), with a day-by-day timeline, merge order, and a ready-to-paste prompt for every run.
 
-**Stage A — bugs the run-2 evidence exposed (≈ 1 day).** Specs: `IMPLEMENTATION_SPEC_2.md` Group H, anchors verified against PR #17.
-1. **T43** — the receiver speaks Tamil/Kannada text with the Hindi voice (`run2/receiver_logcat.txt`). 1 h.
-2. **T73** — on a first install the VAD falls back to the energy detector for the whole session, because its model finishes downloading after the service starts. 2 h.
-3. **T46** + **T47** — since T72, every language tapped loads another ~197 MB model and none is ever unloaded; and the RAM figure the app reports ignores native memory, so this can't even be seen. 4 h + 2 h.
-4. **T74** — the AI Assistant loads its own second copy of the same models, and has its own playback queue. 2 h.
+**0. Finish Stage A and the removal.** Stage A's code (T43, T73, T46, T47, T74) is on `feature/stage-a`. Remaining: the run-3 two-phone evidence, then a PR for `feature/stage-a` → `main`. After that merges, retarget **PR #19** (AI Assistant removal) to `main` and merge it. A human has to merge; agents are blocked from it.
 
-**Stage B — PS requirements that are still pass/fail (≈ 3 days).** Specs: `IMPLEMENTATION_SPEC_2.md` Group G.
+**Stage B — PS requirements that are still pass/fail (≈ 2.5 days).** Specs: `IMPLEMENTATION_SPEC_2.md` Group G.
 5. **T37 + T63** — phone mode with the echo gate (same PR).
 6. **T69** — Bluetooth in both directions.
-7. **T66** — send and show alerts; then finish **T39** (alert jumps the playback queue).
+7. **T66 (minimum)** — a "next message is an ALERT" toggle beside PTT. That is all the PS needs; alert playback (alarm stream, max volume, non-interruptible) already works. ~2 h. See the T66 entry for what was dropped.
 8. **T67** — voice notes.
 
 **Stage C — the 40% Accuracy criterion and the footprint (needs a human for hosting).**
+8a. **T76 (optional, priority)** — evaluate **SraVaani 1.0** (IISc, one open model for 65 Indian languages including Odia) against the current IndicConformer models on the same test clips. Offline Python work, no app code, so it can **start now in parallel** with Stage A and B. Its verdict decides T64 (Odia) and whether the STT model should change at all.
 9. **T17b + T64** — the five missing TTS voices and Odia STT (10/10 languages). Needs a hosting URL from a human.
-10. **T20 + T21** — download only the selected language (2.18 GB → ~250 MB). Easy now that T72 gives the app a selected language.
+10. **T20 (revised) + T21** — download only the selected language (2.18 GB → ~250 MB). Easy now that T72 gives the app a selected language.
 11. **T23 → T29 → T30** — match the NeMo preprocessor, golden test, WER table.
+12. **T15** — two ONNX runtimes still ship in the APK (`libsherpa-onnx-jni.so` 23.7 MB with its own runtime, plus `libonnxruntime.so` 16.3 MB). Consolidating is the next APK-size win after the Assistant removal.
+13. **T75** — remove stale claims from `app_metadata.json`, `AppMetadata.kt` and the manifest metadata (small).
+14. **Decide on 32-bit phones** — see the T14 note.
 
 Re-run the two-phone evidence test after Stage A and after Stage B, on the **same two phones** each time.
 
@@ -89,9 +95,9 @@ Do these before anything else. They cost almost nothing and they free the calend
   Stop work on `worktree-afsk-radio-link` (`MeshLink.kt`, `AfskModem.kt`, `HdlcFramer.kt`) and on `RANGE_STRATEGY.md` / `RANGE_IMPLEMENTATION.md`. Worth 0% of the rubric.
   **Done when:** branch is tagged and left alone; no further commits.
 
-- [ ] **T02 · Gate the AI Assistant out of the judged build** — *S · EFF · 3h*
+- [x] **T02 · Remove the AI Assistant** — *S · EFF · 3h*
   `app/build.gradle.kts`, `LlmModule.kt`, `AIAssistantScreen.kt`, nav graph. 2.39 GB model + llama.cpp natives, entirely outside the PS.
-  **Done when:** a `judged` build variant compiles with no llamacpp dependency and no Assistant route.
+  ✅ **Done by deletion, not a build flag** (decided 2026-09-24): `a0850da`, PR #19. Also removed the fastText language-ID pack, which was in the compulsory download but read by no code. Measured debug APK: **99,311,356 → 60,759,386 bytes (−38.8 %)**; six `librnllama*.so` variants gone. The last commit with the Assistant is tagged `assistant-last`.
 
 - [ ] **T03 · Buy/borrow the target phone** — *B · EFF · 1h*
   Sub-₹15,000, Snapdragon 6-series or Helio G85 class, 4 GB RAM. Every number in the submission gets measured on this one device.
@@ -153,6 +159,7 @@ Nothing after this week can be evaluated until this week lands.
 - [x] **T14 · ABI split to arm64-v8a** — *S · EFF · 2h*
   `app/build.gradle.kts` — currently a universal APK carrying `arm64-v8a`, `armeabi-v7a`, `x86_64`.
   **Done when:** judged APK is arm64-only.
+  **Open decision (2026-09-24):** `armeabi-v7a` was excluded mainly because llama.cpp had no 32-bit build. With the Assistant removed, a separate 32-bit APK split for 32-bit-only budget phones is possible, if sherpa-onnx and ONNX Runtime ship 32-bit libraries. Decide after T03 names the target phone.
 
 - [ ] **T15 · Drop the duplicate ONNX Runtime** — *S · EFF · 4h*
   Both `onnxruntime-android` and `sherpa-onnx-static-link-onnxruntime` ship; sherpa-onnx can run the STT graphs too.
@@ -292,14 +299,17 @@ Treat this as the most important week in the plan.
   `AudioPlaybackManager.play()` builds a new `AudioTrack` per call with no mutex; concurrent messages overlap and garble.
   **Done when:** messages play strictly in sequence.
 
-- [ ] 🟡 **T39 · ALERT pre-emption** — *G · REQ · 3h*
+- [ ] 🟡 **T39 · ALERT pre-emption** — *G · REQ · 3h* — **optional since 2026-09-24**
   An ALERT jumps the queue head and cannot be ducked. Add `setWillPauseWhenDucked(false)` and `setAcceptsDelayedFocusGain`.
   **Done when:** an alert interrupts a playing voice note at max volume.
   🟡 *Partial:* `setWillPauseWhenDucked(false)` is in (`5c3ea07`). Pre-emption is not: an ALERT still waits behind queued messages.
+  *Optional:* the PS says alerts must be "non-interruptible", i.e. an alert must not be cut off once playing — the T38 queue already guarantees that. Jumping ahead of queued messages is a nice extra, not a requirement.
 
-- [ ] **T66 · SOS: send and show alerts** — *S+G · REQ · 1d* 🎨
-  Nothing in `ui/` calls `broadcastAlert()`, and nothing collects `alertFlow`, so alerts can be neither sent nor seen. Add preset-alert and "next message is an ALERT" controls, and a full-screen receiver dialog. Depends on T69.
-  **Done when:** an SOS from phone A plays at alarm volume on B and shows a dialog until acknowledged. Spec: `IMPLEMENTATION_SPEC_2.md` T66.
+- [ ] ⚠️ **T66 · Send alert-type messages (minimum version)** — *S+G · REQ · 2h* 🎨
+  Nothing in `ui/` can send an ALERT, so "alert type messages will be announced at highest volume non-interruptible" cannot be demonstrated. The receive side (alarm stream, forced max volume, DND bypass attempt, non-interruptible playback) already works.
+  **Trimmed 2026-09-24:** the PS asks only that alert-*type* messages exist and play loudly without interruption. It does not ask for an SOS screen, preset phrases or a full-screen dialog. Do only the "next message is an ALERT" toggle — no dependency on T69 any more. Presets, the receiver dialog and recorded phrase clips are optional polish.
+  ⚠️ After T43, an alert in a language with no voice yet (Marathi, Kannada, Tamil, Telugu, Odia) arrives as text only. T17b closes that; until then, say so in the demo.
+  **Done when:** with the toggle on, a spoken PTT message plays on the other phone at alarm volume; the next message is normal. Spec: `IMPLEMENTATION_SPEC_2.md` T66 → "Minimum version".
 
 - [ ] **T67 · Voice notes** — *G+S · REQ · 0.5d* 🎨
   The PS says TTS output is "played as a voice note". Store each received utterance as a WAV and add replay on the bubble. Depends on T13.
@@ -318,7 +328,7 @@ Treat this as the most important week in the plan.
   Mid-hold phrases are already cut at 800 ms, but STT runs *inside* the capture loop (the microphone stops being read during inference) and can run concurrently with the release flush (corrupting the shared FFT buffers). Add an inference lock, a single segment queue, and a 400 ms cut while PTT is held. Depends on T41 and, on the receiver, T38.
   **Done when:** phone B starts speaking phrase 1 while phone A is still holding PTT. Spec: `IMPLEMENTATION_SPEC_2.md` T65.
 
-- [ ] ⚠️ **T43 · Voice the text in its own language (`srcLang`)** — *G · ACC/REQ · 1h* — **Stage A, do first**
+- [x] ⚠️ **T43 · Voice the text in its own language (`srcLang`)** — *G · ACC/REQ · 1h* — **Stage A, do first**
   `ITantraForegroundService.onTextReceived()` uses the receiver's local `ttsLanguage`, so Hindi text can be fed to a Malayalam voice.
   **Corrected 2026-09-23:** use `message.srcLang`, not `dstLang`. There is no translation, so the text is always in the spoken language; `dstLang` is only the sender's own TTS setting.
   **Measured 2026-09-24 (run 2):** every Kannada and Tamil message was synthesized `[hi]` on the receiver. Re-anchored spec: `IMPLEMENTATION_SPEC_2.md` Group H → T43.
@@ -347,19 +357,20 @@ Treat this as the most important week in the plan.
   **Done when:** picking Tamil on the Transceiver screen makes the next PTT message decode with `STT('ta')`. Spec: `IMPLEMENTATION_SPEC_2.md` T72.
   ✅ `d33f8ac`, PR #17. Tamil and Kannada STT verified on device. Side effects now tracked as T46 (models never unloaded) and T43 (receiver voice).
 
-- [ ] **T73 · Re-initialise the VAD after its model downloads** — *G · ACC/EFF · 2h* — **Stage A**
+- [x] **T73 · Re-initialise the VAD after its model downloads** — *G · ACC/EFF · 2h* — **Stage A**
   `VADModule.initialize()` runs once at service start. On a first install that is before the VAD model has downloaded, so the app uses the energy detector until it is force-stopped (`run2/receiver_logcat_prelim_connectivity_check.txt`: `physical path: null`). React to the VAD pack's download completing.
   **Done when:** after clearing app data and downloading, logcat shows `backend: NEURAL` without a restart. Spec: `IMPLEMENTATION_SPEC_2.md` Group H → T73.
 
-- [ ] **T74 · The AI Assistant shares the service's models and playback queue** — *G · EFF/REQ · 2h* — **Stage A**
+- [x] ⚠️ **T74 · The AI Assistant shares the service's models and playback queue** — *G · EFF/REQ · 2h* — **superseded**
+  Implemented on `feature/stage-a` (`0d6bde5`), then made moot by removing the Assistant (PR #19), which deletes the code it changed.
   `MainViewModel` has its own `STTModule`, `TTSModule` and `AudioPlaybackManager`. Since T72 both features use the same language, so the Assistant loads a second copy of the same ~197 MB model, and its replies can play over walkie-talkie messages.
   **Done when:** one `STT('hi') loaded` per session across walkie-talkie and Assistant use. Spec: `IMPLEMENTATION_SPEC_2.md` Group H → T74.
 
-- [ ] ⚠️ **T46 · LRU model cache** — *G · EFF · 4h* — **Stage A (priority raised 2026-09-24)**
+- [x] ⚠️ **T46 · LRU model cache** — *G · EFF · 4h* — **Stage A (priority raised 2026-09-24)**
   `STTModule.sessionCache` and `TTSModule.ttsCache` are never evicted. Cap at 2 with `close()`/`release()` on eviction.
   Since T72, every language tapped loads another ~197 MB model that stays resident. The T65/T70 locks make eviction safe. Explicit spec (both modules written out): `IMPLEMENTATION_SPEC_2.md` Group H → T46.
 
-- [ ] **T47 · RAM metric → total PSS** — *G · EFF/DOC · 2h*
+- [x] **T47 · RAM metric → total PSS** — *G · EFF/DOC · 2h*
   `startRamMonitoring()` reads `Runtime.totalMemory() − freeMemory()` = **Java heap only**, so every native ONNX allocation is invisible. Switch to `Debug.getMemoryInfo().totalPss`.
   **Stage A:** do it with T46, so the memory saving is visible in the app's own number.
   **Done when:** the reported figure matches `dumpsys meminfo`.
@@ -449,9 +460,22 @@ flowchart LR
 
 **Cannot be cut:** T05, T10, T13, T14, T16, T17, T18, T23–T30, T37, T38, **T43, T45, T46, T62 or T32, T63, T64, T66, T67, T69, T72, T73**, T56, T57, T59.
 
-### Not a task: translation
+- [ ] **T76 · Evaluate SraVaani 1.0 against IndicConformer** — *G · ACC · 1–1.5d* 🔬 — **Stage C, optional, highest priority of the optional items**
+  [SraVaani 1.0](https://huggingface.co/ARTPARK-IISc/SraVaani-1.0) (IISc SPIRE Lab + ARTPARK, MIT) is one ~430M-parameter model for 65 Indian languages, Odia included, ~900 MB FP16. It may be more accurate than our ~120M-parameter, ~197 MB-per-language IndicConformer models, but it is ~3.5× the compute, which works against Efficiency, Latency and low-end phones. Measure both on the same 100 FLEURS test clips per language (WER, CER, CPU speed, size); quantise and phone-test SraVaani only if it wins by ≥ 3 WER points.
+  Runs offline in Python (Linux/Colab), needs no app changes, and depends on nothing — start any time.
+  **Done when:** `docs/evaluation/sravaani/` has `results.csv`, per-clip hypotheses and a README with a verdict (adopt / Odia-only / keep IndicConformer). Spec: `IMPLEMENTATION_SPEC_2.md` Group I → T76.
 
-The problem statement does not ask for translation (see `IMPROVEMENT_PLAN.md` §10.12). Do not add one to the judged build.
+- [ ] **T75 · Remove stale claims from app metadata** — *S · DOC · 1h*
+  `app/src/main/assets/app_metadata.json` (and the copy at the repo root), `AppMetadata.kt` and the `com.itantra.*` meta-data in `AndroidManifest.xml` still claim things the app does not do — e.g. "8–16 kbps Opus narrowband encoded streaming", "AI4Bharat IndicTTS VITS, ~14 MB per language", "Silero VAD v4". Replace each with the real component, or delete it.
+  **Done when:** every value in those three files matches the README.
+
+### Not tasks — decided, do not build
+
+- **Translation.** The problem statement does not ask for it (`IMPROVEMENT_PLAN.md` §10.12).
+- **Android/Google offline voice packs** for STT or TTS. They are closed-source; the PS bans proprietary voice SDKs, and they are missing or incomplete for Indic languages on many budget phones (`IMPROVEMENT_PLAN.md` §10.16).
+- **Sending compressed audio instead of text** as the main path. Even Codec2 needs 700–3,200 bit/s against ~60 bytes of text per sentence, and the PS scores the STT and TTS modules themselves.
+- **An SOS screen, preset alert phrases or a full-screen alert dialog** as requirements. Only alert-type messages are required (T66 minimum). Recorded human phrase clips for presets are optional polish, worth it only if presets are built.
+- **The AI Assistant.** Removed (T02); restore from the `assistant-last` tag if ever needed outside the competition build.
 
 ---
 

@@ -892,6 +892,8 @@ Do not set the limit to 1. A device sending in one language and receiving in ano
 
 ## T20 · Make the core bundle a language pair
 
+> **Superseded 2026-09-24:** use **Group I → "T20 (revised 2026-09-24)"**. This version's ANCHOR lists the language-ID pack removed in PR #19, and its `ttsPackFor` returns placeholder voices that would lock the download gate.
+
 **File:** `app/src/main/java/com/itantra/domain/model/ModelManifest.kt`
 **Criterion:** EFF — currently forces 2.18 GB.
 
@@ -2087,6 +2089,22 @@ If your copy of `stopPTT` differs from the ANCHOR (for example because telemetry
 ---
 
 ## T66 🎨 · SOS: send alerts from the UI, and show received alerts
+
+> ### Minimum version — do only this (decided 2026-09-24)
+>
+> The PS requires alert-*type* messages that play at the highest volume without interruption. It does not require an SOS screen, presets or a receiver dialog, and playback already meets the requirement. So:
+>
+> | Part | Do it? |
+> | --- | --- |
+> | Step 1a (`broadcastAlert` language change) | **Skip** — only presets used it. This also removes the dependency on T69. |
+> | Steps 1b, 1c, 1d (`sendNextAsAlert` flag in the service) | **Do** |
+> | Step 2a | **Do only** the `_alertArmed` / `alertArmed` / `setAlertArmed` parts. Skip `_incomingAlert`, `incomingAlert`, `dismissAlert`, `sendPresetAlert` and the two imports. |
+> | Step 2b (collect `alertFlow`) | **Skip** |
+> | Step 2c (reset armed after PTT release) | **Do** |
+> | Step 3 | **Do only** the "Next message is an ALERT" toggle. Skip the SOS button, the presets dialog and the receiver dialog. |
+> | VERIFY | Do check 1 and check 3 only. |
+>
+> Everything else in this section is optional polish, kept for reference.
 
 **Files:** `core/service/ITantraForegroundService.kt`, `ui/MainViewModel.kt`, `ui/screen/TransceiverScreen.kt`, the top-level Compose host (`MainActivity.kt`)
 **Criterion:** REQ — *"alert type messages will be announced at highest volume non-interruptible"* cannot be demonstrated today, because no UI sends an ALERT (`broadcastAlert()` has no caller) and no UI shows one (`alertFlow` has no collector).
@@ -3373,6 +3391,8 @@ REPLACEMENT:
 
 ## T74 · The AI Assistant uses the service's models and playback queue
 
+> **Superseded 2026-09-24.** Implemented on `feature/stage-a` (`0d6bde5`), then made moot: the AI Assistant was removed (T02, PR #19), which deletes the ViewModel code this task changed. Do not re-apply it.
+
 **Files:** `core/service/ITantraForegroundService.kt`, `ui/MainViewModel.kt`
 **Criterion:** EFF (RAM), REQ (no overlapping audio)
 **Depends on:** nothing, but do it after T46 so both memory fixes are measured together.
@@ -3486,6 +3506,251 @@ Leave `sttModule = sttModule` in the `AudioCaptureModule(...)` constructor call 
 
 - Do not delete the ViewModel's own instances; they are the fallback before the service binds.
 - Do not share the ViewModel's `VADModule` / `AudioCaptureModule`: the Assistant captures on demand with its own capture loop, and the VAD model is only ~2 MB.
+
+---
+
+# Group I — Revised specs and evaluations
+
+## T20 (revised 2026-09-24) · Download only the selected language
+
+**Files:** `domain/model/ModelManifest.kt`, `ui/MainViewModel.kt`, `ui/screen/DownloadsScreen.kt`, `ui/screen/HomeScreen.kt`, `ui/screen/TransceiverScreen.kt`, `core/download/ModelDownloadManager.kt`
+**Criterion:** EFF — the compulsory download is 2.18 GB today.
+**Depends on:** PR #19 (AI Assistant removal) merged. The anchors below match the code after it.
+
+> Replaces T20 in Group D, whose ANCHOR still lists the language-ID pack (removed in PR #19) and whose `ttsPackFor` returned placeholder voice packs that can never finish downloading — the download gate would then stay locked forever for Tamil, Kannada, Telugu, Marathi and Odia.
+
+### Step 1 — `domain/model/ModelManifest.kt`
+
+ANCHOR:
+
+```kotlin
+        fun coreTransceiverPacks(): List<ModelPack> = listOf(
+            VAD_MODEL,
+            STT_HINDI,
+            STT_GUJARATI,
+            STT_MARATHI,
+            STT_KANNADA,
+            STT_MALAYALAM,
+            STT_TAMIL,
+            STT_TELUGU,
+            STT_BENGALI,
+            STT_ENGLISH,
+            ESPEAK_NG_DATA,
+            TTS_HINDI,
+            TTS_GUJARATI,
+            TTS_MALAYALAM,
+            TTS_BENGALI,
+            TTS_ENGLISH
+        )
+```
+
+REPLACEMENT:
+
+```kotlin
+        /** Always needed, whatever language is selected (T20). ~9 MB. */
+        fun baselinePacks(): List<ModelPack> = listOf(VAD_MODEL, ESPEAK_NG_DATA)
+
+        /** STT model for [code]; null if none exists yet (Odia, until T64). */
+        fun sttPackFor(code: String): ModelPack? = when (code) {
+            "hi" -> STT_HINDI; "gu" -> STT_GUJARATI; "mr" -> STT_MARATHI
+            "kn" -> STT_KANNADA; "ml" -> STT_MALAYALAM; "ta" -> STT_TAMIL
+            "te" -> STT_TELUGU; "bn" -> STT_BENGALI; "en" -> STT_ENGLISH
+            else -> null
+        }
+
+        /**
+         * TTS voice for [code]; null if no voice source exists yet. Only the five languages with a
+         * real voice are listed: the other five packs are empty placeholders that can never reach
+         * Downloaded, so returning them would keep the download gate locked forever. T17b adds
+         * "mr", "kn", "ta", "te" and "or" here once those voices are hosted.
+         */
+        fun ttsPackFor(code: String): ModelPack? = when (code) {
+            "hi" -> TTS_HINDI; "gu" -> TTS_GUJARATI; "ml" -> TTS_MALAYALAM
+            "bn" -> TTS_BENGALI; "en" -> TTS_ENGLISH
+            else -> null
+        }
+
+        /**
+         * The compulsory set for one selected language (T20): roughly 210–280 MB instead of the
+         * 2.18 GB that downloading all nine STT models plus every voice required. Model and flash
+         * footprint are 20% of the evaluation.
+         */
+        fun coreTransceiverPacks(languageCode: String): List<ModelPack> =
+            (baselinePacks() + listOfNotNull(sttPackFor(languageCode), ttsPackFor(languageCode))).distinct()
+
+        /** Every pack a full multilingual install uses: all nine STT models and the five voices. */
+        fun allTransceiverPacks(): List<ModelPack> = listOf(
+            VAD_MODEL,
+            STT_HINDI,
+            STT_GUJARATI,
+            STT_MARATHI,
+            STT_KANNADA,
+            STT_MALAYALAM,
+            STT_TAMIL,
+            STT_TELUGU,
+            STT_BENGALI,
+            STT_ENGLISH,
+            ESPEAK_NG_DATA,
+            TTS_HINDI,
+            TTS_GUJARATI,
+            TTS_MALAYALAM,
+            TTS_BENGALI,
+            TTS_ENGLISH
+        )
+```
+
+There is deliberately **no** zero-argument `coreTransceiverPacks()` any more: the compiler will then list every call site that still needs updating. Steps 2–4 cover all five that exist today.
+
+### Step 2 — `ui/MainViewModel.kt`
+
+ANCHOR:
+
+```kotlin
+    fun downloadCorePacks() = downloadManager.downloadAll(ModelPack.coreTransceiverPacks())
+```
+
+REPLACEMENT:
+
+```kotlin
+    fun downloadCorePacks() = downloadManager.downloadAll(ModelPack.coreTransceiverPacks(_selectedLanguage.value))
+```
+
+### Step 3 — the three screens
+
+**`ui/screen/DownloadsScreen.kt`** and **`ui/screen/HomeScreen.kt`** — the same edit in each file. ANCHOR:
+
+```kotlin
+    val corePacks = ModelPack.coreTransceiverPacks()
+```
+
+REPLACEMENT:
+
+```kotlin
+    val selectedLanguage by viewModel.selectedLanguage.collectAsState()
+    val corePacks = ModelPack.coreTransceiverPacks(selectedLanguage)
+```
+
+**`ui/screen/TransceiverScreen.kt`** — `selectedLanguage` is already collected there (T72), so only the second line changes. ANCHOR:
+
+```kotlin
+    val corePacks = ModelPack.coreTransceiverPacks()
+```
+
+REPLACEMENT:
+
+```kotlin
+    val corePacks = ModelPack.coreTransceiverPacks(selectedLanguage)
+```
+
+### Step 4 — `core/download/ModelDownloadManager.kt`
+
+ANCHOR:
+
+```kotlin
+        downloadAll(ModelPack.coreTransceiverPacks())
+```
+
+REPLACEMENT:
+
+```kotlin
+        downloadAll(ModelPack.allTransceiverPacks())
+```
+
+### VERIFY
+
+1. `./gradlew :app:compileDebugKotlin` passes, and `grep -rn "coreTransceiverPacks()" app/src/main/java` returns nothing.
+2. On a phone with app data cleared: select Tamil, open Downloads. The "Download the Pack" button shows about 200–210 MB (Tamil STT + VAD + phonemizer data; Tamil has no voice yet), not 2.18 GB. After the download, the Transceiver screen unlocks.
+3. Select Hindi: the gate asks for the Hindi packs (~270 MB total), not everything.
+
+### Known limitation (say it in the demo)
+
+With T43, the receiver speaks each message in the **sender's** language. A phone that downloaded only its own language has no voice for other languages, so those messages arrive as text only. T21 lets the user download extra voices from the Downloads screen.
+
+### DO NOT
+
+- Do not add the five placeholder voice packs to `ttsPackFor` before T17b hosts real voices.
+- Do not keep a zero-argument `coreTransceiverPacks()`; its absence is how the compiler finds every call site.
+
+---
+
+## T76 🔬 · Evaluate SraVaani 1.0 against the current IndicConformer models
+
+**Criterion:** ACC (40%), with EFF and LAT as hard constraints
+**Priority:** highest of the optional Stage C items. **It needs no app code and does not depend on Stage A or B**, so it can run in parallel with them right away.
+**Output:** a new folder `docs/evaluation/sravaani/` with the raw results and a short README. No change to the app in this task.
+
+### Why
+
+[SraVaani 1.0](https://huggingface.co/ARTPARK-IISc/SraVaani-1.0) (IISc SPIRE Lab + ARTPARK, MIT licence, [paper](https://arxiv.org/abs/2608.08235)) is one ~430M-parameter FastConformer (hybrid TDT-CTC) model for 65 Indian languages, **including all 10 of ours and Odia**. It detects the language itself. Its model card reports WER of 12.4% (Hindi) to 27.7% (Malayalam), but not on a test set we can compare with our models.
+
+It could beat our per-language IndicConformer models (~120M parameters, ~197 MB each) on accuracy, and it would give Odia for free. But it is ~3.5× the parameters and ships at ~900 MB FP16, which works against Efficiency, Latency and low-end phones. This task answers the question with measurements, not guesses.
+
+### Rules for this task
+
+- **Do not guess any API.** For SraVaani, copy the inference code from its model card exactly. For IndicConformer, use sherpa-onnx's documented NeMo CTC recogniser. If a documented call fails, stop and report the error text.
+- **Same audio, same text normalisation, same scoring, same machine** for both models. Otherwise the comparison is meaningless.
+- **Report every number you compute**, including ones that favour our current model. Nothing is quoted without a file behind it.
+- Use Linux or Google Colab (Python 3.10+). SraVaani's model card uses `transformers` with `trust_remote_code=True` and may need NeMo; the team's Windows machine has Python 3.9 and too little free space on C:.
+
+### Step 1 — test data: FLEURS
+
+Use Google's FLEURS test split (read Wikipedia sentences, with a normalised transcription per clip). Language folders: `hi_in`, `gu_in`, `mr_in`, `kn_in`, `ml_in`, `ta_in`, `te_in`, `or_in`, `bn_in`, `en_us`.
+
+1. For each language, download `data/<lang>/test.tsv` and `data/<lang>/audio/test.tar.gz` from the `google/fleurs` dataset repository on Hugging Face (`huggingface-cli download google/fleurs --repo-type dataset --include "data/<lang>/test.tsv" "data/<lang>/audio/test.tar.gz"`). **Check the real paths in the repository file list first**; if they differ, use the real ones and say so.
+2. Open `test.tsv` and identify the audio-file-name column and the *normalised* transcription column by inspecting a few rows. Record which columns you used.
+3. Take the **first 100 clips** of each language (sorted by file name), so the set is reproducible. Resample to 16 kHz mono if needed.
+
+### Step 2 — current model (IndicConformer, as the app uses it)
+
+1. For each language except Odia, download the **same files the app downloads** (see `ModelRegistry.kt`): `https://huggingface.co/parismitaglobalsolutions/indicconformer-sherpa-onnx/resolve/main/<lang>/model.int8.onnx`, and `tokens.txt` from the repository root (English uses `en/tokens.txt`).
+2. `pip install sherpa-onnx` and decode with its documented NeMo CTC offline recogniser (`sherpa_onnx.OfflineRecognizer.from_nemo_ctc(...)`, greedy search, 16 kHz, 80-dim features, **1 thread**). Check the exact argument names against the installed version's documentation.
+3. Odia: there is no model in this mirror. Leave the IndicConformer Odia cell blank; if T64's export exists by then, add it.
+
+> This measures IndicConformer with sherpa-onnx's reference feature extraction. The app uses its own Kotlin features, which may be slightly worse until T23/T29 are done. Say so in the results.
+
+### Step 3 — SraVaani
+
+1. Follow the model card's installation and inference instructions exactly. Record the exact commands, package versions and the model revision (commit hash) you used.
+2. Run on the same 100 clips per language, CPU only, **1 thread** (`torch.set_num_threads(1)`), FP32 or the card's default precision. Record which.
+3. If the card's code needs a language hint, give the correct language. If it detects the language itself, let it, and also record how often it picked the wrong language.
+
+### Step 4 — scoring (identical for both models)
+
+For every hypothesis and reference: Unicode NFC → lowercase → strip punctuation (Unicode category `P*`) including the danda `।` and `॥` → collapse whitespace. Then compute corpus WER per language with `jiwer`. Also compute CER (character error rate), since Indic WER is harsh on agglutinative languages.
+
+### Step 5 — speed and size (same machine, 1 thread)
+
+- **RTF** per model per language = total decoding wall time ÷ total audio duration. Exclude model-load time and report it separately.
+- **Size on disk** of what would ship: IndicConformer `model.int8.onnx` per language; SraVaani as downloaded.
+- **Peak RAM** during decoding if easy to capture (e.g. `/usr/bin/time -v`).
+
+### Step 6 — only if SraVaani wins on accuracy
+
+If SraVaani's average WER over the 9 shared languages is **at least 3 points lower**:
+
+1. Take its ONNX export (the model card links one), keep the CTC head, and quantise with `onnxruntime.quantization.quantize_dynamic(..., weight_type=QuantType.QUInt8)`. Re-run Steps 3–5 on the INT8 file and record the WER change and the new size.
+2. Only then, time it on the POCO test phone (as for run 2 in `docs/latency-evidence/`) and record its RTF and memory.
+
+### Decision rule (write the verdict in the README)
+
+| Result | Verdict |
+| --- | --- |
+| SraVaani INT8 is ≥ 3 points better on average **and** ≤ ~500 MB **and** phone RTF ≤ 0.5 **and** fits in memory on a 4 GB phone | **Adopt**: plan a switch (one model for all 10 languages, Odia included), replacing T64 |
+| Better on accuracy, but too big or too slow for the phone | **Use for Odia only** if T64's export fails; otherwise keep IndicConformer |
+| Not ≥ 3 points better | **Keep IndicConformer.** Cite this evaluation when judges ask "why not SraVaani?" |
+
+### Deliverables
+
+`docs/evaluation/sravaani/`:
+- `results.csv` — one row per (model, language): n_clips, WER, CER, RTF, load_ms, size_mb, notes.
+- `hypotheses/<model>_<lang>.tsv` — clip id, reference, hypothesis (so any number can be re-checked).
+- `README.md` — setup (exact versions, model revisions), the table, the verdict per the decision rule, and a limitations list (read speech only; 100 clips per language; desktop CPU, not phone, unless Step 6 ran).
+
+### DO NOT
+
+- Do not change any app code, `ModelRegistry`, or downloads in this task.
+- Do not compare on different clips, or with different normalisation.
+- Do not quote the model card's WER numbers as if measured here.
 
 ---
 

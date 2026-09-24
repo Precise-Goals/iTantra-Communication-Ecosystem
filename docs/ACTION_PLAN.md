@@ -1,7 +1,7 @@
 # iTantra — Action Plan to Compete for a Top-5 Placement
 
 > Smart India Hackathon 2026 · Problem Statement PS-26173
-> **Status 2026-09-24 (evening):** week-1 work plus T41, T38, T65, T62 are on `main`; T70, T45, T72, T71 are in PR #17 with measured results (phrase 1 ready 4.39 s before PTT release). Next: merge PR #17, then **Stage A** (T43, T73, T46+T47, T74), **Stage B** (the pass/fail PS requirements: phone mode + echo gate, two-way Bluetooth, SOS, voice notes), **Stage C** (10/10 languages, per-language downloads, WER). See [`TASKS.md`](TASKS.md) "Do these next".
+> **Status 2026-09-24 (night):** latency work (T41, T38, T65, T62, T70, T45, T72, T71) is on `main`. Stage A (T43, T73, T46, T47) is on `feature/stage-a`, awaiting its run-3 evidence. The AI Assistant is removed in PR #19 (debug APK −38.8 %). Next: **Stage B** — phone mode + echo gate, two-way Bluetooth, an alert toggle (SOS trimmed to the PS minimum), voice notes — then **Stage C**. See [`TASKS.md`](TASKS.md) "Do these next" and `IMPROVEMENT_PLAN.md` §10.16 for the scope decisions.
 >
 > As of 2026-09-22 · **Revised 2026-09-23** after a second audit — see [`IMPROVEMENT_PLAN.md` §10](IMPROVEMENT_PLAN.md#10-addendum--second-audit-2026-09-23)
 >
