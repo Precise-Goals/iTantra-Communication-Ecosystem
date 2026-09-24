@@ -1,0 +1,6 @@
+--------- beginning of main
+09-24 22:47:00.618 D/iTantraService(32200): Received from d2197c97-892d-4c4e-9b85-8b7211261cf8: 'तो क है' [SPEECH]
+09-24 22:47:00.945 D/iTantraService(32200): TTS synthesis complete: 743ms audio
+09-24 22:47:04.636 D/AudioCapture(32200): Audio capture started at 16000Hz
+09-24 22:47:06.414 D/AudioCapture(32200): Audio capture stopped
+09-24 22:47:06.867 D/STTModule(32200): STT inference: 'हैेलो कन्यू है आर्मी' in 448ms [hi]
