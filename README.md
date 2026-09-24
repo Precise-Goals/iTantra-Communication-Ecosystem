@@ -63,6 +63,30 @@ Instead of streaming raw audio, iTantra converts speech to text **on-device** us
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
+### Target architecture — what changes to meet PS-26173 fully
+
+The shape stays the same: speech → text on the sender, a small Protobuf frame over Wi-Fi Direct or Bluetooth, text → speech on the receiver. **No redesign is needed.** The additions below are small, local changes to existing modules (task IDs refer to [`docs/TASKS.md`](docs/TASKS.md)):
+
+```
+SENDER                                            RECEIVER
+Mic ─(muted while this phone plays audio) T63     Frame in ─ duplicate dropped T69
+  → VAD: Silero, energy as fallback  ✅ T62        → TTS in the text's own language T43
+  → phrase cut at a pause → queue    ✅ T65        → serialized playback queue     ✅ T38
+  → STT (10 languages incl. Odia)        T64        → saved as a voice note           T67
+  → send on Wi-Fi AND/OR Bluetooth       T69        → ALERT: alarm volume + full-screen dialog T66
+                     ↘ optional ESP32 receiver over Bluetooth SPP  T68
+```
+✅ = done, verified on real hardware — see [`docs/latency-evidence/`](docs/latency-evidence/) for T62/T65.
+
+| PS requirement | Where it is met |
+| --- | --- |
+| STT + TTS, 10 languages, offline | `STTModule`, `TTSModule` — Odia STT (T64) and five TTS voices (T17b) still to add |
+| Form sentences after pauses, stream instantly | ✅ VAD + phrase queue (T62, T65) — done |
+| Wi-Fi / Bluetooth to a phone or embedded device | Wi-Fi Direct + RFCOMM, both directions (T69); ESP32 (T68) |
+| Played as a voice note | Voice-note store (T67) |
+| Alerts at highest volume, non-interruptible | Alarm stream (exists) + SOS send/show (T66); ✅ playback is now serialized so messages don't overlap (T38), but alerts don't yet jump ahead of queued normal messages — true pre-emption (T39) is still open |
+| PTT, and phone mode when PTT is off | PTT (exists), phone-mode toggle + echo gate (T37 + T63) |
+
 ### Technology Stack
 
 | Layer | Technology | Notes |
@@ -373,8 +397,11 @@ The commit history documents genuine, iterative on-device engineering:
 ## 🗺️ Roadmap
 
 - **Streaming STT inference** — phrase-level pipelining (mid-hold cuts, ~0.6–0.75s measured turnaround per phrase) is now in place; evaluate whether further latency reduction via chunked/streaming inference is still worth the added complexity.
-- **Full language voice coverage** — sourcing free, high-quality offline TTS voices for Marathi, Kannada, Tamil, Telugu, and Odia (STT + TTS).
-- **Emergency / SOS broadcast screen** — a dedicated distress-signal UI; the underlying `ALERT` message type and alarm-volume/DND-bypass playback path already exist in the wire protocol and audio pipeline.
+- **Full language coverage** — convert TTS voices for Marathi, Kannada, Tamil, Telugu and Odia (MMS, CC-BY-NC), and export Odia STT from AI4Bharat's `indicconformer_stt_or_hybrid_ctc_rnnt_large` checkpoint (the current download mirror has no Odia).
+- **Phone mode in the UI, with an echo gate** — so a phone never re-transmits the message it is playing.
+- **Bluetooth in both directions** — today a phone sends over Bluetooth only if it is the one hosting.
+- **Voice notes** — keep received speech for replay.
+- **Emergency / SOS controls** — send preset or spoken alerts, and show received alerts on screen; the `ALERT` message type and alarm-volume/DND-bypass playback already exist, but no screen sends or displays one yet.
 - **Deeper `PeerSessionScreen` integration** — connecting the per-peer session view directly to the live transceiver pipeline.
 - **Persisted background downloads** — scheduling model downloads via WorkManager so they can survive process death.
 
