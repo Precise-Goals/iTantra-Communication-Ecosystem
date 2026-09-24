@@ -126,7 +126,13 @@ class VADModule(
             // UPDATE (T62): the test described above used only non-speech inputs, so ~0 output
             // was the correct answer, not a malfunction. The real defect was the missing 64-sample
             // context the v5 model expects (added in process()). Verified with
-            // model-export/check_silero.py on recorded speech before re-enabling.
+            // model-export/check_silero.py against the pinned v6.2.3 model — see
+            // model-export/check_silero_results.txt: without the context a clearly-speech sample
+            // never crosses the 0.5 threshold (max 0.259); with it, the same sample correctly
+            // reads as speech in 66% of frames. That test used a computer-synthesized voice
+            // (Windows SAPI), not a recorded human speaker — separately confirmed live on two
+            // physical devices with real human speech; see the committed evidence referenced in
+            // README.md's "Phrase-level pipelining & latency" section.
             activeBackend = if (session != null) VadBackend.NEURAL else VadBackend.BASIC_ENERGY
             session?.let {
                 Log.d(TAG, "VAD real signature — inputs=${it.inputNames} outputs=${it.outputNames}")
