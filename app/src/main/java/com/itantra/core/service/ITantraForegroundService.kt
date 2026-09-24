@@ -544,6 +544,14 @@ class ITantraForegroundService : Service() {
         }
     }
 
+    /** Called when the VAD model pack finishes downloading (T73). No-op if already neural. */
+    fun reinitVadIfNeeded() {
+        serviceScope.launch {
+            val neural = vadModule.reinitializeIfNeeded()
+            Log.d(TAG, "VAD re-init after download — neural: $neural")
+        }
+    }
+
     // ==================== INTERNALS ====================
 
     private fun appendMessage(message: TransceiverMessage) {

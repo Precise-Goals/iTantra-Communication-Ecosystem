@@ -83,6 +83,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 it.setSTTLanguage(_selectedLanguage.value)
                 it.setTTSLanguage(_selectedLanguage.value)
                 it.warmUp()
+                // Re-initialise the VAD when its model finishes downloading (T73). The first
+                // emission may already be Downloaded; reinitVadIfNeeded() is then a no-op.
+                val svc = it
+                viewModelScope.launch {
+                    var vadReady = false
+                    downloadStates.collect { states ->
+                        val nowReady = states[ModelPack.VAD_MODEL] is DownloadState.Downloaded
+                        if (nowReady && !vadReady) svc.reinitVadIfNeeded()
+                        vadReady = nowReady
+                    }
+                }
             }
         }
         override fun onServiceDisconnected(name: ComponentName?) {

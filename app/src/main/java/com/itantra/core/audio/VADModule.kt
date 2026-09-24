@@ -261,6 +261,21 @@ class VADModule(
         }
     }
 
+    /**
+     * Run [initialize] again if the neural backend is not active (T73). On a first install the
+     * service starts before the VAD model has downloaded, so the first initialize() found no file
+     * and fell back to BASIC_ENERGY for the whole process
+     * (docs/latency-evidence/run2/receiver_logcat_prelim_connectivity_check.txt).
+     * @return true if the neural backend is active afterwards.
+     */
+    suspend fun reinitializeIfNeeded(): Boolean {
+        if (activeBackend == VadBackend.NEURAL) return true
+        session?.close()
+        session = null
+        initialize()
+        return activeBackend == VadBackend.NEURAL
+    }
+
     fun resetState() {
         state.fill(0f)
         isSpeechActive = false
