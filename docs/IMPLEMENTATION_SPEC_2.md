@@ -3507,6 +3507,89 @@ Leave `sttModule = sttModule` in the `AudioCaptureModule(...)` constructor call 
 
 ---
 
+# Group I — Evaluations (offline, no app code)
+
+## T76 🔬 · Evaluate SraVaani 1.0 against the current IndicConformer models
+
+**Criterion:** ACC (40%), with EFF and LAT as hard constraints
+**Priority:** highest of the optional Stage C items. **It needs no app code and does not depend on Stage A or B**, so it can run in parallel with them right away.
+**Output:** a new folder `docs/evaluation/sravaani/` with the raw results and a short README. No change to the app in this task.
+
+### Why
+
+[SraVaani 1.0](https://huggingface.co/ARTPARK-IISc/SraVaani-1.0) (IISc SPIRE Lab + ARTPARK, MIT licence, [paper](https://arxiv.org/abs/2608.08235)) is one ~430M-parameter FastConformer (hybrid TDT-CTC) model for 65 Indian languages, **including all 10 of ours and Odia**. It detects the language itself. Its model card reports WER of 12.4% (Hindi) to 27.7% (Malayalam), but not on a test set we can compare with our models.
+
+It could beat our per-language IndicConformer models (~120M parameters, ~197 MB each) on accuracy, and it would give Odia for free. But it is ~3.5× the parameters and ships at ~900 MB FP16, which works against Efficiency, Latency and low-end phones. This task answers the question with measurements, not guesses.
+
+### Rules for this task
+
+- **Do not guess any API.** For SraVaani, copy the inference code from its model card exactly. For IndicConformer, use sherpa-onnx's documented NeMo CTC recogniser. If a documented call fails, stop and report the error text.
+- **Same audio, same text normalisation, same scoring, same machine** for both models. Otherwise the comparison is meaningless.
+- **Report every number you compute**, including ones that favour our current model. Nothing is quoted without a file behind it.
+- Use Linux or Google Colab (Python 3.10+). SraVaani's model card uses `transformers` with `trust_remote_code=True` and may need NeMo; the team's Windows machine has Python 3.9 and too little free space on C:.
+
+### Step 1 — test data: FLEURS
+
+Use Google's FLEURS test split (read Wikipedia sentences, with a normalised transcription per clip). Language folders: `hi_in`, `gu_in`, `mr_in`, `kn_in`, `ml_in`, `ta_in`, `te_in`, `or_in`, `bn_in`, `en_us`.
+
+1. For each language, download `data/<lang>/test.tsv` and `data/<lang>/audio/test.tar.gz` from the `google/fleurs` dataset repository on Hugging Face (`huggingface-cli download google/fleurs --repo-type dataset --include "data/<lang>/test.tsv" "data/<lang>/audio/test.tar.gz"`). **Check the real paths in the repository file list first**; if they differ, use the real ones and say so.
+2. Open `test.tsv` and identify the audio-file-name column and the *normalised* transcription column by inspecting a few rows. Record which columns you used.
+3. Take the **first 100 clips** of each language (sorted by file name), so the set is reproducible. Resample to 16 kHz mono if needed.
+
+### Step 2 — current model (IndicConformer, as the app uses it)
+
+1. For each language except Odia, download the **same files the app downloads** (see `ModelRegistry.kt`): `https://huggingface.co/parismitaglobalsolutions/indicconformer-sherpa-onnx/resolve/main/<lang>/model.int8.onnx`, and `tokens.txt` from the repository root (English uses `en/tokens.txt`).
+2. `pip install sherpa-onnx` and decode with its documented NeMo CTC offline recogniser (`sherpa_onnx.OfflineRecognizer.from_nemo_ctc(...)`, greedy search, 16 kHz, 80-dim features, **1 thread**). Check the exact argument names against the installed version's documentation.
+3. Odia: there is no model in this mirror. Leave the IndicConformer Odia cell blank; if T64's export exists by then, add it.
+
+> This measures IndicConformer with sherpa-onnx's reference feature extraction. The app uses its own Kotlin features, which may be slightly worse until T23/T29 are done. Say so in the results.
+
+### Step 3 — SraVaani
+
+1. Follow the model card's installation and inference instructions exactly. Record the exact commands, package versions and the model revision (commit hash) you used.
+2. Run on the same 100 clips per language, CPU only, **1 thread** (`torch.set_num_threads(1)`), FP32 or the card's default precision. Record which.
+3. If the card's code needs a language hint, give the correct language. If it detects the language itself, let it, and also record how often it picked the wrong language.
+
+### Step 4 — scoring (identical for both models)
+
+For every hypothesis and reference: Unicode NFC → lowercase → strip punctuation (Unicode category `P*`) including the danda `।` and `॥` → collapse whitespace. Then compute corpus WER per language with `jiwer`. Also compute CER (character error rate), since Indic WER is harsh on agglutinative languages.
+
+### Step 5 — speed and size (same machine, 1 thread)
+
+- **RTF** per model per language = total decoding wall time ÷ total audio duration. Exclude model-load time and report it separately.
+- **Size on disk** of what would ship: IndicConformer `model.int8.onnx` per language; SraVaani as downloaded.
+- **Peak RAM** during decoding if easy to capture (e.g. `/usr/bin/time -v`).
+
+### Step 6 — only if SraVaani wins on accuracy
+
+If SraVaani's average WER over the 9 shared languages is **at least 3 points lower**:
+
+1. Take its ONNX export (the model card links one), keep the CTC head, and quantise with `onnxruntime.quantization.quantize_dynamic(..., weight_type=QuantType.QUInt8)`. Re-run Steps 3–5 on the INT8 file and record the WER change and the new size.
+2. Only then, time it on the POCO test phone (as for run 2 in `docs/latency-evidence/`) and record its RTF and memory.
+
+### Decision rule (write the verdict in the README)
+
+| Result | Verdict |
+| --- | --- |
+| SraVaani INT8 is ≥ 3 points better on average **and** ≤ ~500 MB **and** phone RTF ≤ 0.5 **and** fits in memory on a 4 GB phone | **Adopt**: plan a switch (one model for all 10 languages, Odia included), replacing T64 |
+| Better on accuracy, but too big or too slow for the phone | **Use for Odia only** if T64's export fails; otherwise keep IndicConformer |
+| Not ≥ 3 points better | **Keep IndicConformer.** Cite this evaluation when judges ask "why not SraVaani?" |
+
+### Deliverables
+
+`docs/evaluation/sravaani/`:
+- `results.csv` — one row per (model, language): n_clips, WER, CER, RTF, load_ms, size_mb, notes.
+- `hypotheses/<model>_<lang>.tsv` — clip id, reference, hypothesis (so any number can be re-checked).
+- `README.md` — setup (exact versions, model revisions), the table, the verdict per the decision rule, and a limitations list (read speech only; 100 clips per language; desktop CPU, not phone, unless Step 6 ran).
+
+### DO NOT
+
+- Do not change any app code, `ModelRegistry`, or downloads in this task.
+- Do not compare on different clips, or with different normalisation.
+- Do not quote the model card's WER numbers as if measured here.
+
+---
+
 # Group F — Dossier (T56–T61)
 
 Not code. Commands and procedure.

@@ -17,9 +17,9 @@
 | 2 | Close the language gap | 7 | 0 / 7 | — |
 | 3 | Accuracy — the 40% week | 15 | 3 / 15 | T26, T28 |
 | 4 | PS compliance + remaining latency | 22 | 12 / 22 | T39 |
-| 5 | Quality and headroom | 8 | 0 / 8 | — |
+| 5 | Quality and headroom | 9 | 0 / 9 | — |
 | 6 | The dossier | 6 | 0 / 6 | — |
-| — | **Total** | **76** (T19, T55 superseded) | **25 / 76** | |
+| — | **Total** | **77** (T19, T55 superseded) | **25 / 77** | |
 
 ### Status key
 
@@ -71,6 +71,7 @@ On `main` (PRs #15, #17), on **`feature/stage-a`** (pushed, no PR yet, run 3 pen
 8. **T67** — voice notes.
 
 **Stage C — the 40% Accuracy criterion and the footprint (needs a human for hosting).**
+8a. **T76 (optional, priority)** — evaluate **SraVaani 1.0** (IISc, one open model for 65 Indian languages including Odia) against the current IndicConformer models on the same test clips. Offline Python work, no app code, so it can **start now in parallel** with Stage A and B. Its verdict decides T64 (Odia) and whether the STT model should change at all.
 9. **T17b + T64** — the five missing TTS voices and Odia STT (10/10 languages). Needs a hosting URL from a human.
 10. **T20 + T21** — download only the selected language (2.18 GB → ~250 MB). Easy now that T72 gives the app a selected language.
 11. **T23 → T29 → T30** — match the NeMo preprocessor, golden test, WER table.
@@ -456,6 +457,11 @@ flowchart LR
 ```
 
 **Cannot be cut:** T05, T10, T13, T14, T16, T17, T18, T23–T30, T37, T38, **T43, T45, T46, T62 or T32, T63, T64, T66, T67, T69, T72, T73**, T56, T57, T59.
+
+- [ ] **T76 · Evaluate SraVaani 1.0 against IndicConformer** — *G · ACC · 1–1.5d* 🔬 — **Stage C, optional, highest priority of the optional items**
+  [SraVaani 1.0](https://huggingface.co/ARTPARK-IISc/SraVaani-1.0) (IISc SPIRE Lab + ARTPARK, MIT) is one ~430M-parameter model for 65 Indian languages, Odia included, ~900 MB FP16. It may be more accurate than our ~120M-parameter, ~197 MB-per-language IndicConformer models, but it is ~3.5× the compute, which works against Efficiency, Latency and low-end phones. Measure both on the same 100 FLEURS test clips per language (WER, CER, CPU speed, size); quantise and phone-test SraVaani only if it wins by ≥ 3 WER points.
+  Runs offline in Python (Linux/Colab), needs no app changes, and depends on nothing — start any time.
+  **Done when:** `docs/evaluation/sravaani/` has `results.csv`, per-clip hypotheses and a README with a verdict (adopt / Odia-only / keep IndicConformer). Spec: `IMPLEMENTATION_SPEC_2.md` Group I → T76.
 
 - [ ] **T75 · Remove stale claims from app metadata** — *S · DOC · 1h*
   `app/src/main/assets/app_metadata.json` (and the copy at the repo root), `AppMetadata.kt` and the `com.itantra.*` meta-data in `AndroidManifest.xml` still claim things the app does not do — e.g. "8–16 kbps Opus narrowband encoded streaming", "AI4Bharat IndicTTS VITS, ~14 MB per language", "Silero VAD v4". Replace each with the real component, or delete it.
