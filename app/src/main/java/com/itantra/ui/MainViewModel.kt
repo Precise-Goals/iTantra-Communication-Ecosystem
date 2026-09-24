@@ -239,13 +239,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val ttsModule = TTSModule(application, audioCallbacks)
     private val llmModule = LlmModule(application)
     private val audioPlayback = AudioPlaybackManager(application, audioCallbacks)
+
+    // Use the service's instances whenever it is bound (T74), so the Assistant and the
+    // walkie-talkie share one model copy, one lock and one playback queue. The ViewModel's own
+    // instances above are only a fallback before binding; they hold no model until used.
+    private val activeStt: STTModule get() = foregroundService?.sharedStt ?: sttModule
+    private val activeTts: TTSModule get() = foregroundService?.sharedTts ?: ttsModule
+    private val activePlayback: AudioPlaybackManager get() = foregroundService?.sharedPlayback ?: audioPlayback
     private val audioCapture = AudioCaptureModule(
         vadModule = vadModule,
         sttModule = sttModule,
         callbacks = audioCallbacks,
         onSpeechReady = { pcm, lang, _ ->
-            sttModule.ensureLoaded(lang)
-            val result = sttModule.transcribe(pcm, lang)
+            activeStt.ensureLoaded(lang)
+            val result = activeStt.transcribe(pcm, lang)
             if (result is AppResult.Success && result.data.isNotBlank()) {
                 viewModelScope.launch(Dispatchers.Main) {
                     sendAiMessage(result.data)
@@ -291,10 +298,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         viewModelScope.launch(Dispatchers.Default) {
             _isSpeaking.value = true
-            val synth = ttsModule.synthesize(text, lang)
+            val synth = activeTts.synthesize(text, lang)
             if (synth != null && synth.samples.isNotEmpty()) {
                 _voiceUnavailableNotice.value = null
-                audioPlayback.play(synth.samples, synth.sampleRate)
+                activePlayback.play(synth.samples, synth.sampleRate)
             } else {
                 _isSpeaking.value = false
                 _voiceUnavailableNotice.value = "Voice not available offline for '$lang' — showing text only"
@@ -321,8 +328,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 audioCapture.stopCapture()
 
                 if (pcm != null && pcm.isNotEmpty()) {
-                    sttModule.ensureLoaded(_selectedLanguage.value)
-                    val result = sttModule.transcribe(pcm, _selectedLanguage.value)
+                    activeStt.ensureLoaded(_selectedLanguage.value)
+                    val result = activeStt.transcribe(pcm, _selectedLanguage.value)
                     val transcribed = if (result is AppResult.Success) result.data else ""
                     if (transcribed.isNotBlank()) {
                         launch(Dispatchers.Main) {

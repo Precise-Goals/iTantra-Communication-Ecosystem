@@ -552,6 +552,12 @@ class ITantraForegroundService : Service() {
         }
     }
 
+    /** Shared with the AI Assistant so one model instance, one lock and one playback queue serve
+     *  both features (T74). Valid only after onCreate(). */
+    val sharedStt: STTModule get() = sttModule
+    val sharedTts: TTSModule get() = ttsModule
+    val sharedPlayback: AudioPlaybackManager get() = audioPlayback
+
     // ==================== INTERNALS ====================
 
     private fun appendMessage(message: TransceiverMessage) {
