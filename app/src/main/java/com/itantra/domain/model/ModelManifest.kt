@@ -189,7 +189,13 @@ enum class ModelPack(
             TTS_GUJARATI,
             TTS_MALAYALAM,
             TTS_BENGALI,
-            TTS_ENGLISH
+            TTS_ENGLISH,
+            // T17b: self-converted MMS voices, now downloadable like every other TTS voice.
+            TTS_MARATHI,
+            TTS_KANNADA,
+            TTS_TAMIL,
+            TTS_TELUGU,
+            TTS_ODIA
         )
     }
 }

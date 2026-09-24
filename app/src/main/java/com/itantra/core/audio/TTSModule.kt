@@ -42,7 +42,12 @@ class TTSModule(
             "gu" to ModelPack.TTS_GUJARATI,
             "ml" to ModelPack.TTS_MALAYALAM,
             "bn" to ModelPack.TTS_BENGALI,
-            "en" to ModelPack.TTS_ENGLISH
+            "en" to ModelPack.TTS_ENGLISH,
+            "mr" to ModelPack.TTS_MARATHI,
+            "kn" to ModelPack.TTS_KANNADA,
+            "ta" to ModelPack.TTS_TAMIL,
+            "te" to ModelPack.TTS_TELUGU,
+            "or" to ModelPack.TTS_ODIA
         )
     }
 

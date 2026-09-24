@@ -178,7 +178,7 @@ The cache's *object count* is verifiably bounded — confirmed on real hardware 
 Feature extraction is a hand-rolled 80-bin log-mel spectrogram pipeline (25ms frame / 10ms hop, Hann window), with per-feature mean/std normalization across the whole utterance, matching IndicConformer's NeMo training configuration. Decoding uses a from-scratch, unit-tested `CtcDecoder.greedyDecode()`. On failure the module returns a real `AppResult.Error` — it never fabricates placeholder text.
 
 ### Text-to-Speech — `TTSModule`
-Uses **sherpa-onnx's `OfflineTts`** with real espeak-ng-phonemized VITS voices (Piper/Coqui/Mimic3):
+Uses **sherpa-onnx's `OfflineTts`** with real VITS voices — five espeak-ng-phonemized (Piper/Coqui/Mimic3) plus five self-converted, character-frontend MMS voices (T17b, no espeak-ng needed):
 
 | Language | Voice source |
 | --- | --- |
@@ -187,8 +187,13 @@ Uses **sherpa-onnx's `OfflineTts`** with real espeak-ng-phonemized VITS voices (
 | Malayalam | Piper |
 | Bengali | Coqui |
 | English | Piper |
+| Marathi | MMS (self-converted, CC-BY-NC 4.0) |
+| Kannada | MMS (self-converted, CC-BY-NC 4.0) |
+| Tamil | MMS (self-converted, CC-BY-NC 4.0) |
+| Telugu | MMS (self-converted, CC-BY-NC 4.0) |
+| Odia | MMS (self-converted, CC-BY-NC 4.0) |
 
-Additional voices (Marathi, Kannada, Tamil, Telugu, Odia) are on the roadmap — see [Language Roadmap](#-language-roadmap). Output plays at the voice's native sample rate — `AudioPlaybackManager.play()` takes the synthesized `sampleRate` directly, no resampling to a fixed rate. Loaded voices are cached in the same kind of 2-entry LRU as `STTModule` — see the caching note above.
+Output plays at the voice's native sample rate — `AudioPlaybackManager.play()` takes the synthesized `sampleRate` directly, no resampling to a fixed rate. Loaded voices are cached in the same kind of 2-entry LRU as `STTModule` — see the caching note above.
 
 ### Playback — `AudioPlaybackManager`
 Every `play()` call is queued through a single `Channel` with one consumer coroutine, so messages arriving close together play one after another instead of overlapping and garbling each other. Normal messages play via `AudioTrack` with `USAGE_MEDIA` for clear, full-volume audio. `ALERT`-type messages use `STREAM_ALARM` forced to max volume, attempt to flip ringer mode to bypass Do-Not-Disturb, use `USAGE_ALARM` + `FLAG_AUDIBILITY_ENFORCED`, and set `setWillPauseWhenDucked(false)` on the audio focus request so an alert can't be quietly ducked by other audio.
@@ -302,13 +307,16 @@ Bottom navigation, left to right: **Home → Radar → Radio (Transceiver, cente
 | Bengali | ✅ | ✅ |
 | Malayalam | ✅ | ✅ |
 | English | ✅ | ✅ |
-| Marathi | ✅ | 🔜 |
-| Kannada | ✅ | 🔜 |
-| Tamil | ✅ | 🔜 |
-| Telugu | ✅ | 🔜 |
-| Odia | 🔜 | 🔜 |
+| Marathi | ✅ | ✅ |
+| Kannada | ✅ | ✅ |
+| Tamil | ✅ | ✅ |
+| Telugu | ✅ | ✅ |
+| Odia | 🔜 | ✅ |
 
-🔜 = actively being sourced — a free, high-quality offline voice/model for these hasn't been finalized yet.
+✅ Text-to-Speech for Marathi, Kannada, Tamil, Telugu and Odia (T17b) is self-converted from
+`facebook/mms-tts` — see the Text-to-Speech section. 🔜 Odia Speech-to-Text still needs an export
+from AI4Bharat's `indicconformer_stt_or_hybrid_ctc_rnnt_large` checkpoint (T64) — the current
+download mirror has no Odia model.
 
 ---
 
@@ -386,7 +394,7 @@ The commit history documents genuine, iterative on-device engineering:
 ## 🗺️ Roadmap
 
 - **Streaming STT inference** — phrase-level pipelining (mid-hold cuts, ~0.6–0.75s measured turnaround per phrase) is now in place; evaluate whether further latency reduction via chunked/streaming inference is still worth the added complexity.
-- **Full language coverage** — convert TTS voices for Marathi, Kannada, Tamil, Telugu and Odia (MMS, CC-BY-NC), and export Odia STT from AI4Bharat's `indicconformer_stt_or_hybrid_ctc_rnnt_large` checkpoint (the current download mirror has no Odia).
+- **Full language coverage** — TTS voices for Marathi, Kannada, Tamil, Telugu and Odia are now shipped (self-converted from `facebook/mms-tts`, CC-BY-NC 4.0; see the Text-to-Speech section). Still open: export Odia STT from AI4Bharat's `indicconformer_stt_or_hybrid_ctc_rnnt_large` checkpoint (the current download mirror has no Odia).
 - **Phone mode in the UI, with an echo gate** — so a phone never re-transmits the message it is playing.
 - **Bluetooth in both directions** — today a phone sends over Bluetooth only if it is the one hosting.
 - **Voice notes** — keep received speech for replay.
@@ -402,6 +410,7 @@ The commit history documents genuine, iterative on-device engineering:
 | --- | --- |
 | AI4Bharat IndicConformer (sherpa-onnx export) | Apache 2.0 |
 | sherpa-onnx / Piper / Coqui / Mimic3 voices | Apache 2.0 / MIT (voice-dependent) |
+| MMS voices (Marathi/Kannada/Tamil/Telugu/Odia, self-converted, T17b) | **CC-BY-NC 4.0 (non-commercial)** |
 | Silero VAD | MIT |
 | ONNX Runtime Mobile | MIT |
 | Protocol Buffers (javalite) | BSD-3-Clause |

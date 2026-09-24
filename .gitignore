@@ -54,6 +54,9 @@ __pycache__/
 model-export/.env
 model-export/venv/
 model-export/__pycache__/
+# T17b working tree: venv, cloned MMS source, raw checkpoints, packaged archives — all
+# reproducible from the conversion procedure in docs/IMPLEMENTATION_SPEC.md, never committed.
+model-export/mms_work/
 
 # ==================== Test data ====================
 model-export/test_audio/
