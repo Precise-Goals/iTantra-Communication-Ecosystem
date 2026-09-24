@@ -24,11 +24,12 @@ import com.itantra.domain.model.ModelPack
  * (k2-fsa.github.io/sherpa/onnx/tts/mms.html) and hosted by the team —
  * see `mmsTtsInfo` and `ITANTRA_MODELS_BASE` below. **Licence: CC-BY-NC 4.0**
  * (non-commercial), inherited from `facebook/mms-tts`; the other TTS voices
- * above are more permissively licensed piper/coqui/mimic3 voices. They remain
- * intentionally absent from [com.itantra.domain.model.ModelPack.coreTransceiverPacks] —
- * optional extras, not part of the compulsory download. The same mirror still
- * has no Odia STT model either — only "as" (Assamese), which is not
- * substituted in as a fake Odia model (see T64).
+ * above are more permissively licensed piper/coqui/mimic3 voices. They are
+ * included in [com.itantra.domain.model.ModelPack.coreTransceiverPacks] like
+ * every other TTS voice, so the app's one "Download the Pack" button covers
+ * all ten languages' TTS. The same mirror still has no Odia STT model either
+ * — only "as" (Assamese), which is not substituted in as a fake Odia model
+ * (see T64).
  */
 object ModelRegistry {
 
@@ -197,28 +198,28 @@ object ModelRegistry {
         // Licence: CC-BY-NC 4.0 (non-commercial), inherited from facebook/mms-tts.
         ModelPack.TTS_KANNADA to mmsTtsInfo(
             ModelPack.TTS_KANNADA, "vits-mms-kan.tar.bz2", "kn",
-            sizeBytes = 107_749_805L,
-            sha256 = "a30d90ac58d8ed1f8f4894b17fad079f333540c69e2a427a7905d7498e645949"
+            sizeBytes = 107_749_707L,
+            sha256 = "db403e47d3a683193cf2a7328c0ed97441dfbed20483e8288de9fe12d5e5de33"
         ),
         ModelPack.TTS_TAMIL to mmsTtsInfo(
             ModelPack.TTS_TAMIL, "vits-mms-tam.tar.bz2", "ta",
-            sizeBytes = 107_732_523L,
-            sha256 = "f73caaf4e033a7e351c9d5e9e4c113c949a182da2ef240ff6bcc3ed6f2df9718"
+            sizeBytes = 107_732_553L,
+            sha256 = "1e027bf470004f42f5eb9d56148bd3d16cb6f0e520f5ac4d919e745e9675461c"
         ),
         ModelPack.TTS_TELUGU to mmsTtsInfo(
             ModelPack.TTS_TELUGU, "vits-mms-tel.tar.bz2", "te",
-            sizeBytes = 107_766_301L,
-            sha256 = "e684ee72c1e05bc18f3e09096454d65967c69d8ebfb72a6fc2485e60e203e712"
+            sizeBytes = 107_766_292L,
+            sha256 = "aa2f19cfb3b1609b09a7c8bd9e47f94dbfd2d7db6fb0c4d271338e1d3e6e226e"
         ),
         ModelPack.TTS_MARATHI to mmsTtsInfo(
             ModelPack.TTS_MARATHI, "vits-mms-mar.tar.bz2", "mr",
-            sizeBytes = 107_755_641L,
-            sha256 = "000bdcf9feb12812d6a6f776e113ff1ce0042bff1b677c0986289c125b17785e"
+            sizeBytes = 107_755_725L,
+            sha256 = "efb33aac21897d36bb46b7e721a9b9f479487a339e138bc399a3dccfb436899b"
         ),
         ModelPack.TTS_ODIA to mmsTtsInfo(
             ModelPack.TTS_ODIA, "vits-mms-ory.tar.bz2", "or",
-            sizeBytes = 107_748_139L,
-            sha256 = "69bdf843e14743fcc4038ae448905d51d5ab5ee8af2c0d4845fef11d79daf3fc"
+            sizeBytes = 107_748_147L,
+            sha256 = "1cbe41e41364a1fc07fadbe0057a523d45b42300bf65ad23b95b252c2c7279c1"
         )
     )
 
