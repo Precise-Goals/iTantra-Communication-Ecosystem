@@ -489,6 +489,16 @@ One spec error of mine, caught by the implementer: T71's file list missed that `
 
 Housekeeping: an Office lock file (`~$Falcons_SIH26173_iTantra.pptx`) was committed to `main` in `db1e8d6`; removed and `~$*` gitignored on this docs branch.
 
+### 10.16 Scope decisions (2026-09-24)
+
+Three questions were settled against the problem-statement text:
+
+1. **Remove the AI Assistant — done (T02, PR #19).** The PS asks for STT, TTS and a walkie-talkie. The Assistant was deleted rather than hidden behind a build flag: a flag leaves dead code and a second build to maintain. Measured debug APK: **99,311,356 → 60,759,386 bytes (−38.8 %)** — six llama.cpp native libraries (`librnllama*.so`, ~5.7 MB each) gone. The fastText language-ID pack went too: it was part of the compulsory download, but no code ever read it. T74 became moot. The last commit with the Assistant is tagged `assistant-last`.
+2. **No "voice packs" in place of STT → TTS.** Android/Google offline voice packs are closed-source (banned by the PS) and unreliable for Indic languages on budget phones. Sending compressed audio instead of text defeats the low-bitrate premise (Codec2 needs 700–3,200 bit/s; a sentence of text is ~60 bytes) and the PS scores the STT and TTS modules themselves. Recorded human phrase clips are allowed but only useful as optional polish for preset alerts.
+3. **SOS trimmed to the minimum.** The PS requires alert-*type* messages announced at highest volume, non-interruptible. Playback already does that; what is missing is any way to send one. T66 is cut to a "next message is an ALERT" toggle (~2 h, no dependency on T69). Presets, a receiver dialog and T39 (queue pre-emption) are optional.
+
+The measurement also shows the next size lever: two ONNX runtimes ship side by side — `libsherpa-onnx-jni.so` (23.7 MB, statically linked runtime) and `libonnxruntime.so` (16.3 MB). That is T15.
+
 ### 10.10 Revised top of the work order
 
 Items 1–4 below slot in ahead of §8's list; the rest of §8 is unchanged.

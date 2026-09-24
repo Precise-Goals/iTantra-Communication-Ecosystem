@@ -2088,6 +2088,22 @@ If your copy of `stopPTT` differs from the ANCHOR (for example because telemetry
 
 ## T66 🎨 · SOS: send alerts from the UI, and show received alerts
 
+> ### Minimum version — do only this (decided 2026-09-24)
+>
+> The PS requires alert-*type* messages that play at the highest volume without interruption. It does not require an SOS screen, presets or a receiver dialog, and playback already meets the requirement. So:
+>
+> | Part | Do it? |
+> | --- | --- |
+> | Step 1a (`broadcastAlert` language change) | **Skip** — only presets used it. This also removes the dependency on T69. |
+> | Steps 1b, 1c, 1d (`sendNextAsAlert` flag in the service) | **Do** |
+> | Step 2a | **Do only** the `_alertArmed` / `alertArmed` / `setAlertArmed` parts. Skip `_incomingAlert`, `incomingAlert`, `dismissAlert`, `sendPresetAlert` and the two imports. |
+> | Step 2b (collect `alertFlow`) | **Skip** |
+> | Step 2c (reset armed after PTT release) | **Do** |
+> | Step 3 | **Do only** the "Next message is an ALERT" toggle. Skip the SOS button, the presets dialog and the receiver dialog. |
+> | VERIFY | Do check 1 and check 3 only. |
+>
+> Everything else in this section is optional polish, kept for reference.
+
 **Files:** `core/service/ITantraForegroundService.kt`, `ui/MainViewModel.kt`, `ui/screen/TransceiverScreen.kt`, the top-level Compose host (`MainActivity.kt`)
 **Criterion:** REQ — *"alert type messages will be announced at highest volume non-interruptible"* cannot be demonstrated today, because no UI sends an ALERT (`broadcastAlert()` has no caller) and no UI shows one (`alertFlow` has no collector).
 **Depends on:** T69 (Step 1 below calls its `transmit()` helper).
@@ -3372,6 +3388,8 @@ REPLACEMENT:
 ---
 
 ## T74 · The AI Assistant uses the service's models and playback queue
+
+> **Superseded 2026-09-24.** Implemented on `feature/stage-a` (`0d6bde5`), then made moot: the AI Assistant was removed (T02, PR #19), which deletes the ViewModel code this task changed. Do not re-apply it.
 
 **Files:** `core/service/ITantraForegroundService.kt`, `ui/MainViewModel.kt`
 **Criterion:** EFF (RAM), REQ (no overlapping audio)

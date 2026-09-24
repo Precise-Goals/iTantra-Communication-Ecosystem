@@ -480,6 +480,8 @@ REPLACEMENT:
 
 ### Step 2 — drop the LLM from the judged build
 
+> **Superseded 2026-09-24:** the AI Assistant was deleted outright rather than gated behind a build flag (T02, PR #19). Skip this step.
+
 ANCHOR:
 
 ```kotlin
