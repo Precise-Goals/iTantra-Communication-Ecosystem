@@ -732,6 +732,8 @@ Do not add a second `scope.launch` inside `play()`. The whole point is that exac
 
 ## T43 · Honour `dstLang`
 
+> **Use the re-anchored version in `IMPLEMENTATION_SPEC_2.md` Group H → T43 (2026-09-24).** The ANCHOR below predates the telemetry code and no longer matches. The decision in the correction below (use `srcLang`) is unchanged.
+
 **File:** `core/service/ITantraForegroundService.kt`
 **Criterion:** ACC / REQ
 

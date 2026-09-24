@@ -63,3 +63,6 @@ model-export/wer_report.json
 *.jks
 *.keystore
 keystore.properties
+
+# Office lock files
+~$*

@@ -3,7 +3,8 @@
 > Continues [`IMPLEMENTATION_SPEC.md`](IMPLEMENTATION_SPEC.md). **Read §0 of Part 1 first — the rules contract applies here unchanged.**
 > Covers the tasks Part 1 left unspecified. As of 2026-09-22 · PS-26173
 > **Revised 2026-09-23:** Group G adds T62–T69 from the second audit; T33 and T50 are amended.
-> **Revised 2026-09-24:** T45 rewritten after the first device measurements; T70–T72 added at the end of Group G. T62 and T65 are implemented on `feature/latency-pipeline`. See [`IMPROVEMENT_PLAN.md` §10](IMPROVEMENT_PLAN.md#10-addendum--second-audit-2026-09-23).
+> **Revised 2026-09-24:** T45 rewritten after the first device measurements; T70–T72 added at the end of Group G. T62 and T65 are implemented on `feature/latency-pipeline`.
+> **Revised 2026-09-24 (evening):** T70, T45, T72, T71 implemented in PR #17. **Group H** (before Group F) adds T73 and T74 and replaces the T43 and T46 specs with versions anchored to PR #17's code. See [`IMPROVEMENT_PLAN.md` §10](IMPROVEMENT_PLAN.md#10-addendum--second-audit-2026-09-23).
 
 ---
 
@@ -833,6 +834,8 @@ T66 uses the same ANCHOR line and also keeps it. If T66 is already done, the lin
 ---
 
 ## T46 · Bound the model caches
+
+> **Superseded 2026-09-24:** use the explicit version in **Group H → T46** (both modules written out, anchors verified against PR #17). Kept here for history.
 
 **Files:** `core/audio/STTModule.kt`, `core/audio/TTSModule.kt`
 **Criterion:** EFF
@@ -3101,6 +3104,391 @@ REPLACEMENT:
 
 ---
 
+## Group H — after the second device run (2026-09-24)
+
+Written after reviewing PR #17 (T70, T45, T72, T71) and its run-2 evidence in `docs/latency-evidence/README.md` → "Run 2". **Every ANCHOR below was checked to match exactly once in `feature/latency-pipeline-2` @ `71b2c17`** (the PR #17 branch). Part 1 §0 rules apply. File paths are relative to `app/src/main/java/com/itantra/`.
+
+Order: **T43 → T73 → T46 → T74**. T43 is one hour and fixes a bug visible in every multi-language demo.
+
+---
+
+## T43 (re-anchored) · The receiver speaks in the text's own language
+
+**File:** `core/service/ITantraForegroundService.kt`
+**Criterion:** ACC, REQ
+**Depends on:** nothing.
+
+> Replaces the ANCHOR in `IMPLEMENTATION_SPEC.md` T43, which predates the telemetry code. The decision is unchanged: use `message.srcLang`, never `dstLang` and never the receiver's own `ttsLanguage`.
+
+### Why (measured)
+
+Run 2's receiver spoke every Kannada and Tamil message with the Hindi voice: `receiver_logcat.txt` shows `Received …: 'என்ன பாடா'` followed by `sherpa-onnx TTS synthesized … [hi]`. `onTextReceived` passes the receiver's own `ttsLanguage` to TTS. There is no translation step, so the text is always in the sender's spoken language, `srcLang`.
+
+### ANCHOR (inside `onTextReceived`)
+
+```kotlin
+                val utt = Telemetry.begin(ttsLanguage)
+                utt.rxNs = rxStampNs
+                val synth = ttsModule.synthesize(message.text, ttsLanguage)
+```
+
+### REPLACEMENT
+
+```kotlin
+                // Voice the text in the language it is WRITTEN in (T43). There is no translation,
+                // so using this phone's own ttsLanguage fed e.g. Tamil text to the Hindi voice
+                // (docs/latency-evidence/run2/receiver_logcat.txt).
+                val targetLang = message.srcLang.ifBlank { ttsLanguage }
+                val utt = Telemetry.begin(targetLang)
+                utt.rxNs = rxStampNs
+                val synth = ttsModule.synthesize(message.text, targetLang)
+```
+
+### VERIFY
+
+1. `./gradlew :app:compileDebugKotlin`
+2. Phone A picks Tamil, phone B stays on Hindi. Speak Tamil on A. B's logcat shows the Tamil text received, then a real `TTS not available for 'ta'` error — **not** `synthesized … [hi]`. The text still appears in B's message list.
+3. Phone A picks Hindi again: B speaks it with the Hindi voice as before.
+
+### DO NOT
+
+- Do not fall back to another language's voice when `srcLang` has no voice. Silence plus a real error is the honest behaviour until T17b adds the voice.
+
+---
+
+## T73 · Re-initialise the VAD once its model finishes downloading
+
+**Files:** `core/audio/VADModule.kt`, `core/service/ITantraForegroundService.kt`, `ui/MainViewModel.kt`
+**Criterion:** ACC (segmentation quality), EFF
+**Depends on:** nothing.
+
+### Why (measured)
+
+`VADModule.initialize()` runs once, when the service starts. On a first install the service starts **before** the VAD model has downloaded, so it finds no file and falls back to the energy detector for the rest of the process. Run 2 hit this: `run2/receiver_logcat_prelim_connectivity_check.txt` shows `backend: BASIC_ENERGY (physical path: null …)`, and the model file's timestamp was ~90 s later. Only a force-stop fixed it. A judge installing the app fresh would get the worse detector.
+
+### Step 1 — `core/audio/VADModule.kt`
+
+ANCHOR:
+
+```kotlin
+    fun resetState() {
+```
+
+REPLACEMENT:
+
+```kotlin
+    /**
+     * Run [initialize] again if the neural backend is not active (T73). On a first install the
+     * service starts before the VAD model has downloaded, so the first initialize() found no file
+     * and fell back to BASIC_ENERGY for the whole process
+     * (docs/latency-evidence/run2/receiver_logcat_prelim_connectivity_check.txt).
+     * @return true if the neural backend is active afterwards.
+     */
+    suspend fun reinitializeIfNeeded(): Boolean {
+        if (activeBackend == VadBackend.NEURAL) return true
+        session?.close()
+        session = null
+        initialize()
+        return activeBackend == VadBackend.NEURAL
+    }
+
+    fun resetState() {
+```
+
+### Step 2 — `core/service/ITantraForegroundService.kt`
+
+ANCHOR:
+
+```kotlin
+    // ==================== INTERNALS ====================
+```
+
+REPLACEMENT:
+
+```kotlin
+    /** Called when the VAD model pack finishes downloading (T73). No-op if already neural. */
+    fun reinitVadIfNeeded() {
+        serviceScope.launch {
+            val neural = vadModule.reinitializeIfNeeded()
+            Log.d(TAG, "VAD re-init after download — neural: $neural")
+        }
+    }
+
+    // ==================== INTERNALS ====================
+```
+
+(T74 inserts other code before the same line. Both keep the line, so they can be done in either order.)
+
+### Step 3 — `ui/MainViewModel.kt`: listen for the download, once the service is bound
+
+The listener must go inside `onServiceConnected`. **Do not put it in `init {}`**: `init` runs before `downloadStates` is declared further down the class, so it would read an uninitialised property and crash.
+
+ANCHOR (the end of `onServiceConnected`; this text is unique because of the `override fun onServiceDisconnected` line):
+
+```kotlin
+                it.warmUp()
+            }
+        }
+        override fun onServiceDisconnected(name: ComponentName?) {
+```
+
+REPLACEMENT:
+
+```kotlin
+                it.warmUp()
+                // Re-initialise the VAD when its model finishes downloading (T73). The first
+                // emission may already be Downloaded; reinitVadIfNeeded() is then a no-op.
+                val svc = it
+                viewModelScope.launch {
+                    var vadReady = false
+                    downloadStates.collect { states ->
+                        val nowReady = states[ModelPack.VAD_MODEL] is DownloadState.Downloaded
+                        if (nowReady && !vadReady) svc.reinitVadIfNeeded()
+                        vadReady = nowReady
+                    }
+                }
+            }
+        }
+        override fun onServiceDisconnected(name: ComponentName?) {
+```
+
+`ModelPack` and `DownloadState` are already imported in this file.
+
+### VERIFY
+
+1. `./gradlew :app:compileDebugKotlin`
+2. Clear the app's data (`adb shell pm clear com.itantra.debug`), launch, and download the core pack. Logcat `VADModule:*` first shows `backend: BASIC_ENERGY`, then — when the VAD pack finishes — `VAD initialized — backend: NEURAL` and `VAD re-init after download — neural: true`, **without** restarting the app.
+3. Normal launch with models already present: one `neural: true` line, no errors.
+
+### DO NOT
+
+- Do not poll the file system on a timer. React to the download state.
+
+---
+
+## T46 (made explicit) · Bound the model caches
+
+**Files:** `core/audio/STTModule.kt`, `core/audio/TTSModule.kt`
+**Criterion:** EFF (RAM)
+**Depends on:** T65 and T70 (their locks make eviction safe: a model cannot be evicted while another call is using it).
+
+> Replaces T46 in the Group C section above, whose TTS half said only "apply the same pattern". Priority raised on 2026-09-24: since T72, every language the user taps loads another ~197 MB STT model, and nothing ever unloads one.
+
+### Step 1 — `core/audio/STTModule.kt`
+
+ANCHOR:
+
+```kotlin
+    private val sessionCache = mutableMapOf<String, OrtSession>()
+    private val vocabCache = mutableMapOf<String, Array<String>>()
+    private val ioNamesCache = mutableMapOf<String, IoNames>()
+```
+
+REPLACEMENT:
+
+```kotlin
+    // Bounded LRU (T46). Each session is a ~197MB native allocation; caching every language a
+    // user ever tapped held them all for the process lifetime. Eviction only happens inside
+    // ensureLoaded(), which holds inferenceLock, so a session is never closed while in use.
+    private val sessionCache = object : LinkedHashMap<String, OrtSession>(4, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, OrtSession>): Boolean {
+            if (size > MAX_CACHED_LANGUAGES) {
+                runCatching { eldest.value.close() }
+                vocabCache.remove(eldest.key)
+                ioNamesCache.remove(eldest.key)
+                Log.d(TAG, "Evicted STT session '${eldest.key}' (LRU)")
+                return true
+            }
+            return false
+        }
+    }
+    private val vocabCache = mutableMapOf<String, Array<String>>()
+    private val ioNamesCache = mutableMapOf<String, IoNames>()
+```
+
+Then in the companion object. ANCHOR:
+
+```kotlin
+        private const val TAG = "STTModule"
+```
+
+REPLACEMENT:
+
+```kotlin
+        private const val TAG = "STTModule"
+        /** STT sessions kept resident (T46). 2 covers switching back and forth between two languages. */
+        private const val MAX_CACHED_LANGUAGES = 2
+```
+
+### Step 2 — `core/audio/TTSModule.kt`
+
+ANCHOR:
+
+```kotlin
+    private val ttsCache = mutableMapOf<String, OfflineTts>()
+```
+
+REPLACEMENT:
+
+```kotlin
+    // Bounded LRU (T46). Eviction happens inside getOrLoadTts(), which only runs under ttsLock
+    // (T70), so a voice is never released while synthesizing.
+    private val ttsCache = object : LinkedHashMap<String, OfflineTts>(4, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, OfflineTts>): Boolean {
+            if (size > MAX_CACHED_VOICES) {
+                runCatching { eldest.value.release() }
+                Log.d(TAG, "Evicted TTS voice '${eldest.key}' (LRU)")
+                return true
+            }
+            return false
+        }
+    }
+```
+
+Then in the companion object. ANCHOR:
+
+```kotlin
+        private const val TAG = "TTSModule"
+```
+
+REPLACEMENT:
+
+```kotlin
+        private const val TAG = "TTSModule"
+        /** TTS voices kept resident (T46). 2 covers speaking two senders' languages in turn. */
+        private const val MAX_CACHED_VOICES = 2
+```
+
+### VERIFY
+
+1. `./gradlew :app:compileDebugKotlin`
+2. On the Transceiver screen tap Hindi → Tamil → Kannada → Hindi. Logcat `STTModule:*` shows `Evicted STT session 'hi' (LRU)` when Kannada loads, and Hindi loads again on the last tap.
+3. `adb shell dumpsys meminfo com.itantra.debug | findstr TOTAL` after the four taps stays near the value after two taps, instead of growing by ~200 MB per language.
+
+### DO NOT
+
+- Do not set either limit to 1: a phone that sends in one language and receives in another would reload a model on every message.
+
+---
+
+## T74 · The AI Assistant uses the service's models and playback queue
+
+**Files:** `core/service/ITantraForegroundService.kt`, `ui/MainViewModel.kt`
+**Criterion:** EFF (RAM), REQ (no overlapping audio)
+**Depends on:** nothing, but do it after T46 so both memory fixes are measured together.
+
+### Why
+
+`MainViewModel` creates its **own** `STTModule`, `TTSModule` and `AudioPlaybackManager` for the AI Assistant, separate from the service's. Since T72 both features use the same selected language, so using the Assistant's voice input or speech loads a second copy of the same ~197 MB STT model and voice. The two instances also have separate locks and separate playback queues, so an Assistant reply and a received walkie-talkie message can play on top of each other.
+
+### Step 1 — `core/service/ITantraForegroundService.kt`: expose the shared instances
+
+ANCHOR:
+
+```kotlin
+    // ==================== INTERNALS ====================
+```
+
+REPLACEMENT:
+
+```kotlin
+    /** Shared with the AI Assistant so one model instance, one lock and one playback queue serve
+     *  both features (T74). Valid only after onCreate(). */
+    val sharedStt: STTModule get() = sttModule
+    val sharedTts: TTSModule get() = ttsModule
+    val sharedPlayback: AudioPlaybackManager get() = audioPlayback
+
+    // ==================== INTERNALS ====================
+```
+
+### Step 2 — `ui/MainViewModel.kt`: prefer the service's instances
+
+**2a.** ANCHOR:
+
+```kotlin
+    private val audioPlayback = AudioPlaybackManager(application, audioCallbacks)
+```
+
+REPLACEMENT:
+
+```kotlin
+    private val audioPlayback = AudioPlaybackManager(application, audioCallbacks)
+
+    // Use the service's instances whenever it is bound (T74), so the Assistant and the
+    // walkie-talkie share one model copy, one lock and one playback queue. The ViewModel's own
+    // instances above are only a fallback before binding; they hold no model until used.
+    private val activeStt: STTModule get() = foregroundService?.sharedStt ?: sttModule
+    private val activeTts: TTSModule get() = foregroundService?.sharedTts ?: ttsModule
+    private val activePlayback: AudioPlaybackManager get() = foregroundService?.sharedPlayback ?: audioPlayback
+```
+
+**2b.** ANCHOR (in the Assistant's `AudioCaptureModule` lambda):
+
+```kotlin
+            sttModule.ensureLoaded(lang)
+            val result = sttModule.transcribe(pcm, lang)
+```
+
+REPLACEMENT:
+
+```kotlin
+            activeStt.ensureLoaded(lang)
+            val result = activeStt.transcribe(pcm, lang)
+```
+
+**2c.** ANCHOR:
+
+```kotlin
+            val synth = ttsModule.synthesize(text, lang)
+```
+
+REPLACEMENT:
+
+```kotlin
+            val synth = activeTts.synthesize(text, lang)
+```
+
+**2d.** ANCHOR:
+
+```kotlin
+                audioPlayback.play(synth.samples, synth.sampleRate)
+```
+
+REPLACEMENT:
+
+```kotlin
+                activePlayback.play(synth.samples, synth.sampleRate)
+```
+
+**2e.** ANCHOR:
+
+```kotlin
+                    sttModule.ensureLoaded(_selectedLanguage.value)
+                    val result = sttModule.transcribe(pcm, _selectedLanguage.value)
+```
+
+REPLACEMENT:
+
+```kotlin
+                    activeStt.ensureLoaded(_selectedLanguage.value)
+                    val result = activeStt.transcribe(pcm, _selectedLanguage.value)
+```
+
+Leave `sttModule = sttModule` in the `AudioCaptureModule(...)` constructor call and `ttsModule.release()` in `onCleared()` unchanged: they refer to the ViewModel's fallback instances, which is correct.
+
+### VERIFY
+
+1. `./gradlew :app:compileDebugKotlin`
+2. `grep -n "sttModule.transcribe\|ttsModule.synthesize\|audioPlayback.play" app/src/main/java/com/itantra/ui/MainViewModel.kt` returns nothing.
+3. On a phone: use the walkie-talkie in Hindi, then the Assistant's voice input in Hindi. Logcat `STTModule:*` shows **one** `STT('hi') loaded` for the whole session, not two.
+
+### DO NOT
+
+- Do not delete the ViewModel's own instances; they are the fallback before the service binds.
+- Do not share the ViewModel's `VADModule` / `AudioCaptureModule`: the Assistant captures on demand with its own capture loop, and the VAD model is only ~2 MB.
+
+---
+
 # Group F — Dossier (T56–T61)
 
 Not code. Commands and procedure.
@@ -3143,7 +3531,8 @@ Before/after table from the week-0 and week-6 CSVs; rehearsed two-device demo; d
 | E — deferred | T23, T29, T30, T48, T49, T50 | Specced as procedures 🔬 |
 | F — dossier | T56–T61 | Commands given |
 | G — second audit | T62 🔬, T63, T64 🔬, T65, T66 🎨, T67 🎨, T68, T69 | Specced, anchors verified against committed code and working tree on 2026-09-23. T62, T65 done |
-| G — after first device run | T70, T71, T72 🎨; T45 revised | Anchors verified against `feature/latency-pipeline` @ `e57fb7d` on 2026-09-24 |
+| G — after first device run | T70, T71, T72 🎨; T45 revised | Anchors verified against `feature/latency-pipeline` @ `e57fb7d` on 2026-09-24. All four done in PR #17 |
+| H — after second device run | T43 (re-anchored), T73, T46 (explicit), T74 | Anchors verified against `feature/latency-pipeline-2` @ `71b2c17` (PR #17) on 2026-09-24 |
 | Judgement only | T01, T03, T04, T16, T25–T28, T36, T54 | Trivial, or covered inline in Part 1 |
 | Superseded | T19 → T64; T55 → merged into T64 Step 6 | — |
 
