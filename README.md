@@ -8,7 +8,7 @@
 [![Version](https://img.shields.io/badge/version-2.0.0-informational.svg)]()
 [![Languages: 9 Indic (STT) / 5 (TTS)](https://img.shields.io/badge/Languages-9%20STT%20%2F%205%20TTS-orange.svg)]()
 
-> **This document describes the real, working implementation** on branch `fix/model-pipeline-integrity`, verified through extensive on-device testing across two physical Android devices. See [`PRD.md`](PRD.md) and [`team.md`](team.md) for the original sprint-planning design docs, kept for historical reference.
+> **This document describes the real, working implementation** on branch `feature/latency-pipeline`, verified through extensive on-device testing across two physical Android devices. See [`PRD.md`](PRD.md) and [`team.md`](team.md) for the original sprint-planning design docs, kept for historical reference.
 
 ---
 
@@ -25,10 +25,10 @@ Instead of streaming raw audio, iTantra converts speech to text **on-device** us
 | Capability | Status |
 | --- | --- |
 | Wi-Fi Direct + Bluetooth Classic mesh networking | ✅ Verified end-to-end across two real physical devices |
-| Push-to-talk voice pipeline (capture → VAD → STT → transmit) | ✅ Fully wired into a persistent foreground service |
+| Push-to-talk voice pipeline (capture → VAD → STT → transmit) | ✅ Fully wired into a persistent foreground service, with **phrase-level pipelining**: sentences spoken mid-hold are transcribed and transmitted while PTT is still held, so the receiver can start speaking before the sender releases the button — verified end-to-end on two physical devices (receiver started speaking 1.2–5.0s before release in testing) |
 | On-device Speech-to-Text (AI4Bharat IndicConformer, sherpa-onnx INT8) | ✅ Real neural inference across **9 Indic languages** |
 | On-device Text-to-Speech (real espeak-ng-phonemized VITS voices) | ✅ Natural-sounding voices for Hindi, Gujarati, Malayalam, Bengali & English, with more languages in progress |
-| Voice Activity Detection | ✅ Adaptive, field-tested energy-based detector, with a neural model already in the pipeline for a future upgrade |
+| Voice Activity Detection | ✅ Real neural **Silero VAD** (v5+ export, pinned to release `v6.2.3`) with the required 64-sample inter-window context and release hysteresis — repaired after diagnosing a missing-context bug that had forced an energy-only fallback. A real RMS-energy detector remains as an automatic fallback if the model is missing or throws at runtime |
 | On-device AI Tactical Assistant (Phi-3 Mini via llama.cpp) | ✅ Real generative answers once the optional model is downloaded, with a built-in quick-reference mode so the assistant is never unavailable — the UI always shows which mode answered |
 | Model download / integrity pipeline | ✅ Resumable, SHA-256 verified downloads with automatic archive extraction |
 | Peer authorization whitelist | ✅ Room-persisted, survives app restarts |
@@ -41,12 +41,14 @@ Instead of streaming raw audio, iTantra converts speech to text **on-device** us
 ┌──────────────────────────────────────────────────────────────────────┐
 │                            SENDER DEVICE                              │
 │  Mic → AudioRecord (16kHz mono PCM_16BIT, 100ms/1600-sample chunks)  │
-│      → VADModule (adaptive energy-based speech detection)            │
-│      → 800ms silence → flushAndTranscribe()                          │
-│      → STTModule (sherpa-onnx IndicConformer INT8, per-language)     │
+│      → VADModule (neural Silero VAD, 64-sample context + hysteresis) │
+│      → adaptive endpoint: 800ms idle / 500ms once confident speech / │
+│           400ms while PTT is held → per-phrase segment queue         │
+│      → STTModule (Mutex-serialized sherpa-onnx IndicConformer INT8)  │
 │           mel-spectrogram(80-bin) → OrtSession.run() → CtcDecoder     │
 │      → ProtobufSerializer.encode() → TransceiverMessage               │
 │      → SocketTransport (TCP :8765) / BluetoothRFCOMMManager           │
+│  (phrases spoken mid-hold transmit immediately; capture never stalls) │
 └──────────────────────────────────────────────────────────────────────┘
                      4-byte length-prefixed Protobuf frame
                                     ▼
@@ -55,7 +57,8 @@ Instead of streaming raw audio, iTantra converts speech to text **on-device** us
 │  ITantraForegroundService socket listener                             │
 │      → ProtobufSerializer.decode()                                    │
 │      → TTSModule (sherpa-onnx VITS + espeak-ng phonemizer)           │
-│      → AudioPlaybackManager (AudioTrack, USAGE_MEDIA)                │
+│      → AudioPlaybackManager playback queue (serialized AudioTrack,    │
+│           USAGE_MEDIA) — phrases play in order, never overlapping     │
 │  [ALERT type] → STREAM_ALARM @ max volume + DND-bypass attempt        │
 └──────────────────────────────────────────────────────────────────────┘
 ```
@@ -69,7 +72,7 @@ Instead of streaming raw audio, iTantra converts speech to text **on-device** us
 | Navigation | Navigation-Compose 2.7.7 | 6 routes, see [Screens](#-screens) |
 | STT | AI4Bharat IndicConformer, sherpa-onnx ONNX INT8 export, per-language graph + `tokens.txt` | via `onnxruntime-android` 1.18.0 |
 | TTS | Real espeak-ng-phonemized VITS voices (Piper / Coqui / Mimic3) | via `sherpa-onnx-static-link-onnxruntime` AAR (v1.13.7) |
-| VAD | Silero VAD v4 ONNX (bundled) + adaptive energy-based detector | Energy-based detection is the active default, tuned via real-device testing |
+| VAD | Silero VAD (v5+ export, pinned to GitHub release `v6.2.3`) ONNX (bundled) + RMS-energy fallback | Neural detection is the active default; energy fallback is automatic if the model is missing or fails at runtime |
 | AI Assistant LLM | Phi‑3‑mini‑4k‑instruct GGUF (q4), optional 2.39 GB download | via `llamacpp-kotlin` 0.4.0 (arm64-v8a + x86_64) |
 | Networking | `WifiP2pManager` (primary) + `BluetoothAdapter`/RFCOMM (fallback) | TCP port 8765 |
 | Wire format | Protocol Buffers v3, `protobuf-javalite` 3.25.3 | 4-byte big-endian length-prefixed frames |
@@ -95,12 +98,12 @@ iTantra/
 │   │   │   ├── LlmModule.kt              # Real Phi-3/GGUF inference via llama.cpp; device-support gate; stop-sequence/token cap
 │   │   │   └── TacticalAiEngine.kt       # Reliable keyword-matching assistant, always available (9 languages)
 │   │   ├── audio/
-│   │   │   ├── AudioCaptureModule.kt     # AudioRecord capture, VAD-gated speech buffering
-│   │   │   ├── VADModule.kt              # Adaptive energy-based voice detection (Silero neural model also present)
-│   │   │   ├── STTModule.kt              # sherpa-onnx IndicConformer inference, per-language lazy load
+│   │   │   ├── AudioCaptureModule.kt     # AudioRecord capture, VAD-gated buffering, adaptive endpointing + per-phrase segment queue
+│   │   │   ├── VADModule.kt              # Neural Silero VAD (64-sample context, hysteresis), RMS-energy fallback
+│   │   │   ├── STTModule.kt              # sherpa-onnx IndicConformer inference, Mutex-serialized, per-language lazy load
 │   │   │   ├── CtcDecoder.kt             # Pure-Kotlin CTC greedy decode (unit-tested)
 │   │   │   ├── TTSModule.kt              # sherpa-onnx VITS synthesis
-│   │   │   └── AudioPlaybackManager.kt   # AudioTrack playback (normal + ALERT/alarm modes)
+│   │   │   └── AudioPlaybackManager.kt   # Serialized playback queue, AudioTrack (normal + ALERT/alarm modes)
 │   │   ├── download/
 │   │   │   ├── ModelDownloadManager.kt   # OkHttp download → verify → extract state machine
 │   │   │   ├── ModelRegistry.kt          # Per-model source URLs, hashes, sizes
@@ -144,10 +147,10 @@ iTantra/
 ## 🎙️ Audio & Speech Pipeline
 
 ### Capture — `AudioCaptureModule`
-`AudioRecord(MIC, 16000Hz, MONO, PCM_16BIT)` on a dedicated `Dispatchers.IO` scope. Reads 1600-sample (100ms) chunks, converts to `Float` PCM, and feeds each chunk to `VADModule`. Speech chunks accumulate into a thread-safe buffer. End-of-speech = **8 consecutive silent 100ms chunks (800ms)**; hard cap of 30s per utterance. Public surface: `startCapture()`, `stopCapture()`, `suspend fun flushAndTranscribe(): FloatArray?`.
+`AudioRecord(MIC, 16000Hz, MONO, PCM_16BIT)` on a dedicated `Dispatchers.IO` scope. Reads 1600-sample (100ms) chunks, converts to `Float` PCM, and feeds each chunk to `VADModule`. Speech chunks accumulate into a thread-safe buffer. End-of-speech is **adaptive**: 8 silent chunks (800ms) by default, dropping to 5 (500ms) once 8 chunks of confident speech have been captured, and to 4 (400ms) while the PTT button is actively held — so a phrase spoken mid-hold is cut and sent without waiting for the full 800ms. Hard cap of 30s per utterance. Finished segments (mid-hold or on release) are handed to a single ordered queue with one consumer, so STT inference never runs on — and never stalls — the capture loop, and phrases stay in spoken order. Public surface: `startCapture()`, `stopCapture()`, `suspend fun flushAndTranscribe(): FloatArray?`, `suspend fun submitAndAwait(audio, language)`.
 
 ### Voice Activity Detection — `VADModule`
-Uses a robust, adaptive energy-based voice detector, tuned through real on-device testing across quiet and noisy conditions (RMS threshold, discriminated against a speech-probability cutoff). A bundled Silero VAD v4 ONNX neural model is also present in the pipeline — real-device testing showed the energy-based approach gives more consistent results for this deployment today, so it's the active detector, with a self-healing path that automatically falls back to it if the neural session ever throws at runtime.
+Uses the real **Silero VAD** ONNX model (bundled as `silero_vad_v4.onnx` for historical naming reasons; the actual file is pinned to GitHub release tag `v6.2.3` — SHA-256 verified, not trust-on-first-download). It's a v5+ export (`input`/`state`/`sr` tensors, `state` shape `[2,1,128]`), which expects each 512-sample window prefixed with the **previous window's last 64 samples** (576 samples total). That context was missing in earlier builds, which saturated the model's output and forced a permanent fallback to energy-only detection; with the context wired in, `process()` also keeps the loudest of the ~3 32ms sub-windows per 100ms chunk and applies release hysteresis (fires at 0.5, releases at 0.35) so the detector doesn't chatter mid-word. A real RMS-energy detector (fixed 0.025 threshold) remains as an automatic, honest fallback — used only if the model file is missing or a session throws at runtime — so PTT capture is never silently deaf.
 
 ### Speech-to-Text — `STTModule` + `CtcDecoder`
 Uses **AI4Bharat IndicConformer**, exported as per-language sherpa-onnx ONNX INT8 graphs (`stt_{lang}_int8.onnx` + `stt_{lang}_tokens.txt`). Each language is lazy-loaded and cached on first use. `SessionOptions`: 2 intra-op threads, `ALL_OPT`, attempts NNAPI delegate with a CPU/XNNPACK fallback.
@@ -168,7 +171,10 @@ Uses **sherpa-onnx's `OfflineTts`** with real espeak-ng-phonemized VITS voices (
 Additional voices (Marathi, Kannada, Tamil, Telugu, Odia) are on the roadmap — see [Language Roadmap](#-language-roadmap). Output is resampled to 16kHz for playback.
 
 ### Playback — `AudioPlaybackManager`
-Normal messages play via `AudioTrack` with `USAGE_MEDIA` for clear, full-volume audio. `ALERT`-type messages use `STREAM_ALARM` forced to max volume, attempt to flip ringer mode to bypass Do-Not-Disturb, and use `USAGE_ALARM` + `FLAG_AUDIBILITY_ENFORCED`.
+Every `play()` call is queued through a single `Channel` with one consumer coroutine, so messages arriving close together play one after another instead of overlapping and garbling each other. Normal messages play via `AudioTrack` with `USAGE_MEDIA` for clear, full-volume audio. `ALERT`-type messages use `STREAM_ALARM` forced to max volume, attempt to flip ringer mode to bypass Do-Not-Disturb, use `USAGE_ALARM` + `FLAG_AUDIBILITY_ENFORCED`, and set `setWillPauseWhenDucked(false)` on the audio focus request so an alert can't be quietly ducked by other audio.
+
+### Phrase-level pipelining & latency
+While PTT is held, each phrase is cut, transcribed, and transmitted independently instead of waiting for the button to be released. Verified end-to-end on two physical Android devices: in a two-sentence test hold, the receiver started speaking phrase 1 **5.0s** before the sender released PTT, and phrase 2 **1.2s** before release. Measured per-phrase processing latency (each leg on its own device's clock): **~280–330ms** sender-side STT + **~350–410ms** receiver-side TTS synthesis (**~0.6–0.75s** total, excluding the local network hop). `STTModule` inference and model loading are serialized behind a non-reentrant `Mutex`, since the feature extractor reuses shared scratch buffers and would otherwise corrupt itself under concurrent phrases.
 
 ---
 
@@ -244,7 +250,7 @@ Concurrency is explicitly tuned (`maxRequests`/`maxRequestsPerHost` raised well 
 **Model sources:**
 - STT: AI4Bharat IndicConformer (sherpa-onnx export), Hugging Face — 9 Indic languages.
 - TTS: `k2-fsa/sherpa-onnx` `tts-models` release — 5 languages (see table above).
-- VAD: Silero VAD v4 ONNX, GitHub raw.
+- VAD: Silero VAD ONNX, pinned to GitHub release tag `v6.2.3` (SHA-256 verified, not trust-on-first-download).
 - AI Assistant: `microsoft/Phi-3-mini-4k-instruct-gguf` on Hugging Face.
 
 ---
@@ -322,7 +328,7 @@ On Windows, `dev.ps1` / `dev.bat` provide a small developer CLI:
 ### First run
 1. Install and launch on two Android devices (API 26+).
 2. Complete the mandatory callsign onboarding dialog on each.
-3. Open **Downloads**, tap "Download the Pack" to fetch the ~169 MB core bundle (VAD + STT + the available TTS voices + language-ID data). The optional 2.39 GB Phi-3 model is only needed for real LLM AI-Assistant replies.
+3. Open **Downloads**, tap "Download the Pack" to fetch the **~2.18 GB core bundle** (all 9 STT languages + the 5 available TTS voices + VAD + language-ID data — see [`ModelRegistry.kt`](app/src/main/java/com/itantra/core/download/ModelRegistry.kt) for the per-pack sizes this is computed from). The optional 2.39 GB Phi-3 model is only needed for real LLM AI-Assistant replies.
 4. Open **Transceiver** on both devices; one taps "Host Beacon", the other "Search Peers" and connects.
 5. Hold the PTT button and speak — the transcribed text and synthesized reply appear/play on the other device.
 
@@ -355,12 +361,14 @@ The commit history documents genuine, iterative on-device engineering:
 - Added a Bluetooth bonded-device picker and a real discovery + pairing flow
 - Tuned the model download pipeline for reliable parallel downloads
 - Verified a full two-device walkie-talkie session end-to-end, including live Host Beacon, connection, and pipeline-stage status in the UI
+- Diagnosed and repaired a broken Silero VAD (missing the v5+ export's required 64-sample inter-window context, which had saturated its output and forced a permanent energy-only fallback), then pinned the model to a GitHub release tag instead of a floating branch
+- Built phrase-level pipelining so the receiver can start speaking before the sender finishes holding PTT — adaptive endpointing, a Mutex-serialized STT pipeline, and a serialized receiver playback queue — measured and verified end-to-end on two physical devices
 
 ---
 
 ## 🗺️ Roadmap
 
-- **Neural VAD upgrade** — the bundled Silero VAD model is already in the pipeline; further tuning is planned so it can take over from the current energy-based detector.
+- **Streaming STT inference** — phrase-level pipelining (mid-hold cuts, ~0.6–0.75s measured turnaround per phrase) is now in place; evaluate whether further latency reduction via chunked/streaming inference is still worth the added complexity.
 - **Full language voice coverage** — sourcing free, high-quality offline TTS voices for Marathi, Kannada, Tamil, Telugu, and Odia (STT + TTS).
 - **Emergency / SOS broadcast screen** — a dedicated distress-signal UI; the underlying `ALERT` message type and alarm-volume/DND-bypass playback path already exist in the wire protocol and audio pipeline.
 - **Deeper `PeerSessionScreen` integration** — connecting the per-peer session view directly to the live transceiver pipeline.
