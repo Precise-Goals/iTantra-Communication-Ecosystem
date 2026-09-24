@@ -1,0 +1,177 @@
+--------- beginning of main
+09-24 19:45:34.540 D/iTantraService(17248): Service created
+09-24 19:45:34.889 D/STTModule(17248): STT('hi'): NNAPI delegate enabled
+09-24 19:45:35.159 D/VADModule(17248): VAD real signature — inputs=[input, state, sr] outputs=[output, stateN]
+09-24 19:45:35.163 D/VADModule(17248): VAD input 'input': [-1, -1]
+09-24 19:45:35.163 D/VADModule(17248): VAD input 'state': [2, -1, 128]
+09-24 19:45:35.163 D/VADModule(17248): VAD input 'sr': []
+09-24 19:45:35.163 D/VADModule(17248): VAD initialized — backend: NEURAL (physical path: /data/user/0/com.itantra.debug/files/models/silero_vad_v4.onnx, neural session loaded: true)
+09-24 19:45:35.167 D/VADModule(17248): VAD real signature — inputs=[input, state, sr] outputs=[output, stateN]
+09-24 19:45:35.167 D/VADModule(17248): VAD input 'input': [-1, -1]
+09-24 19:45:35.167 D/VADModule(17248): VAD input 'state': [2, -1, 128]
+09-24 19:45:35.167 D/VADModule(17248): VAD input 'sr': []
+09-24 19:45:35.167 D/VADModule(17248): VAD initialized — backend: NEURAL (physical path: /data/user/0/com.itantra.debug/files/models/silero_vad_v4.onnx, neural session loaded: true)
+09-24 19:45:35.167 D/iTantraService(17248): VAD re-init after download — neural: true
+09-24 19:45:38.229 D/STTModule(17248): STT('hi') loaded in 3603ms — vocab size 5633, inputs=IoNames(featureInput=audio_signal, lengthInput=length, outputName=logprobs)
+09-24 19:45:41.191 D/TTSModule(17248): sherpa-onnx TTS loaded for 'hi' from hi_IN-pratham-medium.onnx
+09-24 19:45:41.192 D/iTantraService(17248): Warm-up stt=hi:true tts=hi:true in 6565ms
+09-24 19:48:39.633 D/iTantraService(17248): Node connected: realme 13+ 5G
+09-24 19:48:42.126 D/AudioCapture(17248): Audio capture started at 16000Hz
+09-24 19:48:44.145 D/AudioCapture(17248): Speech segment complete: 20800 samples
+09-24 19:48:46.109 D/STTModule(17248): STT inference: 'है' in 1936ms [hi]
+09-24 19:48:46.168 D/Telemetry(17248): utt=1 lang=hi rtf=1.539 stt=2020ms wait=20ms feat=212ms infer=1789ms tts=0ms synth=0ms
+09-24 19:48:46.424 D/AudioCapture(17248): Speech segment complete: 22400 samples
+09-24 19:48:47.047 D/STTModule(17248): STT inference: 'इसके मा का' in 621ms [hi]
+09-24 19:48:47.052 D/Telemetry(17248): utt=2 lang=hi rtf=0.446 stt=626ms wait=1ms feat=31ms infer=594ms tts=0ms synth=0ms
+09-24 19:48:48.619 D/AudioCapture(17248): Audio capture stopped
+09-24 19:48:49.749 D/STTModule(17248): STT inference: 'सागेना का' in 1126ms [hi]
+09-24 19:48:49.757 D/Telemetry(17248): utt=3 lang=hi rtf=0.811 stt=1137ms wait=2ms feat=93ms infer=1042ms tts=0ms synth=0ms
+09-24 19:48:55.965 D/STTModule(17248): STT('mr'): NNAPI delegate enabled
+09-24 19:48:56.807 D/AudioCapture(17248): Audio capture started at 16000Hz
+09-24 19:48:58.443 D/AudioCapture(17248): Audio capture stopped
+09-24 19:49:04.842 D/STTModule(17248): STT('mr') loaded in 9057ms — vocab size 5633, inputs=IoNames(featureInput=audio_signal, lengthInput=length, outputName=logprobs)
+09-24 19:49:04.845 D/iTantraService(17248): Warm-up stt=mr:true tts=mr:false in 9060ms
+09-24 19:49:06.790 D/STTModule(17248): STT inference: 'बोल के बावा' in 1944ms [mr]
+09-24 19:49:06.806 D/Telemetry(17248): utt=4 lang=mr rtf=1.400 stt=8362ms wait=6403ms feat=101ms infer=1859ms tts=0ms synth=0ms
+09-24 19:49:19.553 D/AudioCapture(17248): Audio capture started at 16000Hz
+09-24 19:49:21.763 D/AudioCapture(17248): Speech segment complete: 25600 samples
+09-24 19:49:23.025 D/STTModule(17248): STT inference: 'हॅलो कॅन यू हेअर मी' in 1251ms [mr]
+09-24 19:49:23.043 D/Telemetry(17248): utt=5 lang=mr rtf=0.793 stt=1277ms wait=8ms feat=42ms infer=1227ms tts=0ms synth=0ms
+09-24 19:49:25.842 D/AudioCapture(17248): Speech segment complete: 33600 samples
+09-24 19:49:27.008 D/AudioCapture(17248): Audio capture stopped
+09-24 19:49:27.848 D/STTModule(17248): STT inference: 'हॅलो टेस्टिंग वन टू थ्री' in 2004ms [mr]
+09-24 19:49:27.869 D/Telemetry(17248): utt=6 lang=mr rtf=0.964 stt=2026ms wait=2ms feat=89ms infer=1935ms tts=0ms synth=0ms
+09-24 19:49:41.447 D/AudioCapture(17248): Audio capture started at 16000Hz
+09-24 19:49:43.643 D/AudioCapture(17248): Speech segment complete: 25600 samples
+09-24 19:49:44.133 D/AudioCapture(17248): Audio capture stopped
+09-24 19:49:44.251 D/STTModule(17248): STT inference: 'हॅलो कॅन यू हेअर मी' in 605ms [mr]
+09-24 19:49:44.254 D/Telemetry(17248): utt=7 lang=mr rtf=0.380 stt=611ms wait=3ms feat=33ms infer=575ms tts=0ms synth=0ms
+09-24 19:49:54.163 D/iTantraService(17248): Received from b0b7b669-1502-4cfd-aa8e-5f18e2912b77: 'हॅलो कॅन यू हिअर मी' [SPEECH]
+09-24 19:49:54.166 D/Telemetry(17248): utt=8 lang=mr rtf=0.000 stt=0ms wait=0ms feat=0ms infer=0ms tts=0ms synth=2ms
+09-24 19:49:54.445 D/iTantraService(17248): Received from b0b7b669-1502-4cfd-aa8e-5f18e2912b77: 'हॅलो' [SPEECH]
+09-24 19:49:54.450 D/Telemetry(17248): utt=9 lang=mr rtf=0.000 stt=0ms wait=0ms feat=0ms infer=0ms tts=0ms synth=4ms
+09-24 19:50:01.740 D/iTantraService(17248): Warm-up stt=hi:true tts=hi:true in 0ms
+09-24 19:50:02.512 D/AudioCapture(17248): Audio capture started at 16000Hz
+09-24 19:50:03.951 D/AudioCapture(17248): Audio capture stopped
+09-24 19:50:04.262 D/STTModule(17248): STT inference: 'हेलो' in 305ms [hi]
+09-24 19:50:04.265 D/Telemetry(17248): utt=10 lang=hi rtf=0.385 stt=313ms wait=5ms feat=36ms infer=272ms tts=0ms synth=0ms
+09-24 19:50:06.371 D/AudioCapture(17248): Audio capture started at 16000Hz
+09-24 19:50:08.147 D/AudioCapture(17248): Audio capture stopped
+09-24 19:50:08.591 D/STTModule(17248): STT inference: 'आपको मेरी आवाज आ रही है' in 441ms [hi]
+09-24 19:50:08.595 D/Telemetry(17248): utt=11 lang=hi rtf=0.318 stt=448ms wait=2ms feat=34ms infer=411ms tts=0ms synth=0ms
+09-24 19:50:11.681 D/AudioCapture(17248): Audio capture started at 16000Hz
+09-24 19:50:13.769 D/AudioCapture(17248): Speech segment complete: 27200 samples
+09-24 19:50:14.962 D/STTModule(17248): STT inference: 'हए हाय हाय' in 1180ms [hi]
+09-24 19:50:14.997 D/Telemetry(17248): utt=12 lang=hi rtf=0.715 stt=1227ms wait=12ms feat=114ms infer=1101ms tts=0ms synth=0ms
+09-24 19:50:16.426 D/AudioCapture(17248): Audio capture stopped
+09-24 19:50:17.460 D/STTModule(17248): STT inference: 'हलो हैलो हैलो' in 1033ms [hi]
+09-24 19:50:17.475 D/Telemetry(17248): utt=13 lang=hi rtf=0.805 stt=1048ms wait=1ms feat=32ms infer=1015ms tts=0ms synth=0ms
+09-24 19:51:05.676 D/AudioCapture(17248): Audio capture started at 16000Hz
+09-24 19:51:08.664 D/AudioCapture(17248): Speech segment complete: 46400 samples
+09-24 19:51:09.540 D/STTModule(17248): STT inference: 'हैलो कैन यू हियर मी' in 859ms [hi]
+09-24 19:51:09.547 D/Telemetry(17248): utt=14 lang=hi rtf=0.300 stt=883ms wait=12ms feat=56ms infer=815ms tts=0ms synth=0ms
+09-24 19:51:11.864 D/AudioCapture(17248): Speech segment complete: 25600 samples
+09-24 19:51:12.342 D/STTModule(17248): STT inference: 'हैलो वन टू थ्रीियर' in 471ms [hi]
+09-24 19:51:12.346 D/Telemetry(17248): utt=15 lang=hi rtf=0.298 stt=482ms wait=5ms feat=51ms infer=426ms tts=0ms synth=0ms
+09-24 19:51:14.586 D/AudioCapture(17248): Audio capture stopped
+09-24 19:51:15.179 D/STTModule(17248): STT inference: 'हैलो वन टू थ्री हीयर' in 589ms [hi]
+09-24 19:51:15.183 D/Telemetry(17248): utt=16 lang=hi rtf=0.370 stt=596ms wait=4ms feat=53ms infer=539ms tts=0ms synth=0ms
+09-24 19:51:26.861 D/AudioCapture(17248): Audio capture started at 16000Hz
+09-24 19:51:28.659 D/AudioCapture(17248): Speech segment complete: 24000 samples
+09-24 19:51:29.123 D/STTModule(17248): STT inference: 'भहन चौथ' in 457ms [hi]
+09-24 19:51:29.127 D/Telemetry(17248): utt=17 lang=hi rtf=0.308 stt=467ms wait=5ms feat=52ms infer=409ms tts=0ms synth=0ms
+09-24 19:51:31.256 D/AudioCapture(17248): Speech segment complete: 28800 samples
+09-24 19:51:31.829 D/STTModule(17248): STT inference: 'बोकाचोर एचौथ' in 569ms [hi]
+09-24 19:51:31.832 D/Telemetry(17248): utt=18 lang=hi rtf=0.319 stt=576ms wait=3ms feat=56ms infer=518ms tts=0ms synth=0ms
+09-24 19:51:33.856 D/AudioCapture(17248): Speech segment complete: 24000 samples
+09-24 19:51:34.285 D/STTModule(17248): STT inference: 'और अचोरे चौद' in 427ms [hi]
+09-24 19:51:34.288 D/Telemetry(17248): utt=19 lang=hi rtf=0.287 stt=432ms wait=1ms feat=18ms infer=413ms tts=0ms synth=0ms
+09-24 19:51:36.262 D/AudioCapture(17248): Speech segment complete: 24000 samples
+09-24 19:51:36.726 D/STTModule(17248): STT inference: 'औरना चौरे चौद' in 462ms [hi]
+09-24 19:51:36.730 D/Telemetry(17248): utt=20 lang=hi rtf=0.311 stt=467ms wait=1ms feat=39ms infer=427ms tts=0ms synth=0ms
+09-24 19:51:38.850 D/AudioCapture(17248): Speech segment complete: 27200 samples
+09-24 19:51:39.354 D/STTModule(17248): STT inference: 'और नचौरी चाद' in 498ms [hi]
+09-24 19:51:39.358 D/Telemetry(17248): utt=21 lang=hi rtf=0.296 stt=507ms wait=4ms feat=27ms infer=475ms tts=0ms synth=0ms
+09-24 19:51:40.835 D/AudioCapture(17248): Audio capture stopped
+09-24 19:51:41.126 D/STTModule(17248): STT inference: 'तोवा है' in 290ms [hi]
+09-24 19:51:41.129 D/Telemetry(17248): utt=22 lang=hi rtf=0.326 stt=294ms wait=1ms feat=17ms infer=276ms tts=0ms synth=0ms
+09-24 19:51:54.087 D/AudioCapture(17248): Audio capture started at 16000Hz
+09-24 19:51:55.963 D/AudioCapture(17248): Speech segment complete: 28800 samples
+09-24 19:51:56.496 D/STTModule(17248): STT inference: 'भैन चौद' in 526ms [hi]
+09-24 19:51:56.500 D/Telemetry(17248): utt=23 lang=hi rtf=0.295 stt=537ms wait=7ms feat=27ms infer=504ms tts=0ms synth=0ms
+09-24 19:51:58.752 D/AudioCapture(17248): Speech segment complete: 24000 samples
+09-24 19:51:59.250 D/STTModule(17248): STT inference: 'हंचौद' in 492ms [hi]
+09-24 19:51:59.253 D/Telemetry(17248): utt=24 lang=hi rtf=0.331 stt=501ms wait=5ms feat=36ms infer=461ms tts=0ms synth=0ms
+09-24 19:52:01.155 D/AudioCapture(17248): Speech segment complete: 24000 samples
+09-24 19:52:01.651 D/STTModule(17248): STT inference: 'हचौर' in 493ms [hi]
+09-24 19:52:01.656 D/Telemetry(17248): utt=25 lang=hi rtf=0.332 stt=501ms wait=2ms feat=38ms infer=460ms tts=0ms synth=0ms
+09-24 19:52:04.655 D/AudioCapture(17248): Speech segment complete: 40000 samples
+09-24 19:52:05.403 D/STTModule(17248): STT inference: 'अच्छा और' in 745ms [hi]
+09-24 19:52:05.408 D/Telemetry(17248): utt=26 lang=hi rtf=0.300 stt=753ms wait=2ms feat=66ms infer=685ms tts=0ms synth=0ms
+09-24 19:52:07.160 D/AudioCapture(17248): Audio capture stopped
+09-24 19:52:07.556 D/STTModule(17248): STT inference: 'अच्छा पाँच' in 393ms [hi]
+09-24 19:52:07.558 D/Telemetry(17248): utt=27 lang=hi rtf=0.330 stt=398ms wait=2ms feat=23ms infer=373ms tts=0ms synth=0ms
+09-24 19:52:39.905 D/STTModule(17248): STT('ta'): NNAPI delegate enabled
+09-24 19:52:41.873 D/AudioCapture(17248): Audio capture started at 16000Hz
+09-24 19:52:43.362 D/STTModule(17248): Evicted STT session 'mr' (LRU)
+09-24 19:52:43.362 D/STTModule(17248): STT('ta') loaded in 3512ms — vocab size 5633, inputs=IoNames(featureInput=audio_signal, lengthInput=length, outputName=logprobs)
+09-24 19:52:43.362 D/iTantraService(17248): Warm-up stt=ta:true tts=ta:false in 3512ms
+09-24 19:52:43.645 D/AudioCapture(17248): Speech segment complete: 24000 samples
+09-24 19:52:44.247 D/STTModule(17248): STT inference: 'எண்ணப்போடி' in 600ms [ta]
+09-24 19:52:44.250 D/Telemetry(17248): utt=28 lang=ta rtf=0.403 stt=605ms wait=1ms feat=23ms infer=581ms tts=0ms synth=0ms
+09-24 19:52:51.445 D/AudioCapture(17248): Speech segment complete: 35200 samples
+09-24 19:52:52.285 D/STTModule(17248): STT inference: 'அப்படி போட போட போட' in 837ms [ta]
+09-24 19:52:52.289 D/Telemetry(17248): utt=29 lang=ta rtf=0.383 stt=844ms wait=2ms feat=37ms infer=805ms tts=0ms synth=0ms
+09-24 19:52:53.926 D/AudioCapture(17248): Audio capture stopped
+09-24 19:52:56.027 D/AudioCapture(17248): Audio capture started at 16000Hz
+09-24 19:53:00.038 D/AudioCapture(17248): Speech segment complete: 52800 samples
+09-24 19:53:00.973 D/STTModule(17248): STT inference: 'என்ன போடி அப்படி போட போட போடு' in 928ms [ta]
+09-24 19:53:00.979 D/Telemetry(17248): utt=30 lang=ta rtf=0.283 stt=941ms wait=7ms feat=81ms infer=853ms tts=0ms synth=0ms
+09-24 19:53:01.525 D/AudioCapture(17248): Audio capture stopped
+09-24 19:54:16.255 D/STTModule(17248): STT('te'): NNAPI delegate enabled
+09-24 19:54:20.119 D/STTModule(17248): Evicted STT session 'hi' (LRU)
+09-24 19:54:20.119 D/STTModule(17248): STT('te') loaded in 3913ms — vocab size 5633, inputs=IoNames(featureInput=audio_signal, lengthInput=length, outputName=logprobs)
+09-24 19:54:20.120 D/iTantraService(17248): Warm-up stt=te:true tts=te:false in 3914ms
+09-24 19:54:20.145 D/STTModule(17248): STT('hi'): NNAPI delegate enabled
+09-24 19:54:23.709 D/STTModule(17248): Evicted STT session 'ta' (LRU)
+09-24 19:54:23.709 D/STTModule(17248): STT('hi') loaded in 3589ms — vocab size 5633, inputs=IoNames(featureInput=audio_signal, lengthInput=length, outputName=logprobs)
+09-24 19:54:23.709 D/iTantraService(17248): Warm-up stt=hi:true tts=hi:true in 5148ms
+09-24 19:54:23.730 D/STTModule(17248): STT('ta'): NNAPI delegate enabled
+09-24 19:54:26.663 D/STTModule(17248): Evicted STT session 'te' (LRU)
+09-24 19:54:26.663 D/STTModule(17248): STT('ta') loaded in 2954ms — vocab size 5633, inputs=IoNames(featureInput=audio_signal, lengthInput=length, outputName=logprobs)
+09-24 19:54:26.664 D/iTantraService(17248): Warm-up stt=ta:true tts=ta:false in 5464ms
+09-24 19:54:26.687 D/STTModule(17248): STT('kn'): NNAPI delegate enabled
+09-24 19:54:29.986 D/STTModule(17248): Evicted STT session 'hi' (LRU)
+09-24 19:54:29.986 D/STTModule(17248): STT('kn') loaded in 3322ms — vocab size 5633, inputs=IoNames(featureInput=audio_signal, lengthInput=length, outputName=logprobs)
+09-24 19:54:29.987 D/iTantraService(17248): Warm-up stt=kn:true tts=kn:false in 7380ms
+09-24 19:54:30.011 D/STTModule(17248): STT('hi'): NNAPI delegate enabled
+09-24 19:54:34.382 D/STTModule(17248): Evicted STT session 'ta' (LRU)
+09-24 19:54:34.382 D/STTModule(17248): STT('hi') loaded in 4395ms — vocab size 5633, inputs=IoNames(featureInput=audio_signal, lengthInput=length, outputName=logprobs)
+09-24 19:54:34.383 D/iTantraService(17248): Warm-up stt=hi:true tts=hi:true in 10869ms
+09-24 19:55:57.485 D/STTModule(17248): STT('mr'): NNAPI delegate enabled
+09-24 19:56:00.857 D/STTModule(17248): Evicted STT session 'kn' (LRU)
+09-24 19:56:00.857 D/STTModule(17248): STT('mr') loaded in 3453ms — vocab size 5633, inputs=IoNames(featureInput=audio_signal, lengthInput=length, outputName=logprobs)
+09-24 19:56:00.858 D/iTantraService(17248): Warm-up stt=mr:true tts=mr:false in 3454ms
+09-24 19:56:00.881 D/STTModule(17248): STT('gu'): NNAPI delegate enabled
+09-24 19:56:04.049 D/STTModule(17248): Evicted STT session 'hi' (LRU)
+09-24 19:56:04.049 D/STTModule(17248): STT('gu') loaded in 3191ms — vocab size 5633, inputs=IoNames(featureInput=audio_signal, lengthInput=length, outputName=logprobs)
+09-24 19:56:04.070 D/STTModule(17248): STT('hi'): NNAPI delegate enabled
+09-24 19:56:04.272 W/TTSModule(17248): sherpa-onnx TTS load failed for 'gu': OfflineTts_newFromFile: Load model from /data/user/0/com.itantra.debug/files/models/tts/gu/gu_IN-cmu-indic_low.onnx failed:Protobuf parsing failed.
+09-24 19:56:04.273 D/iTantraService(17248): Warm-up stt=gu:true tts=gu:false in 6674ms
+09-24 19:56:06.932 D/STTModule(17248): Evicted STT session 'mr' (LRU)
+09-24 19:56:06.933 D/STTModule(17248): STT('hi') loaded in 2884ms — vocab size 5633, inputs=IoNames(featureInput=audio_signal, lengthInput=length, outputName=logprobs)
+09-24 19:56:06.933 D/iTantraService(17248): Warm-up stt=hi:true tts=hi:true in 8813ms
+09-24 19:57:02.772 D/STTModule(17248): STT('en'): NNAPI delegate enabled
+09-24 19:57:07.003 D/STTModule(17248): Evicted STT session 'gu' (LRU)
+09-24 19:57:07.004 D/STTModule(17248): STT('en') loaded in 4250ms — vocab size 1025, inputs=IoNames(featureInput=audio_signal, lengthInput=length, outputName=logprobs)
+09-24 19:57:07.025 D/STTModule(17248): STT('gu'): NNAPI delegate enabled
+09-24 19:57:09.944 D/TTSModule(17248): sherpa-onnx TTS loaded for 'en' from en_US-lessac-low.onnx
+09-24 19:57:09.944 D/iTantraService(17248): Warm-up stt=en:true tts=en:true in 7191ms
+09-24 19:57:10.506 D/STTModule(17248): Evicted STT session 'hi' (LRU)
+09-24 19:57:10.506 D/STTModule(17248): STT('gu') loaded in 3502ms — vocab size 5633, inputs=IoNames(featureInput=audio_signal, lengthInput=length, outputName=logprobs)
+09-24 19:57:10.527 D/STTModule(17248): STT('hi'): NNAPI delegate enabled
+09-24 19:57:10.562 W/TTSModule(17248): sherpa-onnx TTS load failed for 'gu': OfflineTts_newFromFile: Load model from /data/user/0/com.itantra.debug/files/models/tts/gu/gu_IN-cmu-indic_low.onnx failed:Protobuf parsing failed.
+09-24 19:57:10.563 D/iTantraService(17248): Warm-up stt=gu:true tts=gu:false in 7459ms
+09-24 19:57:13.434 D/STTModule(17248): Evicted STT session 'en' (LRU)
+09-24 19:57:13.434 D/STTModule(17248): STT('hi') loaded in 2927ms — vocab size 5633, inputs=IoNames(featureInput=audio_signal, lengthInput=length, outputName=logprobs)
+09-24 19:57:13.435 D/iTantraService(17248): Warm-up stt=hi:true tts=hi:true in 3761ms

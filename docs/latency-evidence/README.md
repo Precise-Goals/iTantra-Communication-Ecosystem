@@ -299,3 +299,160 @@ match the language the text is written in (`srcLang`)" — that is the documente
 `onTextReceived` does not implement it; it was out of scope for T70/T45/T72/T71 to fix, so it
 wasn't touched here. Flagging it for whoever picks up the next task, rather than leaving it to be
 rediscovered as a mystery mispronunciation bug.
+
+## Run 3
+
+Raw artifacts from a third two-phone test, after implementing Stage A: T43 (re-anchored — receiver
+speaks in the text's own language), T73 (re-init VAD after first-install download), T46 (bounded
+STT/TTS caches), T47 (real RAM metric), and T74 (AI Assistant shares the service's models).
+
+**Commit under test:** `0d6bde5` (`T74: AI Assistant uses the service's models and playback
+queue`, tip of `feature/stage-a`) — `gradlew assembleDebug` was run from this commit, both devices
+were force-stopped/reinstalled and cold-started on the resulting APK.
+
+**Devices — same pair as Run 2:**
+- Sender: `23122PCD1I` (POCO), fingerprint
+  `POCO/garnetp_in/garnet:16/BP2A.250605.031.A3/OS3.0.301.0.WNRINXM:user/release-keys` — installed
+  with `adb install -r` (data preserved, so its model cache and prior test history carried over).
+- Receiver: `RMX5000` (realme) — **fully uninstalled and reinstalled** (`adb uninstall` +
+  `adb install`, not `-r`) specifically to test T73's first-install scenario. `adb shell pm clear`
+  was tried first and refused by this ColorOS build with a `SecurityException` (no
+  `CLEAR_APP_USER_DATA` permission for the calling shell UID) — worth knowing for future runs on
+  this device: use uninstall+reinstall, not `pm clear`, to get an equivalent empty-data state.
+
+**Files** (all raw, unedited, in [`run3/`](run3/)):
+- `receiver_logcat_t73_first_install.txt` — the receiver's very first cold start after the fresh
+  install, tag-filtered the same as the other logs, from before any model was downloaded through
+  the VAD re-init.
+- `sender_logcat.txt` / `receiver_logcat.txt` — the main test session, after both devices had all
+  core models downloaded, cold-started and confirmed `NEURAL` VAD.
+- `sender_telemetry.csv` / `receiver_telemetry.csv` — raw `files/telemetry.csv`, pulled after
+  testing. Contains many rows from extensive language-switch testing (T46/T47 check) beyond the
+  two-phrase script; left in unedited, same policy as Runs 1 and 2.
+- `meminfo.txt` — three `dumpsys meminfo` `TOTAL PSS` readings taken during the T46/T47 language
+  cycling, with the exact log lines each was anchored to.
+
+### Two real device gotchas hit during this capture
+
+1. **`adb shell monkey -c LAUNCHER` does not reliably start a microphone-type foreground service on
+   this realme/ColorOS build.** It worked fine in Run 2 (right after the app had genuinely been in
+   the foreground), but on this run's fresh install and again after ~10 minutes idle, monkey-driven
+   launches crashed with `ForegroundServiceStartNotAllowedException` even though `RECORD_AUDIO` was
+   already granted (`dumpsys package` confirmed `granted=true`) — Android's "must be in an eligible
+   foreground state" check rejected the synthetic launch. A **physical tap on the icon** reliably
+   worked every time. See `receiver_logcat_t73_first_install.txt` for the crash traces preceding
+   the successful start.
+2. **`adb shell pm clear` is blocked by this device's security policy** (see Devices, above) —
+   uninstall + reinstall is the reliable way to simulate a first install here.
+
+### T73 — confirmed: first-install VAD upgrades itself, no restart needed
+
+From `receiver_logcat_t73_first_install.txt`, same-device clock:
+
+| Time | Event |
+| --- | --- |
+| 19:33:37.320 | `VAD initialized — backend: BASIC_ENERGY (physical path: null, neural session loaded: false)` — fresh install, model not downloaded yet |
+| 19:33:58.519 | `VAD re-init after download — neural: true` — **21 seconds later, no app restart** |
+
+**Pass.** This directly fixes the exact failure mode Run 2 hit (`run2/receiver_logcat_prelim_connectivity_check.txt`), where only a force-stop recovered the NEURAL backend.
+
+### T43 — confirmed: no more mispronunciation, but the error is invisible
+
+Sender picked Tamil and spoke; receiver stayed on Hindi throughout. `receiver_telemetry.csv` rows
+28–30 (`lang=ta`) all show `tts_ms=0.0` and `tts_audio_ms=0` — **no audio was fabricated** for any
+of the three Tamil messages received, and no `sherpa-onnx TTS synthesized ... [hi]` line follows
+any of them in `receiver_logcat.txt` (contrast with Run 2, where every Kannada/Tamil message got a
+`[hi]` synthesis). `sender_logcat.txt` confirms Tamil STT worked normally on the sending side
+(`STT inference: 'எண்ணப்போடி' ... [ta]`).
+
+**Pass on behavior. One caveat, checked directly against the code:** the spec's VERIFY step expects
+logcat to show a literal `TTS not available for 'ta'` error line. It never appears, anywhere,
+because `ITantraForegroundService.errorFlow` — the `SharedFlow` that `TTSModule.synthesize()`
+emits that error into — has **zero collectors** (`grep -rn "errorFlow"
+app/src/main/java/com/itantra/ui/` returns nothing). The error object is real and correctly
+constructed, but it is created and immediately discarded; it never reaches Logcat or the UI. This
+predates T43 and is out of its scope to fix, but it means "the user sees why nothing was said" is
+not actually true yet — only "nothing false was said" is.
+
+### T46 / T47 — cache is bounded, but PSS is not flat
+
+The chip taps landed on different languages than the planned `Hindi → Tamil → Kannada → Hindi`
+script (a repeat of Run 2's mis-tap pattern — see `meminfo.txt` for the full, honest account), so
+this became a longer test: **15** `Warm-up stt=...` lines and **12** `Evicted STT session '<lang>'
+(LRU)` lines total in `sender_logcat.txt`. Every eviction paired with a new language loading, and
+the session count never exceeded 2 — confirmed by inspecting the full ordered sequence, not just
+counting lines.
+
+`adb shell dumpsys meminfo com.itantra.debug | grep "TOTAL PSS"`, three readings a few taps apart:
+
+| Reading | When | TOTAL PSS | Change |
+| --- | --- | --- | --- |
+| 1 | after 5 taps, cache `{kn, hi}` | 991,918 KB (968.7 MB) | — |
+| 2 | 2 taps later, cache `{gu, hi}` | 1,212,180 KB (1183.8 MB) | +220.3 MB |
+| 3 | 2 taps later, cache `≈{gu,hi}`/`{en,gu}` | 1,281,000 KB (1251.0 MB) | +67.2 MB |
+
+**Partial pass, reported honestly.** The *object* cache is verifiably bounded (12 evictions, never
+more than 2 sessions open — this is the part T46 actually controls). But the *process's* memory
+footprint is not flat across repeated switches: it grew by 220 MB then 67 MB across two equal-sized
+two-tap intervals. The growth rate is clearly decelerating, not linear — consistent with
+`onnxruntime`'s native memory arena not immediately returning freed allocations to the OS after
+`OrtSession.close()`, rather than an unbounded per-tap leak — but "closing a session frees its RAM"
+is not fully true at the OS level, only "closing a session lets that object be garbage collected."
+See `meminfo.txt` for the full reasoning and exact log anchors.
+
+**T47 could not be cross-checked against the app's own number**, because
+`ITantraForegroundService.ramUsageMbFlow` — which T47 fixed to read `Debug.MemoryInfo().totalPss`
+— has no consumer anywhere in `ui/` (`grep -rn "ramUsageMbFlow" app/src/main/java/com/itantra/ui/`
+returns nothing). The fix is verified correct by reading the code (same basis as `dumpsys`), not by
+a live before/after comparison in the app.
+
+**Also found, incidental to this test, unrelated to Stage A:** `sherpa-onnx TTS load failed for
+'gu': ... Protobuf parsing failed` (`sender_logcat.txt`, 19:57:10.562) — the Gujarati TTS voice
+file on this specific phone appears corrupted or truncated. Not investigated further.
+
+### T74 — not live-verified this run
+
+The two-phone session ended before the walkie-talkie + AI Assistant same-session check (hold PTT in
+Hindi, then use the Assistant's voice input in Hindi, count `STT('hi') loaded` lines) was run.
+**Not verified on-device.** T74 remains verified only at the build level: `grep -n
+"sttModule.transcribe\|ttsModule.synthesize\|audioPlayback.play"
+app/src/main/java/com/itantra/ui/MainViewModel.kt` returns nothing, confirming every Assistant call
+site now goes through `activeStt`/`activeTts`/`activePlayback`, which resolve to the service's
+shared instances whenever it's bound. This is strong static evidence but not a substitute for the
+live single-load check.
+
+### Run 2 vs Run 3 — the clean two-phrase take
+
+Run 3's clean take: PTT held 19:51:05.676–19:51:14.586, phrase 1 cut at 19:51:08.664 (`'हैलो कैन यू
+हियर मी'`, telemetry `id=14`), phrase 2 cut at 19:51:11.864 (`'हैलो वन टू थ्री...'`, `id=15`). A
+third fragment was flushed at release (`id=16`) — the tail of phrase 2 spilling over — left in the
+CSV unedited but excluded from this comparison, same as Run 2 excluded its own messy takes.
+
+| Metric | Run 2, phrase 1 | Run 3, phrase 1 | Run 2, phrase 2 | Run 3, phrase 2 |
+| --- | --- | --- | --- | --- |
+| Head start before release | +4393 ms | **+5046 ms** | +204 ms | **+2244 ms** |
+| `stt_ms` | 573.4 ms | 883.0 ms | 565.2 ms | 481.7 ms |
+| `wait_ms` | 1.0 ms | 12.0 ms | 0.9 ms | 5.1 ms |
+| `rtf` | 0.2862 | 0.3003 | 0.2821 | 0.2979 |
+| `tts_synth_ms` (receiver) | 255.7 ms | 326.1 ms | 230.1 ms | 290.1 ms |
+| `tts_ms` (receiver) | 292.3 ms | 372.6 ms | 268.1 ms | 330.3 ms |
+
+**Reading this honestly:** head start improved further in both phrases — likely mostly because this
+take's pauses/hold time happened to be longer than Run 2's, not because Stage A changed the
+pipeline's speed (T43/T73/T46/T47/T74 don't touch STT/TTS inference). Consistent with that,
+`stt_ms`/`rtf`/`tts_ms` are all slightly *higher* than Run 2, not lower — plausibly because this
+take was recorded immediately after ~15 language switches' worth of model loading/eviction
+activity (see T46/T47 above), which may have left the device under more memory/scheduling pressure
+than Run 2's comparatively quiet session. Both runs stay in the same overall performance envelope
+(`rtf` 0.28–0.30, sub-second `tts_ms`); nothing here indicates a regression in the pipeline itself,
+but the numbers are not perfectly clean before/after either — real device state differed between
+the two sessions, and that is reported rather than smoothed over.
+
+### What's not yet nailed down (updated)
+
+- **T74 live confirmation** — not done this run (see above).
+- **RAM after many language switches** — bounded object count, but not bounded OS-visible PSS; see
+  T46/T47 above. Whether PSS eventually plateaus with more switches, or keeps growing slower and
+  slower indefinitely, is not determined from three data points.
+- **The Gujarati TTS voice file's corruption** — noticed, not diagnosed.
+- **T43's error visibility** — the error is real but silent; not surfaced to logcat or the UI.
