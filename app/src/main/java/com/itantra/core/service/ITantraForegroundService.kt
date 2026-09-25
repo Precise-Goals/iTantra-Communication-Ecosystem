@@ -267,7 +267,7 @@ class ITantraForegroundService : Service() {
         override fun onSTTResult(result: AppResult<String>, confidence: Float, inferenceMs: Long) {
             if (result is AppResult.Success) {
                 val message = TransceiverMessage(
-                    type = MessageType.SPEECH,
+                    type = if (sendNextAsAlert) MessageType.ALERT else MessageType.SPEECH,
                     text = result.data,
                     srcLang = sttLanguage,
                     dstLang = ttsLanguage,
@@ -277,6 +277,7 @@ class ITantraForegroundService : Service() {
                     sequence = ++sequenceCounter,
                     direction = Direction.SENT
                 )
+                sendNextAsAlert = false
                 appendMessage(message)
                 // Transmit over network
                 _pipelineStage.value = PipelineStage.TRANSMITTING
@@ -550,6 +551,9 @@ class ITantraForegroundService : Service() {
 
     fun setSTTLanguage(lang: String) { sttLanguage = lang; audioCaptureModule.currentLanguage = lang }
     fun setTTSLanguage(lang: String) { ttsLanguage = lang }
+
+    /** When true, the next STT result is sent as an ALERT instead of SPEECH, then resets (T66). */
+    @Volatile var sendNextAsAlert: Boolean = false
     fun getLoadedTTSLanguages(): Set<String> = ttsModule.getLoadedLanguages()
     fun unloadTTSLanguage(lang: String) = ttsModule.unloadLanguage(lang)
 

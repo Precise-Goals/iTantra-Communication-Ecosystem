@@ -50,6 +50,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _pipelineStage = MutableStateFlow(ITantraForegroundService.PipelineStage.IDLE)
     val pipelineStage: StateFlow<ITantraForegroundService.PipelineStage> = _pipelineStage.asStateFlow()
 
+    // ── SOS / alerts (T66) ──
+    private val _alertArmed = MutableStateFlow(false)
+    /** True while the next spoken PTT message will be sent as an ALERT. */
+    val alertArmed: StateFlow<Boolean> = _alertArmed.asStateFlow()
+
+    /** Arm or disarm "send my next spoken message as an ALERT". */
+    fun setAlertArmed(armed: Boolean) {
+        _alertArmed.value = armed
+        foregroundService?.sendNextAsAlert = armed
+    }
+
     private val _isBluetoothListening = MutableStateFlow(false)
 
     /** What "Host Beacon" should actually reflect — true if listenable over Wi-Fi Direct OR
@@ -117,6 +128,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /** Stop PTT capture (release) — flushes to STT and attempts to transmit. */
     fun stopTransceiverPtt() {
         foregroundService?.stopPTT()
+        _alertArmed.value = false
     }
 
     /** Initiate a real Wi-Fi Direct connection to a peer discovered via [meshHardwareManager]. */
