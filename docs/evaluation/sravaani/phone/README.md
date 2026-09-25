@@ -222,7 +222,10 @@ and no code has been written.
 
 ## Final decision
 
-*(Gaurav and Sarthak: confirm here.)*
+**2026-09-25 — Gaurav: build the TDT engine (T78), with T64 as its fallback.**
+- This README's CTC-route verdict ("keep IndicConformer") stands **for the CTC route**.
+- The team is taking the TDT route instead, with a day-1 INT8 accuracy gate and two later stop checkpoints (`IMPLEMENTATION_SPEC_2.md` → T78).
+- If any checkpoint fails, T64 starts the same day.
 
 ## Limitations
 

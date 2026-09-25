@@ -501,6 +501,8 @@ Three questions were settled against the problem-statement text:
 
    **Result and revision (2026-09-25).** T76 ran (PR #27): 19.63% vs 19.18% WER over the 9 shared languages, 19.31% vs 19.99% excluding English, 22.16% vs 12.73% on English, 21.69% on Odia (SraVaani only), and ~1.8× slower on desktop CPU. The ≥ 3-point gate said "keep", but that gate was our own threshold and it skipped the phone test. Against the PS, Odia coverage and the ~half 10-language footprint favour a **hybrid** (SraVaani for the nine Indic languages, IndicConformer for English). "Lightweight" and "smooth on low and mid range phones" are the open risks. **T77** measures INT8 SraVaani on the phones and decides between the hybrid and T64.
 
+   **T77 result (PR #29):** the CTC head is worse (22.44% vs 19.99%) and needs 128 mel bins. The team chose **T78, a Kotlin TDT decode engine**, to use SraVaani's native decoder, with T64 as the fallback.
+
 The measurement also shows the next size lever: two ONNX runtimes ship side by side — `libsherpa-onnx-jni.so` (23.7 MB, statically linked runtime) and `libonnxruntime.so` (16.3 MB). That is T15.
 
 ### 10.10 Revised top of the work order
@@ -515,7 +517,7 @@ Items 1–4 below slot in ahead of §8's list; the rest of §8 is unchanged.
 | 1c | T43 with `srcLang` (§10.13) | ACC, REQ | 1 hour |
 | 2 | T66 SOS/alert control — without it a hard requirement cannot be shown | REQ | 1 day |
 | 3 | T62 repair Silero VAD; keep T32 as fallback | ACC, EFF | 1 day |
-| 4 | T77 SraVaani INT8 phone test, then **either** the hybrid switch **or** T64 + T55 (export all ten STT languages CTC-only INT8 from AI4Bharat) | ACC, EFF, REQ | 1.5–2 days + 3 days |
+| 4 | ✅ T77 (PR #29), then **T78 SraVaani TDT engine** with three stop checkpoints; T64 + T55 only as its fallback | ACC, EFF, REQ | ~1 week (T78), or 3 days (T64) |
 | 5 | T67 voice notes | REQ | 0.5 day |
 | 6 | T65 phrase-level pipelining (before T50) | LAT | 1 day |
 | 7 | T68 ESP32 receiver | REQ (stretch) | 1 day |

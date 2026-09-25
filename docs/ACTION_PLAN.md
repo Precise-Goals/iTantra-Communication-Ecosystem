@@ -126,6 +126,11 @@ Export it to a CTC INT8 ONNX graph plus its own `tokens.txt`, host it beside the
 
 > **Revised 2026-09-25: T77 comes first.** T76 (PR #27) found that SraVaani 1.0 covers Odia (21.69% WER) and is +0.69 WER points better on the 8 non-English shared languages. All-languages-in-one is ~half the 10-language flash footprint (903 MB FP16 vs ~1.84 GB). English is much worse (22.16% vs 12.73%), so the candidate is a **hybrid**: SraVaani for the nine Indic languages, IndicConformer for English. The open question is whether a 430 M-parameter model runs smoothly on a low-range phone. **T77** measures INT8 SraVaani on the phones. If it passes, SraVaani supplies Odia and T64 (with its Step 6 re-export) is dropped. If not, do T64 as above.
 
+> **Update 2026-09-25 (T77 done, PR #29):**
+> - SraVaani's CTC head failed (22.44% vs 19.99% WER). Its native TDT decoder, 19.31% in T76, needs a Kotlin decoder.
+> - **Chosen: T78, the SraVaani TDT engine**, about one week with three stop checkpoints. T64 is the fallback.
+> - T78 uses the time the plan had for G6/G7 (T15, T68). The dossier moves to about Day 13.
+
 ---
 
 ## 4. What actually separates top-5 from top-50
@@ -221,7 +226,7 @@ The point of week 1 is that **every subsequent week can be evaluated.**
 | **T17a** Swap the three Piper voices to their int8 variants — 138.6 MB saved | Gaurav | 2h | SPEC T17a |
 | **T17b** Convert Marathi/Kannada/Tamil/Telugu/Odia from `facebook/mms-tts-*`, package, host, register — **these are not downloadable; you must convert them** | Gaurav | 2d | SPEC T17b |
 | **T18** Register the five codes in `TTSModule.LANGUAGE_TO_PACK` | Gaurav | 1h | SPEC T17b |
-| **T64 + T55** Export all ten STT languages CTC-only INT8 from the AI4Bharat checkpoints, **including Odia**; host; register. Replaces T19. **Gated by T77 (2026-09-25):** only if the SraVaani hybrid is not adopted | Gaurav | 3d | SPEC2 T64 🔬 |
+| **T64 + T55** Export all ten STT languages CTC-only INT8 from the AI4Bharat checkpoints, **including Odia**; host; register. Replaces T19. **Fallback for T78 (2026-09-25):** only if a T78 checkpoint fails | Gaurav | 3d | SPEC2 T64 🔬 |
 | **T20** Rework `coreTransceiverPacks()` to a chosen language pair, not all nine | Gaurav | 4h | SPEC2 T20 |
 | **T21** Downloads screen: per-language selection, sizes computed from `ModelRegistry` | Sarthak | 1d | SPEC2 T21 |
 | **T22** Licence table in the README, including MMS CC-BY-NC | Sarthak | 3h | SPEC2 T22 |

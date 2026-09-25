@@ -19,8 +19,8 @@
 | 4 | PS compliance + remaining latency | 21 | 14 / 21 | T39 |
 | 5 | Quality and headroom | 8 | 0 / 8 | — |
 | 6 | The dossier | 6 | 0 / 6 | — |
-| C | Listed after the critical path (T75, T76, T77) | 3 | 1 / 3 | — |
-| — | **Total** | **76** (T19, T55 superseded and not counted) | **35 / 76** | |
+| C | Listed after the critical path (T75–T78) | 4 | 2 / 4 | — |
+| — | **Total** | **77** (T19, T55 superseded and not counted) | **36 / 77** | |
 
 Recounted from the checkboxes on 2026-09-25.
 
@@ -83,8 +83,9 @@ Everything below is merged to `main` (PRs #15, #17, #19, #21–#27):
 
 **Stage C — the 40% Accuracy criterion and the footprint (needs a human for hosting).**
 8a. ~~**T76**~~ ✅ PR #27. Its own ≥ 3-point rule said "keep IndicConformer". That rule is retired, see T76.
-8b. **T77 (next, priority)** — INT8 SraVaani on the phones. It decides between a **hybrid** (SraVaani for the nine Indic languages, IndicConformer for English, Odia included, no T64) and **keeping IndicConformer + T64**.
-9. ~~**T17b**~~ ✅ PR #24 (10/10 TTS). **T64** (Odia STT) runs only if T77 keeps IndicConformer, or if T77's export fails early. Either way, 10/10 STT comes from T77 or T64.
+8b. ~~**T77**~~ ✅ PR #29. The CTC route failed (22.44% vs 19.99% WER), and the TDT route was scoped in `docs/evaluation/sravaani/tdt-engine-design.md`.
+8c. **T78 (now, one week)** — SraVaani TDT engine for the nine Indic languages, Odia included, with IndicConformer for English. Three checkpoints; any fail switches to T64 the same day.
+9. ~~**T17b**~~ ✅ PR #24 (10/10 TTS). **T64** (Odia STT) is now T78's fallback. 10/10 STT comes from T78 or T64.
 10. **T20 (revised) + T21** — download only the selected language (2.18 GB → ~250 MB). Easy now that T72 gives the app a selected language.
 11. ~~**T23 → T29**~~ ✅ PR #26. **T30** remaining: Sarthak's IndicConformer re-run (see T30). T77's comparison needs it.
 12. **T15** — two ONNX runtimes still ship in the APK (`libsherpa-onnx-jni.so` 23.7 MB with its own runtime, plus `libonnxruntime.so` 16.3 MB). Consolidating is the next APK-size win after the Assistant removal.
@@ -221,7 +222,7 @@ The PS mandates 10 languages. You ship 9 STT and 5 TTS.
 - [ ] **T64 · Odia STT + CTC-only INT8 export of all ten languages (absorbs T55)** — *G · REQ/ACC/EFF · 3d* 🔬
   Export the AI4Bharat hybrid checkpoints CTC-only, INT8, with their own `tokens.txt`; Odia first, then the other nine if the size win is real (~120 M params → expect ~125 MB, vs the mirror's ~197 MB). Host with the T17b voices. Add `STT_ODIA`. Needs a human for the hosting URL.
   **Done when:** Odia transcribes on device and has a row in the T30 WER table. Spec: `IMPLEMENTATION_SPEC_2.md` T64.
-  ⚠️ **Gated by T77 (2026-09-25).** Do T64 only if T77 keeps IndicConformer, or stops early because SraVaani can't be exported. If T77 adopts the hybrid, SraVaani supplies Odia, and T64 plus its Step 6 (re-exporting the other nine) are dropped.
+  ⚠️ **Fallback for T78 (2026-09-25).** The team chose the SraVaani TDT engine (T78). Do T64 only if a T78 checkpoint fails or T78 runs past day 7. Its Step 6 (re-exporting the other nine) is dropped.
 
 **Week 2 exit:** 10/10 TTS · 10/10 STT · bundle < 250 MB per pair.
 
@@ -487,7 +488,7 @@ flowchart LR
   T30 --> T56
   T16 --> T56
   T37["T37 phone mode + T63 echo gate"] --> T56
-  T77["T77 SraVaani phone test"] --> T64["T64 Odia STT or hybrid switch"]
+  T77["T77 SraVaani INT8 test"] --> T64["T78 TDT engine, or T64 on a failed checkpoint"]
   T64 --> T56
   T69["T69 transport"] --> T66["T66 SOS"]
   T66 --> T56
@@ -495,7 +496,7 @@ flowchart LR
   T56 --> T59["T59 deck"]
 ```
 
-**Cannot be cut:** T05, T10, T13, T14, T16, T17, T18, T23–T30, T37, T38, **T43, T45, T46, T62 or T32, T63, T77 → T64 or hybrid switch, T66, T67, T69, T72, T73**, T56, T57, T59.
+**Cannot be cut:** T05, T10, T13, T14, T16, T17, T18, T23–T30, T37, T38, **T43, T45, T46, T62 or T32, T63, T78 (or T64 as its fallback), T66, T67, T69, T72, T73**, T56, T57, T59.
 
 - [x] **T76 · Evaluate SraVaani 1.0 against IndicConformer** — *G · ACC · 1–1.5d* 🔬 — **Stage C, optional, highest priority of the optional items**
   [SraVaani 1.0](https://huggingface.co/ARTPARK-IISc/SraVaani-1.0) (IISc SPIRE Lab + ARTPARK, MIT) is one ~430M-parameter model for 65 Indian languages, Odia included, ~900 MB FP16. It may be more accurate than our ~120M-parameter, ~197 MB-per-language IndicConformer models, but it is ~3.5× the compute, which works against Efficiency, Latency and low-end phones. Measure both on the same 100 FLEURS test clips per language (WER, CER, CPU speed, size); quantise and phone-test SraVaani only if it wins by ≥ 3 WER points.
@@ -504,10 +505,23 @@ flowchart LR
   ✅ PR #27. WER over the 9 shared languages: SraVaani 19.63% vs IndicConformer 19.18%. Excluding English: 19.31% vs 19.99%. English 22.16% vs 12.73%. Odia 21.69% (SraVaani only). 903 MB FP16 vs ~1.84 GB for ten IndicConformer models. ~1.8× slower on 1 CPU thread.
   ⚠️ **Rule retired 2026-09-25.** The ≥ 3-point / ≤ 500 MB gates were our own thresholds, not the PS's, and they skipped the phone test. That test is now T77.
 
-- [ ] **T77 · SraVaani INT8 on the phone: hybrid vs T64** — *G (+S decides) · ACC/LAT/EFF/REQ · 1.5–2d* 🔬 — **Stage C, next**
+- [x] **T77 · SraVaani INT8 on the phone: hybrid vs T64** — *G (+S decides) · ACC/LAT/EFF/REQ · 1.5–2d* 🔬 — **Stage C, next**
   Export SraVaani's CTC head to INT8 ONNX (~430–500 MB expected), re-check its WER on the T76 clips, then run it on the cheapest phone and the run-1..3 phone by swapping it into the Hindi slot by hand (no merged code). Measure RTF, speech end → STT complete, peak PSS, load time, and low-memory kills over 10 min, each next to IndicConformer on the same phone.
   Hard fails: killed or ANR on the low-range phone, RTF ≥ 1, or INT8 non-English WER worse than IndicConformer. Otherwise weigh by the PS rubric. The `ACTION_PLAN.md` §5 targets are guides, not gates.
   **Done when:** `docs/evaluation/sravaani/phone/README.md` has the rubric table and a decision signed off by both of us: **hybrid** (drop T64, write the switch design) or **keep IndicConformer** (do T64; SraVaani for Odia only if T64 fails). Spec: `IMPLEMENTATION_SPEC_2.md` Group I → T77.
+  ✅ PR #29.
+  - The INT8 CTC head scored 22.44% WER on the 8 non-English languages, against 19.99% for IndicConformer, a hard fail.
+  - The encoder needs 128 mel bins where the app makes 80, so the phone swap could not run.
+  - The TDT route was scoped instead. **Decision (Gaurav): build it, as T78.**
+
+- [ ] **T78 · SraVaani TDT engine** — *G (+S Step 6) · ACC/EFF/REQ · ~1 week* 🔬 — **now**
+  SraVaani INT8 encoder plus TDT decoder, decoded in a new Kotlin `TdtDecoder.kt`. The nine Indic languages, Odia included, share one session pair; English stays on IndicConformer. `STTModule` gets 128-mel features for this path.
+  Checkpoints, where any fail means stopping and doing T64 the same day:
+  - **C1 (day 1):** INT8 TDT WER ≤ 19.99% on the 8 non-English languages, and the pair ≤ ~550 MB.
+  - **C2:** the 128-mel golden test and the decode-parity test pass.
+  - **C3:** on the low-range phone, no kill or ANR, RTF < 1, and STT time ≤ ~1.5× IndicConformer's.
+  - A hard stop at day 7.
+  **Done when:** the nine codes decode through the TDT path on both phones, the WER table has the shipped numbers, and the mirror packs for those nine are removed. Spec: `IMPLEMENTATION_SPEC_2.md` Group I → T78.
 
 - [ ] **T75 · Remove stale claims from app metadata** — *S · DOC · 1h*
   `app/src/main/assets/app_metadata.json` (and the copy at the repo root), `AppMetadata.kt` and the `com.itantra.*` meta-data in `AndroidManifest.xml` still claim things the app does not do — e.g. "8–16 kbps Opus narrowband encoded streaming", "AI4Bharat IndicTTS VITS, ~14 MB per language", "Silero VAD v4". Replace each with the real component, or delete it.
