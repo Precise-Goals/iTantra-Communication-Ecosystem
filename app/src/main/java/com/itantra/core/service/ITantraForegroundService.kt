@@ -224,6 +224,9 @@ class ITantraForegroundService : Service() {
                 val targetLang = message.srcLang.ifBlank { ttsLanguage }
                 val utt = Telemetry.begin(targetLang)
                 utt.rxNs = rxStampNs
+                // (sender, sequence) join key back to the sender's own telemetry row (T11).
+                utt.sequence = message.sequence
+                utt.senderId = message.senderId
                 val synth = ttsModule.synthesize(message.text, targetLang)
                 utt.ttsDoneNs = System.nanoTime()
                 if (synth != null) {
