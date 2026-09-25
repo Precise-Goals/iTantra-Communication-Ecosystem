@@ -16,7 +16,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -47,6 +49,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.itantra.core.download.ModelRegistry
 import com.itantra.domain.model.DownloadState
+import com.itantra.domain.model.IndicLanguage
 import com.itantra.domain.model.ModelPack
 import com.itantra.ui.MainViewModel
 import com.itantra.ui.theme.iTantraBackground
@@ -64,6 +67,7 @@ fun DownloadsScreen(viewModel: MainViewModel) {
     val downloadStates by viewModel.downloadStates.collectAsState()
 
     val selectedLanguage by viewModel.selectedLanguage.collectAsState()
+    val currentLang = IndicLanguage.fromCode(selectedLanguage)
     val corePacks = ModelPack.coreTransceiverPacks(selectedLanguage)
     val allCoreDownloaded = corePacks.all { downloadStates[it] is DownloadState.Downloaded }
     val anyCoreDownloading = corePacks.any { downloadStates[it] is DownloadState.Downloading }
@@ -75,6 +79,27 @@ fun DownloadsScreen(viewModel: MainViewModel) {
 
     val coreTotalBytes = ModelRegistry.totalSizeBytes(corePacks)
     val coreTotalMb = coreTotalBytes / (1024 * 1024)
+
+    val currentStt = ModelPack.sttPackFor(selectedLanguage)
+    val currentTts = ModelPack.ttsPackFor(selectedLanguage)
+
+    val descComponents = buildList {
+        add("Silero VAD (2.3 MB)")
+        add("eSpeak-NG phonemizer data (6.6 MB)")
+        if (currentStt != null) {
+            val sttMb = (ModelRegistry.getInfo(currentStt)?.sizeBytes ?: 0L) / (1024 * 1024)
+            add("AI4Bharat IndicConformer STT ($sttMb MB)")
+        } else {
+            add("speech recognition not available yet")
+        }
+        if (currentTts != null) {
+            val ttsMb = (ModelRegistry.getInfo(currentTts)?.sizeBytes ?: 0L) / (1024 * 1024)
+            add("${currentTts.displayName} ($ttsMb MB)")
+        } else {
+            add("voice not available yet")
+        }
+    }
+    val descriptionText = "Installs core transceiver bundle for ${currentLang.displayName} (${currentLang.nativeName}): ${descComponents.joinToString(", ")}."
 
     LazyColumn(
         modifier = Modifier
@@ -122,7 +147,51 @@ fun DownloadsScreen(viewModel: MainViewModel) {
             }
         }
 
-        // ── HERO: "Download the Pack" (Compulsory Core & 10 Languages) ─
+        // ── Language Selector ──────────────────────────────────────
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = "Select Language",
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                    color = iTantraBlack
+                )
+                LazyRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(IndicLanguage.entries, key = { it.code }) { lang ->
+                        val isSelected = lang.code == selectedLanguage
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(if (isSelected) iTantraBlack else iTantraCardAlt)
+                                .border(
+                                    1.dp,
+                                    if (isSelected) iTantraBlack else iTantraBorder,
+                                    RoundedCornerShape(14.dp)
+                                )
+                                .clickable { viewModel.setManualLanguage(lang.code) }
+                                .padding(horizontal = 14.dp, vertical = 8.dp)
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(
+                                    text = lang.nativeName,
+                                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                                    color = if (isSelected) iTantraWhite else iTantraBlack
+                                )
+                                Text(
+                                    text = lang.displayName,
+                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                    color = if (isSelected) Color(0xFFD4D4D4) else iTantraBlack60
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // ── HERO: "Download the Pack" (Compulsory Core for selected language) ─
         item {
             Box(
                 modifier = Modifier
@@ -160,12 +229,12 @@ fun DownloadsScreen(viewModel: MainViewModel) {
                             Spacer(Modifier.width(10.dp))
                             Column {
                                 Text(
-                                    text = "Download the Pack",
+                                    text = "Download the Pack · ${currentLang.nativeName}",
                                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                                     color = if (allCoreDownloaded) iTantraBlack else iTantraWhite
                                 )
                                 Text(
-                                    text = if (allCoreDownloaded) "Core transceiver pack installed" else "Compulsory · speech recognition, voices and VAD",
+                                    text = if (allCoreDownloaded) "Core transceiver pack installed (${currentLang.nativeName})" else "Compulsory · ${currentLang.displayName} (${currentLang.nativeName}) speech & voice",
                                     style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
                                     color = if (allCoreDownloaded) iTantraSuccess else Color(0xFFD4D4D4)
                                 )
@@ -192,7 +261,7 @@ fun DownloadsScreen(viewModel: MainViewModel) {
                     Spacer(Modifier.height(14.dp))
 
                     Text(
-                        text = "Installs complete bundle: Silero VAD (2.3MB), AI4Bharat IndicConformer STT (197MB per language) for 9 languages, real espeak-ng-phonemized voices for Hindi, Gujarati, Malayalam, Bengali and English, and self-converted MMS voices (CC-BY-NC 4.0) for Marathi, Kannada, Tamil, Telugu and Odia. Odia speech recognition is not available yet.",
+                        text = descriptionText,
                         style = MaterialTheme.typography.bodySmall,
                         color = if (allCoreDownloaded) iTantraBlack60 else Color(0xFFCCCCCC)
                     )
@@ -212,7 +281,7 @@ fun DownloadsScreen(viewModel: MainViewModel) {
                             Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = iTantraSuccess, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(8.dp))
                             Text(
-                                text = "All installed language models and the neural transceiver are active.",
+                                text = "Core transceiver models for ${currentLang.displayName} (${currentLang.nativeName}) are active.",
                                 style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
                                 color = iTantraBlack
                             )
@@ -244,7 +313,7 @@ fun DownloadsScreen(viewModel: MainViewModel) {
         // ── Compulsory Models List ──────────────────────────────────
         item {
             Text(
-                text = "Compulsory Language & Transceiver Packs (${corePacks.size})",
+                text = "Compulsory Packs for ${currentLang.displayName} · ${currentLang.nativeName} (${corePacks.size})",
                 style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
                 color = iTantraBlack,
                 modifier = Modifier.padding(top = 8.dp)
@@ -258,6 +327,76 @@ fun DownloadsScreen(viewModel: MainViewModel) {
                 onDownload = { viewModel.downloadModel(pack) },
                 onDelete = { viewModel.deleteModel(pack) }
             )
+        }
+
+        // ── Other Languages Section ─────────────────────────────────
+        item {
+            Column(modifier = Modifier.padding(top = 12.dp)) {
+                Text(
+                    text = "Other Languages",
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                    color = iTantraBlack
+                )
+                Text(
+                    text = "Download speech recognition or voices for other languages to receive and speak messages in other languages.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = iTantraBlack60
+                )
+            }
+        }
+
+        val otherLanguages = IndicLanguage.entries.filter { it.code != selectedLanguage }
+        otherLanguages.forEach { lang ->
+            val otherStt = ModelPack.sttPackFor(lang.code)
+            val otherTts = ModelPack.ttsPackFor(lang.code)
+
+            item(key = "other_header_${lang.code}") {
+                Text(
+                    text = "${lang.displayName} · ${lang.nativeName}",
+                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                    color = iTantraBlack,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
+            }
+
+            if (otherStt != null) {
+                item(key = "other_stt_${otherStt.name}") {
+                    ModelPackRowItem(
+                        pack = otherStt,
+                        state = downloadStates[otherStt] ?: DownloadState.NotDownloaded,
+                        onDownload = { viewModel.downloadModel(otherStt) },
+                        onDelete = { viewModel.deleteModel(otherStt) }
+                    )
+                }
+            }
+
+            if (otherTts != null) {
+                item(key = "other_tts_${otherTts.name}") {
+                    ModelPackRowItem(
+                        pack = otherTts,
+                        state = downloadStates[otherTts] ?: DownloadState.NotDownloaded,
+                        onDownload = { viewModel.downloadModel(otherTts) },
+                        onDelete = { viewModel.deleteModel(otherTts) }
+                    )
+                }
+            } else {
+                item(key = "other_no_voice_${lang.code}") {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(iTantraCard)
+                            .border(1.dp, iTantraBorder, RoundedCornerShape(20.dp))
+                            .padding(16.dp)
+                    ) {
+                        Text(
+                            text = "Voice not available yet",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = iTantraBlack40
+                        )
+                    }
+                }
+            }
         }
     }
 }
