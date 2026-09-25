@@ -63,7 +63,8 @@ import com.itantra.ui.theme.iTantraWhite
 fun DownloadsScreen(viewModel: MainViewModel) {
     val downloadStates by viewModel.downloadStates.collectAsState()
 
-    val corePacks = ModelPack.coreTransceiverPacks()
+    val selectedLanguage by viewModel.selectedLanguage.collectAsState()
+    val corePacks = ModelPack.coreTransceiverPacks(selectedLanguage)
     val allCoreDownloaded = corePacks.all { downloadStates[it] is DownloadState.Downloaded }
     val anyCoreDownloading = corePacks.any { downloadStates[it] is DownloadState.Downloading }
 

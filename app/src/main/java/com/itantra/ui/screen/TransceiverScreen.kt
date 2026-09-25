@@ -142,7 +142,7 @@ fun TransceiverScreen(
         }
     }
 
-    val corePacks = ModelPack.coreTransceiverPacks()
+    val corePacks = ModelPack.coreTransceiverPacks(selectedLanguage)
     val coreReady = corePacks.all { downloadStates[it] is DownloadState.Downloaded }
 
     var isPttActive by remember { mutableStateOf(false) }

@@ -165,15 +165,39 @@ enum class ModelPack(
     );
 
     companion object {
+        /** Always needed, whatever language is selected (T20). ~9 MB. */
+        fun baselinePacks(): List<ModelPack> = listOf(VAD_MODEL, ESPEAK_NG_DATA)
+
+        /** STT model for [code]; null if none exists yet (Odia, until T64). */
+        fun sttPackFor(code: String): ModelPack? = when (code) {
+            "hi" -> STT_HINDI; "gu" -> STT_GUJARATI; "mr" -> STT_MARATHI
+            "kn" -> STT_KANNADA; "ml" -> STT_MALAYALAM; "ta" -> STT_TAMIL
+            "te" -> STT_TELUGU; "bn" -> STT_BENGALI; "en" -> STT_ENGLISH
+            else -> null
+        }
+
         /**
-         * Returns compulsory packs needed for the full multilingual Transceiver.
-         *
-         * Only the languages with a real, verified TTS source are included — Kannada, Tamil,
-         * Telugu, Marathi and Odia are deliberately absent: no free offline TTS source exists
-         * for them (see [com.itantra.core.download.ModelRegistry]'s class doc). Their `ModelPack`
-         * entries stay in the enum (so nothing else dangles) but aren't offered as downloadable.
+         * TTS voice for [code]; null if no voice source exists yet. T17b added
+         * "mr", "kn", "ta", "te" and "or" via team-hosted MMS voices.
          */
-        fun coreTransceiverPacks(): List<ModelPack> = listOf(
+        fun ttsPackFor(code: String): ModelPack? = when (code) {
+            "hi" -> TTS_HINDI; "gu" -> TTS_GUJARATI; "ml" -> TTS_MALAYALAM
+            "bn" -> TTS_BENGALI; "en" -> TTS_ENGLISH
+            "mr" -> TTS_MARATHI; "kn" -> TTS_KANNADA; "ta" -> TTS_TAMIL
+            "te" -> TTS_TELUGU; "or" -> TTS_ODIA
+            else -> null
+        }
+
+        /**
+         * The compulsory set for one selected language (T20): roughly 210–280 MB instead of the
+         * 2.18 GB that downloading all nine STT models plus every voice required. Model and flash
+         * footprint are 20% of the evaluation.
+         */
+        fun coreTransceiverPacks(languageCode: String): List<ModelPack> =
+            (baselinePacks() + listOfNotNull(sttPackFor(languageCode), ttsPackFor(languageCode))).distinct()
+
+        /** Every pack a full multilingual install uses: all nine STT models and all ten voices. */
+        fun allTransceiverPacks(): List<ModelPack> = listOf(
             VAD_MODEL,
             STT_HINDI,
             STT_GUJARATI,
@@ -190,7 +214,6 @@ enum class ModelPack(
             TTS_MALAYALAM,
             TTS_BENGALI,
             TTS_ENGLISH,
-            // T17b: self-converted MMS voices, now downloadable like every other TTS voice.
             TTS_MARATHI,
             TTS_KANNADA,
             TTS_TAMIL,

@@ -319,7 +319,7 @@ class ModelDownloadManager(private val context: Context) {
 
     /** Download all core mandatory transceiver packs */
     fun downloadCorePack() {
-        downloadAll(ModelPack.coreTransceiverPacks())
+        downloadAll(ModelPack.allTransceiverPacks())
     }
 
     /** Refresh state by re-checking disk */
