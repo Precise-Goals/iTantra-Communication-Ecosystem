@@ -76,10 +76,34 @@ object Telemetry {
     private val recentRtf = ArrayDeque<Double>()
 
     /**
-     * Clock offset to the peer, milliseconds: peerWallClock + offset = ourWallClock.
-     * Estimated as RTT/2 from the SocketTransport ping loop. Zero until measured.
+     * Clock offset to the peer, milliseconds: offset(peer − us). Derived via an NTP-style
+     * exchange in SocketTransport (t0 = our send time, t1 = peer's clock on its ACK, t2 = our
+     * receive time): offset = t1 − (t0 + t2) / 2, rtt = t2 − t0 (T11). Zero until measured.
+     * Add offset to our epoch reading to express it on the peer's clock.
      */
     @Volatile var peerClockOffsetMs: Long = 0
+
+    /** Round-trip time to the peer, milliseconds, from the same exchange as [peerClockOffsetMs]. */
+    @Volatile var peerRttMs: Long = 0
+
+    /**
+     * NTP-style offset/RTT from one ping/ACK round trip. t0/t2 are on our clock (send, receive);
+     * t1 is the peer's clock, as carried by its ACK. Pulled out of SocketTransport so the formula
+     * has a single, unit-tested definition (T11).
+     */
+    fun computeOffsetAndRtt(t0: Long, t1: Long, t2: Long): Pair<Long, Long> =
+        (t1 - (t0 + t2) / 2) to (t2 - t0)
+
+    /**
+     * Converts a monotonic [System.nanoTime] reading into a wall-clock epoch-ms estimate, by
+     * pairing a fresh nanoTime/currentTimeMillis reading now and projecting backwards. Accurate
+     * to within the gap between when [monotonicNs] was captured and when this is called (T11).
+     */
+    fun nsToEpochMs(monotonicNs: Long): Long {
+        val nowNs = System.nanoTime()
+        val nowEpoch = System.currentTimeMillis()
+        return nowEpoch - (nowNs - monotonicNs) / 1_000_000
+    }
 
     fun begin(lang: String): Utterance {
         val u = Utterance(id = nextId.getAndIncrement(), lang = lang)

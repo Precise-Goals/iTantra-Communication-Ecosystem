@@ -23,6 +23,7 @@ import java.net.ServerSocket
 import java.net.Socket
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * TCP socket transport layer for Wi-Fi Direct peer-to-peer communication.
@@ -43,6 +44,9 @@ class SocketTransport(
         const val TCP_PORT = 8765
         private const val PING_INTERVAL_MS = 5000L
         private const val MAX_MESSAGE_SIZE = 64 * 1024 // 64KB max per message
+        /** Cap on outstanding (unACKed) pings, so a peer that stops replying can't leak entries
+         *  forever (T11). */
+        private const val MAX_PENDING_PINGS = 50
     }
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -50,6 +54,9 @@ class SocketTransport(
     private var serverSocket: ServerSocket? = null
     private var serverJob: Job? = null
     private var pingJob: Job? = null
+    private val pingSeq = AtomicInteger(0)
+    /** Ping sequence -> our send time (t0), awaiting the matching ACK (T11). */
+    private val pendingPings = ConcurrentHashMap<Int, Long>()
 
     /**
      * Start TCP server (Group Owner role).
@@ -176,12 +183,21 @@ class SocketTransport(
                             send(ack, peerId)
                         }
                         MessageType.ACK -> {
-                            val latency = System.currentTimeMillis() - message.timestamp
-                            callbacks.onLatencyMeasured(peerId, latency)
-                            // Offset ~= RTT/2. Lets phone B express phone A's send time on its
-                            // own clock, which is what the cross-device latency metric needs
-                            // without NTP or external timing gear.
-                            com.itantra.core.telemetry.Telemetry.peerClockOffsetMs = latency / 2
+                            // NTP-style exchange (T11): t0 is our send time for this sequence,
+                            // t1 is the peer's clock (carried in the ACK's timestamp, set when
+                            // it built the reply), t2 is our receipt time now. The previous
+                            // "latency/2" here was wrong — with unsynchronised clocks, now -
+                            // message.timestamp mixes the peer's clock offset with the one-way
+                            // delay, it is not a round trip.
+                            val t0 = pendingPings.remove(message.sequence)
+                            if (t0 != null) {
+                                val t2 = System.currentTimeMillis()
+                                val t1 = message.timestamp
+                                val (offset, rtt) = com.itantra.core.telemetry.Telemetry.computeOffsetAndRtt(t0, t1, t2)
+                                callbacks.onLatencyMeasured(peerId, rtt)
+                                com.itantra.core.telemetry.Telemetry.peerClockOffsetMs = offset
+                                com.itantra.core.telemetry.Telemetry.peerRttMs = rtt
+                            }
                         }
                         else -> callbacks.onTextReceived(message)
                     }
@@ -205,13 +221,20 @@ class SocketTransport(
         pingJob = scope.launch {
             while (isActive) {
                 kotlinx.coroutines.delay(PING_INTERVAL_MS)
+                val seq = pingSeq.incrementAndGet()
+                val t0 = System.currentTimeMillis()
+                if (pendingPings.size >= MAX_PENDING_PINGS) {
+                    pendingPings.keys.minOrNull()?.let { pendingPings.remove(it) }
+                }
+                pendingPings[seq] = t0
                 val ping = TransceiverMessage(
                     type = MessageType.PING,
                     text = "",
                     srcLang = "",
                     dstLang = "",
                     senderId = deviceId,
-                    timestamp = System.currentTimeMillis()
+                    timestamp = t0,
+                    sequence = seq
                 )
                 broadcast(ping)
             }
