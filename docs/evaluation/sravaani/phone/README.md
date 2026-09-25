@@ -6,6 +6,8 @@
 
 ## Outcome up front
 
+> **Decision 2026-09-25: the team goes with the TDT engine (T78), not T64.** This README tested the **CTC** route, and its measurements and CTC verdict stand as written. The team then chose to build SraVaani's native **TDT** decoder in Kotlin (`docs/IMPLEMENTATION_SPEC_2.md` → T78, design in `../tdt-engine-design.md`). T64 is T78's fallback. See "Final decision" at the end.
+
 **Steps 1–4 (Colab, desktop) ran to completion. Step 5 (the on-phone swap) was not run** — it
 cannot run without an `STTModule` code change, for a reason discovered in Step 2 (below), and by
 the time Step 4's numbers came in, the decision was already determined by two independent hard
@@ -198,7 +200,11 @@ flash size favour the hybrid, but the hard-fail rule is explicit that accuracy (
 fail) overrides — and here the accuracy gate fails outright, on real desktop measurements, before
 the phone question even arises.
 
+> That outcome is for the CTC route. The TDT route was not covered by this table and is now T78, which has its own checkpoints.
+
 ## Recommendation
+
+> **Superseded 2026-09-25 by the team decision below.** Kept as written: it is the correct recommendation *for the CTC route* this task measured, and T64 is still the fallback if T78 fails.
 
 **Keep IndicConformer. Start T64 (export Odia from AI4Bharat's checkpoint) today.** If T64's export
 fails, fall back to SraVaani for Odia only, using the INT8 CTC graph and `results_int8.csv`'s Odia
@@ -222,10 +228,18 @@ and no code has been written.
 
 ## Final decision
 
-**2026-09-25 — Gaurav: build the TDT engine (T78), with T64 as its fallback.**
-- This README's CTC-route verdict ("keep IndicConformer") stands **for the CTC route**.
-- The team is taking the TDT route instead, with a day-1 INT8 accuracy gate and two later stop checkpoints (`IMPLEMENTATION_SPEC_2.md` → T78).
-- If any checkpoint fails, T64 starts the same day.
+**Decided 2026-09-25 by Gaurav: build the SraVaani TDT engine (T78). T64 is the fallback.**
+
+- **CTC route (this README): rejected.** INT8 CTC averaged 22.44% WER on the 8 non-English languages, against 19.99% for IndicConformer.
+- **TDT route: chosen.** It scored 19.31% in T76 (full precision), the native decoder needs a Kotlin engine, and it is estimated at ~690 MB for all 10 languages against ~1.84 GB.
+- **Stop rules (T78):** any failure below stops T78, and T64 starts the same day.
+  - **C1 (day 1):** INT8 TDT WER ≤ 19.99% on the 8 non-English languages, and the pair ≤ ~550 MB.
+  - **C2:** the 128-mel golden test and the decode-parity test pass.
+  - **C3:** on the low-range phone, no kill or ANR, RTF < 1, and STT time ≤ ~1.5× IndicConformer.
+  - **Day 7:** hard stop.
+- **Last resort for Odia:** if T64 also fails, ship the INT8 CTC graph from this task (Odia 22.68% WER).
+
+Signed: Gaurav (2026-09-25) · Sarthak: ______ (confirm in PR #29)
 
 ## Limitations
 

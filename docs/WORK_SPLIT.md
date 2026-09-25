@@ -47,7 +47,7 @@ Day 1 = the first working day after Day 0. Times are AI work plus human testing,
 | 3 | ✅ G3 continued — host voices, register them | **S4** — T67 voice notes · **joint two-phone Stage B test** | T67, T17b |
 | 4 | ✅ **G4** — T23 + T29 match the NeMo preprocessor, golden test | **S5** — T20 + T21 download only the selected language | T20/T21, T23/T29 |
 | 5 | ✅ **G5** — T77 SraVaani INT8 test (PR #29: CTC route failed, TDT scoped) | **S6** — T75 metadata cleanup + README pass · **T30** IndicConformer re-run (S1 note) | — |
-| 6–12 | **G5b** — **T78 SraVaani TDT engine** (checkpoints C1 day 6, C2 day 9, C3 day 11; T64 on any fail) | **S5** (T20/T21) must merge before T78 Step 6 · joins T78 phone run (day 11) · T78 Step 6 manifest + Downloads text | T78 steps in order; S5 before T78 Step 6 |
+| 6–12 | **G5b** — **T78 SraVaani TDT engine** (checkpoints C1 day 6, C2 day 9, C3 day 11; T64 on any fail) | **S1b** (T30) before day 6 · **S5** (T20/T21) before T78 Step 6 · joins T78 phone run (day 11) · **S5b** (T78 Step 6 manifest) on day 12 | T78 steps in order; S5 before S5b |
 | 6–7 | ~~G6 — T15 single-runtime spike · G7 — T68 ESP32~~ **deferred behind T78**, only if time remains | **S7** — T54 TTS listening test | — |
 | 13+ | Dossier: T56–T61 together (§6) | | |
 
@@ -391,7 +391,42 @@ evaluation". Push; DRAFT PR.
 
 > **Note for T30 (WER harness):** once Gaurav's T29 golden test passes (run G4), the app's Kotlin features match NeMo's, so the IndicConformer column from this evaluation *is* the app's WER table. Re-run only the IndicConformer part after G4 merges, and add it to the same README as "after T23/T29".
 >
-> **2026-09-25: G4 is merged (PR #26), so this T30 step is due now.** Finish it before the T77 decision (G5). T77's Step 6 table compares against these IndicConformer WER numbers.
+> **2026-09-25: G4 is merged (PR #26), so this T30 step is due now.** T78's Checkpoint 1 compares against these IndicConformer WER numbers, so finish it before Gaurav reaches C1 if you can.
+
+### S1b · T30 — the app's own IndicConformer WER (now, Colab)
+
+T76 decoded IndicConformer with sherpa-onnx's feature extraction. The app uses its own Kotlin features, which the T29 golden test ties to NeMo's `AudioToMelSpectrogramPreprocessor` with the config in `docs/evaluation/nemo_preprocessor_hi.txt`. The app uses that one config for every language. So the app's real WER equals: NeMo's preprocessor with that config → the same `model.int8.onnx` → greedy CTC.
+
+```text
+<paste the standard header>
+
+TASK T30 — the per-language WER table for IndicConformer as the APP runs it. Evaluation only; do
+NOT change app code.
+
+Read docs/evaluation/sravaani/README.md (T76 setup and scoring), docs/evaluation/nemo_preprocessor_hi.txt
+(the preprocessor config the app reproduces) and app/src/test/java/com/itantra/MelFeatureGoldenTest.kt.
+
+Work in Google Colab; give me the cells one at a time.
+- Same 100 FLEURS test clips per language as T76 (hi gu mr kn ml ta te bn en), same normalisation
+  and scoring (NFC, lowercase, strip Unicode P*, collapse whitespace; jiwer corpus WER and CER).
+- Same model files as T76 (parismitaglobalsolutions/indicconformer-sherpa-onnx, <lang>/model.int8.onnx
+  and tokens.txt; English uses en/tokens.txt).
+- Features: NeMo's AudioToMelSpectrogramPreprocessor built from EXACTLY the config in
+  nemo_preprocessor_hi.txt, for every language (that is what the app does). Check the golden-test
+  fixture reproduces to 1e-3 before running anything else; if it does not, stop and tell me.
+- Inference with onnxruntime (1 thread): print the session's input/output names first, never guess.
+  Greedy CTC: argmax per frame, merge repeats, drop blank = last id, map ids with tokens.txt and turn
+  '▁' into a space (same rule as app/src/main/java/com/itantra/core/audio/CtcDecoder.kt).
+- Report every number, including languages where it is worse than T76's sherpa-onnx column.
+
+Then: git fetch origin; git switch -c eval/t30-app-wer origin/main
+Add results_app_features.csv (same columns as results.csv) and hypotheses/app_<lang>.tsv to
+docs/evaluation/sravaani/, and a section "T30 — after T23/T29 (app features)" to its README with a
+table: T76 sherpa-onnx WER vs app-features WER per language, and the 8-language non-English
+average. Commit "T30: IndicConformer WER with the app's feature pipeline". Push; DRAFT PR.
+```
+
+**You do:** run the cells, then tell Gaurav the 8-language non-English average, which becomes T78's C1 bar if it differs from 19.99%.
 
 ### S2 · T37 — Phone mode toggle (Day 2, after T63 is merged)
 
@@ -508,6 +543,34 @@ Build must pass. Commit "T21: per-language download selection". Push; DRAFT PR.
 ```
 
 **You do:** clear app data (`adb shell pm clear com.itantra.debug`), pick Tamil: the button shows about 200 MB and the Transceiver unlocks after it; pick Hindi: about 270 MB. Merge.
+
+### S5b · T78 Step 6 — the shared SraVaani pack in the manifest (after S5, and after Gaurav's T78 Steps 1–5 pass)
+
+Do this only when Gaurav says T78 passed Checkpoint 3 and his PR has the `ModelRegistry.kt` entries, with real sizes and sha256.
+
+```text
+<paste the standard header>
+
+TASK T78 Step 6 (manifest + downloads UI part). Read docs/IMPLEMENTATION_SPEC_2.md → "T78 🔬 ·
+SraVaani TDT engine", Step 6, and Gaurav's T78 PR (I will give you its number): it contains the new
+ModelRegistry entries and the exact ModelManifest.kt change he needs.
+
+Setup: git fetch origin; git switch -c feature/t78-shared-pack origin/main
+Confirm first: `grep -n "fun sttPackFor" app/src/main/java/com/itantra/domain/model/ModelManifest.kt`
+prints a match (T20 merged) AND the registry entries from Gaurav's PR exist on main. If either is
+missing, STOP and tell me.
+
+1. ModelManifest.kt: add ONE pack STT_SRAVAANI exactly as Gaurav's PR specifies. sttPackFor(code)
+   returns it for hi gu mr kn ml ta te bn or, and the existing mirror pack for en. Do not delete the
+   nine mirror STT packs yet (T78 Step 7 removes them after the phone run passes).
+2. DownloadsScreen.kt: the STT row for any of those nine languages says it is one shared download
+   for nine languages, with its real size from the registry. Reuse existing components and colours.
+   Do not claim a size or language that the registry does not give.
+3. Add "or" to ui/component/Languages.kt STT_LANGUAGES as "or" to "ଓଡ଼ିଆ" if it is not there.
+Build must pass. Commit "T78: shared SraVaani STT pack in the manifest". Push; DRAFT PR.
+```
+
+**You do (with Gaurav):** clear app data, pick Odia: one ~500 MB SraVaani download unlocks it, and switching to Tamil downloads nothing new. Pick English: the IndicConformer English model downloads. Merge.
 
 ### S6 · T75 — Remove stale claims from metadata + README pass (Day 5)
 
