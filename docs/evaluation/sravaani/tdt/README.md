@@ -194,3 +194,59 @@ directly, rather than adding a native SentencePiece dependency. Implemented and 
 
 **Checkpoint 2 — PASSED.** `MelFeatureGoldenTest`, `SraVaaniMelGoldenTest`, and
 `TdtDecoderParityTest` are all green (`.\gradlew.bat :app:testDebugUnitTest`). No override needed.
+
+## Step 4 — dual-session loading in `STTModule`
+
+`STTModule`'s three parallel per-language caches (`sessionCache`, `vocabCache`, `ioNamesCache`)
+are unified into one `backendCache: LinkedHashMap<String, SttBackend>`, keyed by **model
+identity** rather than requested language (`cacheKeyFor`): every one of the nine SraVaani-backed
+codes (`hi gu mr kn ml ta te bn or`) maps to the single `SRAVAANI_CACHE_KEY`, so switching between
+them reuses the same loaded pair — the shared-pair requirement falls out of the cache key choice
+itself, with no separate size-weighted accounting needed. `en` (and any other IndicConformer
+language) still keys by its own code. The bounded-LRU eviction logic (`MAX_CACHED_LANGUAGES = 2`)
+is unchanged; it just now evicts whole backends (`SttBackend.close()`) instead of three
+separately-tracked map entries.
+
+`SttBackend` is a sealed class: `IndicConformerBackend` (one session — the exact same computation
+as before T78, moved into `transcribeIndicConformer` verbatim, just reading from the backend
+object instead of three local variables) and `SraVaaniBackend` (encoder + decoder_joint sessions).
+`transcribeSraVaani` runs the encoder once, then drives `TdtDecoder.decode` with a
+`DecoderJointCall` that wraps the actual ONNX `decoder_joint.run(...)` call — allocating small
+per-step tensors (encoder frame, targets, target_length, LSTM state) exactly as the Python
+reference does per decode step.
+
+**Telemetry/warm-up:** no changes needed to `Telemetry.kt` or
+`ITantraForegroundService.warmUp()`/`onSpeechReady` — both already call `STTModule` generically
+(`ensureLoaded(lang)` then `transcribe(audio, lang)`), and `inferDoneNs` is stamped by the caller
+right after `transcribe()` returns. Since `transcribeSraVaani` only returns after the whole decode
+loop finishes (same as `transcribeIndicConformer` only returning after its one ONNX call), `stt_ms`
+and RTF automatically cover the entire TDT loop with no plumbing changes. `currentUtterance`'s
+`featureDoneNs`/`charCount` stamps are set at the same points in both paths.
+
+**Confidence:** `estimateConfidence` (CTC per-frame max-logit average) doesn't apply to the TDT
+loop's shape, so `transcribeSraVaani` computes an analogous heuristic — the average of the winning
+token logit at every decoder_joint step (including ones that resolve to blank), clipped to
+`[0,1]` — computed as a side effect inside the `DecoderJointCall` closure rather than by changing
+`TdtDecoder.decode`'s already-tested return type.
+
+**I/O names:** SraVaani's encoder/decoder_joint names are fixed constants (verified in Step 1),
+not resolved via the alias-list/shape-inference fallback IndicConformer uses (`resolveIoNames`) —
+but `verifySraVaaniIoNames` still checks the on-device files expose exactly those names at load
+time, failing the load loudly rather than assuming they still match if a future model swap
+diverges.
+
+**Dev-testing file names** (Step 6 replaces these with a real `ModelRegistry`/manifest entry):
+
+| File | filesDir/models/ name |
+| --- | --- |
+| Encoder | `stt_sravaani_encoder_int8.onnx` |
+| Decoder_joint | `stt_sravaani_decoder_joint_int8.onnx` |
+| Tokens | `stt_sravaani_tokens.txt` |
+
+**VERIFY:** `.\gradlew.bat :app:testDebugUnitTest` — full suite green, including
+`MelFeatureGoldenTest`, `SraVaaniMelGoldenTest`, and `TdtDecoderParityTest`. `:app:compileDebugKotlin`
+also checked clean (confirms the ONNX Runtime Java API usage — `OrtSession.Result.get(name)`,
+`OnnxTensor.info.shape`, `.floatBuffer`, `.longBuffer` — against the real library, not assumed).
+
+No on-device phone test yet — that's Step 5, which needs the actual SraVaani files pushed via
+`adb` to the file names above.
