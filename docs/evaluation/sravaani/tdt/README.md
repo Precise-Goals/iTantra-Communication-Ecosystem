@@ -250,3 +250,24 @@ also checked clean (confirms the ONNX Runtime Java API usage — `OrtSession.Res
 
 No on-device phone test yet — that's Step 5, which needs the actual SraVaani files pushed via
 `adb` to the file names above.
+
+## Step 5 — phone run (PARTIAL — low-range phone only)
+
+Full details: `docs/evaluation/sravaani/phone/tdt/README.md`.
+
+**A real gap found:** Step 4's routing is unconditional — every SraVaani-backed language code
+(including `hi`) always resolves to the SraVaani backend, with no code path left to run Hindi
+through IndicConformer. Worked around with a temporary, uncommitted, local-only edit for the
+baseline capture only (excluded `"hi"` from `SRAVAANI_LANGUAGES`, rebuilt, measured, reverted —
+confirmed clean via `git diff` before restoring the real routing and rebuilding again).
+
+**Checkpoint 3's three literal gates all PASS on CPH2467 (low-range, the gate phone):** no
+kill/ANR, RTF median 0.260 (< 1.0), STT latency median 682.6ms (≤ 834.2ms = 1.5× IndicConformer's
+556.2ms). **But TOTAL PSS jumped from ~737MB to ~1364MB with the SraVaani pair loaded** — nearly
+double the team's <700MB guide, on the phone the PS calls "low range." This isn't one of
+Checkpoint 3's formal gates, but it's a material number for the eventual adopt/keep decision.
+
+**Not done / incomplete:** the mid-range phone (Vivo V2338, flaky connection this session), the
+full 10-minute sustained session (ran ~30s instead), and reliable Tamil/Odia coverage (neither
+tester is a native speaker; Odia isn't in the language picker yet). These remain before
+Checkpoint 3 is treated as final.
