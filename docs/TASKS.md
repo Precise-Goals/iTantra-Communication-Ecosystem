@@ -522,6 +522,7 @@ flowchart LR
   - **C3:** on the low-range phone, no kill or ANR, RTF < 1, and STT time ≤ ~1.5× IndicConformer's.
   - A hard stop at day 7.
   **Done when:** the nine codes decode through the TDT path on both phones, the WER table has the shipped numbers, and the mirror packs for those nine are removed. Spec: `IMPLEMENTATION_SPEC_2.md` Group I → T78.
+  ⚠️ **Gap on `main` since PR #34 (2026-09-25), assigned to Sarthak (S5a in `WORK_SPLIT.md`).** The nine codes route to SraVaani, but it isn't downloadable: `sravaaniTdtInfo()` is not in the registry map, there is no `ModelPack.STT_SRAVAANI`, and `STTModule` has no IndicConformer fallback. Until S5a merges, only English transcribes on a fresh install.
 
 - [ ] **T75 · Remove stale claims from app metadata** — *S · DOC · 1h*
   `app/src/main/assets/app_metadata.json` (and the copy at the repo root), `AppMetadata.kt` and the `com.itantra.*` meta-data in `AndroidManifest.xml` still claim things the app does not do — e.g. "8–16 kbps Opus narrowband encoded streaming", "AI4Bharat IndicTTS VITS, ~14 MB per language", "Silero VAD v4". Replace each with the real component, or delete it.

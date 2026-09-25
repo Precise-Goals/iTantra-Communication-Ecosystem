@@ -57,7 +57,7 @@ Day 1 = the first working day after Day 0. Times are AI work plus human testing,
 | 3 | ✅ G3 continued — host voices, register them | **S4** — T67 voice notes · **joint two-phone Stage B test** | T67, T17b |
 | 4 | ✅ **G4** — T23 + T29 match the NeMo preprocessor, golden test | **S5** — T20 + T21 download only the selected language | T20/T21, T23/T29 |
 | 5 | ✅ **G5** — T77 SraVaani INT8 test (PR #29: CTC route failed, TDT scoped) | **S6** — T75 metadata cleanup + README pass · **T30** IndicConformer re-run (S1 note) | — |
-| 6–12 | **G5b** — **T78 SraVaani TDT engine**, in progress (PR #34): Steps 1-4 done; C1 missed/overridden, C2 passed, C3 passes on the low-range phone only (memory flagged); Step 6 Gaurav's half done | **S1b** (T30) — **not done yet**, still the day-6 blocker it was meant to avoid · **S5** (T20/T21) — **not merged**, was due day 4, now blocking T78 Step 6's other half · joins T78 phone run (mid-range phone + full session still outstanding) · **S5b** (T78 Step 6 manifest) blocked on S5 | T78 steps in order; S5 before S5b |
+| 6–12 | **G5b** — **T78 SraVaani TDT engine**, in progress (PR #34): Steps 1-4 done; C1 missed/overridden, C2 passed, C3 passes on the low-range phone only (memory flagged); Step 6 Gaurav's half done | **S5a** (T78 gap fix: SraVaani downloadable + IndicConformer fallback) — **do first, now; `main` has only English STT until it merges** · **S1b** (T30) — **not done yet**, still the day-6 blocker it was meant to avoid · **S5** (T20/T21) — **not merged**, was due day 4, now blocking T78 Step 6's other half · joins T78 phone run (mid-range phone + full session still outstanding) · **S5b** (T78 Step 6 manifest) blocked on S5 | T78 steps in order; S5 before S5b |
 | 6–7 | ~~G6 — T15 single-runtime spike · G7 — T68 ESP32~~ **deferred behind T78**, only if time remains | **S7** — T54 TTS listening test | — |
 | 13+ | Dossier: T56–T61 together (§6) | | |
 
@@ -557,6 +557,59 @@ Build must pass. Commit "T21: per-language download selection". Push; DRAFT PR.
 
 **You do:** clear app data (`adb shell pm clear com.itantra.debug`), pick Tamil: the button shows about 200 MB and the Transceiver unlocks after it; pick Hindi: about 270 MB. Merge.
 
+### S5a · T78 gap fix — make SraVaani downloadable, and fall back when it isn't (do this FIRST, now — does not need T20)
+
+**Why it's urgent:** since PR #34, `main` sends `hi gu mr kn ml ta te bn or` to SraVaani, but the app has no way to download SraVaani yet. So on any phone that wasn't loaded by hand with `adb`, **only English transcribes**. Three gaps:
+1. `ModelRegistry.sravaaniTdtInfo()` exists but is **not in the `registry` map**. Its own comment says "Not yet wired into [registry]".
+2. There is **no `ModelPack.STT_SRAVAANI`**, so the Downloads screen can't offer it.
+3. When the SraVaani files are missing, `STTModule` returns "not loaded" and **doesn't fall back to IndicConformer**.
+
+**Files:** `STTModule.kt` and `ModelRegistry.kt` are Gaurav's, and he assigned this task to Sarthak on 2026-09-25. Keep the edits to exactly what's listed. `ModelManifest.kt` is Sarthak's.
+
+```text
+<paste the standard header>
+
+TASK T78 gap fix (S5a). Three small changes so main works on a fresh install. Does NOT need T20.
+
+Setup: git fetch origin; git switch -c fix/t78-sravaani-gaps origin/main
+Read docs/evaluation/sravaani/tdt/README.md → "Step 6 (Gaurav's half)" first: it gives the exact
+enum case and the exact registry line. Use those values; do not invent sizes, URLs or hashes.
+
+1. app/src/main/java/com/itantra/domain/model/ModelManifest.kt — add the STT_SRAVAANI enum case
+   exactly as that README section gives it (sizeMb = 383, isRequired = false). Do NOT add it to
+   coreTransceiverPacks() (that is T20/Step 6's decision) and do NOT remove any STT_* pack.
+2. app/src/main/java/com/itantra/core/download/ModelRegistry.kt — in the `registry` map, add the one
+   line `ModelPack.STT_SRAVAANI to sravaaniTdtInfo(ModelPack.STT_SRAVAANI),`. Update the KDoc above
+   sravaaniTdtInfo that says "Not yet wired into [registry]" to say it is wired. Nothing else.
+3. app/src/main/java/com/itantra/core/audio/STTModule.kt — fall back to IndicConformer when the
+   SraVaani files are not on disk. The routing decision is cacheKeyFor(languageCode) (used by
+   ensureLoadedUnlocked, transcribe and isLoaded), so change it THERE, not only in the loader —
+   otherwise Hindi's IndicConformer model would be cached under the shared SraVaani key and then
+   reused for Tamil:
+     - add a private fun sraVaaniFilesPresent(): Boolean that returns true only if
+       ModelAssetExtractor.getPhysicalModelPath(context, X) is non-null for all three of
+       SRAVAANI_ENCODER_FILE, SRAVAANI_DECODER_JOINT_FILE and SRAVAANI_TOKENS_FILE (the same calls
+       loadSraVaaniBackend already makes);
+     - cacheKeyFor(lang) returns SRAVAANI_CACHE_KEY only if lang is in SRAVAANI_LANGUAGES AND
+       sraVaaniFilesPresent(); otherwise it returns lang;
+     - in ensureLoadedUnlocked, choose the backend by the SAME test (cacheKey == SRAVAANI_CACHE_KEY
+       -> loadSraVaaniBackend(), else loadIndicConformerBackend(languageCode)), and log one line when
+       a SraVaani language falls back: "STT('$languageCode'): SraVaani not downloaded, using IndicConformer".
+   Do not change loadIndicConformerBackend, loadSraVaaniBackend, TdtDecoder or any feature code.
+   Odia has no IndicConformer model, so Odia without SraVaani still returns false — that is correct.
+
+VERIFY:
+- .\gradlew.bat :app:testDebugUnitTest passes (MelFeatureGoldenTest, SraVaaniMelGoldenTest and
+  TdtDecoderParityTest must stay green).
+- Phone, with Gaurav: clear app data; download only the Hindi IndicConformer pack; pick Hindi and
+  speak — logcat shows the fallback line and a transcript. Then download STT_SRAVAANI from the
+  Downloads screen, force-stop, pick Hindi again — logcat shows "[cacheKey=sravaani]". Pick Tamil —
+  no second SraVaani load.
+Commit "T78: wire SraVaani pack + IndicConformer fallback when it is not downloaded". Push; DRAFT PR.
+```
+
+**You do (with Gaurav):** the phone check above, then merge. After this, S5b only has the T20-dependent part left.
+
 ### S5b · T78 Step 6 — the shared SraVaani pack in the manifest (after S5, and after Gaurav's T78 Steps 1–5 pass)
 
 **Status 2026-09-25:** Gaurav's registry half is done in **PR #34** (`feature/t78-tdt-engine`) —
@@ -580,9 +633,10 @@ docs/evaluation/sravaani/tdt/README.md's "Step 6 (Gaurav's half)" section.
 Setup: git fetch origin; git switch -c feature/t78-shared-pack origin/main
 Confirm first: `grep -n "fun sttPackFor" app/src/main/java/com/itantra/domain/model/ModelManifest.kt`
 prints a match (T20 merged) AND `grep -n "sravaaniTdtInfo" app/src/main/java/com/itantra/core/download/ModelRegistry.kt`
-prints a match (Gaurav's PR #34 merged). If either is missing, STOP and tell me.
+prints a match (Gaurav's PR #34 merged) AND `grep -n "STT_SRAVAANI" app/src/main/java/com/itantra/domain/model/ModelManifest.kt`
+prints a match (S5a merged). If any is missing, STOP and tell me.
 
-1. ModelManifest.kt: add ONE pack STT_SRAVAANI exactly as Gaurav's PR specifies. sttPackFor(code)
+1. ModelManifest.kt: STT_SRAVAANI already exists (S5a) — do not add it again. sttPackFor(code)
    returns it for hi gu mr kn ml ta te bn or, and the existing mirror pack for en. Do not delete the
    nine mirror STT packs yet (T78 Step 7 removes them after the phone run passes).
 2. DownloadsScreen.kt: the STT row for any of those nine languages says it is one shared download
