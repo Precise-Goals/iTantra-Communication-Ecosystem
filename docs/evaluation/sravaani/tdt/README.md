@@ -271,3 +271,32 @@ Checkpoint 3's formal gates, but it's a material number for the eventual adopt/k
 full 10-minute sustained session (ran ~30s instead), and reliable Tamil/Odia coverage (neither
 tester is a native speaker; Odia isn't in the language picker yet). These remain before
 Checkpoint 3 is treated as final.
+
+## UI / manifest gaps confirmed during Step 5 (Sarthak's Step 6 scope — none fixed here)
+
+Testing on-device surfaced, and this section confirms with direct file references, exactly what
+T78 Step 6 (`WORK_SPLIT.md` S5b) already expected to find. Nothing below was changed — Step 6 is
+explicitly out of scope for Gaurav's steps and gated on Sarthak's T20 (S5) merging first.
+
+- **The Downloads/manifest system is still one-pack-per-language.**
+  `app/src/main/java/com/itantra/domain/model/ModelManifest.kt`'s `ModelPack` enum has a separate
+  188 MB entry per IndicConformer language (`STT_HINDI`, `STT_GUJARATI`, `STT_MARATHI`, ...) and no
+  `STT_SRAVAANI` entry at all. This is exactly the "old" architecture Step 6's `sttPackFor()` change
+  is meant to replace for the nine SraVaani-backed codes with one shared pack. Until then, the
+  Downloads screen has no way to express "one ~465-500MB download unlocks nine languages" — it can
+  only show N independent per-language rows, which is what looked like "old STT engines" during
+  testing.
+- **Odia (`or`) is completely absent from the language picker.**
+  `app/src/main/java/com/itantra/ui/component/Languages.kt`'s `STT_LANGUAGES` list has exactly nine
+  entries (`hi, en, gu, mr, kn, ml, ta, te, bn`) — confirmed by direct read, not inferred. There is
+  no way to select Odia in the app UI at all right now, which is why it couldn't be phone-tested in
+  Step 5 despite being one of the nine SraVaani-backed target languages. `STT_LANGUAGES` is
+  consumed by the language-selector chips in
+  `app/src/main/java/com/itantra/ui/screen/TransceiverScreen.kt` (`items(STT_LANGUAGES, ...)`) —
+  adding `"or" to "ଓଡ଼ିଆ"` there is a one-line fix already specified in `WORK_SPLIT.md` S5b Step 3.
+- **No UI signal distinguishes which backend is active.** Selecting Hindi looks identical in the
+  UI whether it resolves to IndicConformer or SraVaani underneath — the only way to tell during
+  Step 5 testing was reading `adb logcat` for `STTModule`'s `SraVaani: NNAPI delegate enabled` /
+  `loaded in ... [cacheKey=sravaani]` lines. Not a blocker for Step 6, but worth Sarthak knowing
+  when he builds the Downloads-screen messaging — there's no existing UI precedent to reuse for
+  "this language is currently backed by the shared pack."
