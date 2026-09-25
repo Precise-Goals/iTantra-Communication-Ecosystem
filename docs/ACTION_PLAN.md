@@ -57,9 +57,9 @@ These are requirements in the PS text. Failing one can disqualify you regardless
 
 | PS requirement | Status | Fix cost |
 | --- | --- | --- |
-| STT for 10 languages | **9/10** — the registry's mirror lacks Odia, but AI4Bharat publishes [`indicconformer_stt_or_hybrid_ctc_rnnt_large`](https://huggingface.co/ai4bharat/indicconformer_stt_or_hybrid_ctc_rnnt_large) (§10.3) | ~1–2 days export (T64) |
-| TTS for 10 languages | **5/10** — Marathi, Kannada, Tamil, Telugu, Odia missing | **~2 days** — conversion job, not a URL change (see §3) |
-| "if turned off it should work like a phone" | **Unreachable** — `PHONE_MODE` exists in the service, never called from the UI. **Once wired it self-oscillates**: no echo gate, so received TTS is re-transcribed and sent back | ~1 day (T37) + 3 h (T63) |
+| STT for 10 languages | **9/10** — the registry's mirror lacks Odia, but AI4Bharat publishes [`indicconformer_stt_or_hybrid_ctc_rnnt_large`](https://huggingface.co/ai4bharat/indicconformer_stt_or_hybrid_ctc_rnnt_large) (§10.3). **2026-09-25:** Odia now comes from T77 (SraVaani hybrid) if it passes on the phone, otherwise from T64 | ~1.5–2 days (T77), then T64 only if needed |
+| TTS for 10 languages | ✅ **10/10** since T17b (PR #24, 2026-09-25). Was 5/10: Marathi, Kannada, Tamil, Telugu, Odia missing | Done. The truncated Malayalam file is in `KNOWN_ISSUES.md` |
+| "if turned off it should work like a phone" | **Unreachable** — `PHONE_MODE` exists in the service, never called from the UI. **Once wired it self-oscillates**: no echo gate, so received TTS is re-transcribed and sent back. **2026-09-25:** echo gate merged (T63, PR #22); only the UI wiring remains | ~1 day (T37) |
 | Alert messages "non-interruptible", highest volume | Receive side done (`USAGE_ALARM`, `FLAG_AUDIBILITY_ENFORCED`, max volume, `AUDIOFOCUS_GAIN`). **Send side unreachable** — nothing in `ui/` calls `broadcastAlert()`, so an alert cannot be demonstrated | ~1 day (T66) + 2 h (T39) |
 | TTS "played as a voice note" | **Missing** — audio played once and discarded; no stored note, no replay | ~0.5 day (T67) |
 | Voice notes must not overlap | **Broken** — no playback queue, concurrent messages garble | ~0.5 day |
@@ -123,6 +123,8 @@ MMS-TTS is **CC-BY-NC 4.0 — non-commercial**. It is open-source and satisfies 
 > An earlier version of this section said to declare 9/10 because no Odia model exists. **That was wrong.** Only the third-party mirror the registry uses (`parismitaglobalsolutions/indicconformer-sherpa-onnx`) lacks Odia. AI4Bharat publishes [`ai4bharat/indicconformer_stt_or_hybrid_ctc_rnnt_large`](https://huggingface.co/ai4bharat/indicconformer_stt_or_hybrid_ctc_rnnt_large), the same family as the other nine.
 
 Export it to a CTC INT8 ONNX graph plus its own `tokens.txt`, host it beside the T17b voices, and register it (T64). Do it in the same job as T55: re-exporting **all ten** languages CTC-only from the AI4Bharat originals gives one consistent source and, at ~120 M parameters, should land near ~125 MB per language rather than the mirror's ~197 MB. The "do not substitute Assamese" rule still stands.
+
+> **Revised 2026-09-25: T77 comes first.** T76 (PR #27) found that SraVaani 1.0 covers Odia (21.69% WER) and is +0.69 WER points better on the 8 non-English shared languages. All-languages-in-one is ~half the 10-language flash footprint (903 MB FP16 vs ~1.84 GB). English is much worse (22.16% vs 12.73%), so the candidate is a **hybrid**: SraVaani for the nine Indic languages, IndicConformer for English. The open question is whether a 430 M-parameter model runs smoothly on a low-range phone. **T77** measures INT8 SraVaani on the phones. If it passes, SraVaani supplies Odia and T64 (with its Step 6 re-export) is dropped. If not, do T64 as above.
 
 ---
 
@@ -219,7 +221,7 @@ The point of week 1 is that **every subsequent week can be evaluated.**
 | **T17a** Swap the three Piper voices to their int8 variants — 138.6 MB saved | Gaurav | 2h | SPEC T17a |
 | **T17b** Convert Marathi/Kannada/Tamil/Telugu/Odia from `facebook/mms-tts-*`, package, host, register — **these are not downloadable; you must convert them** | Gaurav | 2d | SPEC T17b |
 | **T18** Register the five codes in `TTSModule.LANGUAGE_TO_PACK` | Gaurav | 1h | SPEC T17b |
-| **T64 + T55** Export all ten STT languages CTC-only INT8 from the AI4Bharat checkpoints, **including Odia**; host; register. Replaces T19 | Gaurav | 3d | SPEC2 T64 🔬 |
+| **T64 + T55** Export all ten STT languages CTC-only INT8 from the AI4Bharat checkpoints, **including Odia**; host; register. Replaces T19. **Gated by T77 (2026-09-25):** only if the SraVaani hybrid is not adopted | Gaurav | 3d | SPEC2 T64 🔬 |
 | **T20** Rework `coreTransceiverPacks()` to a chosen language pair, not all nine | Gaurav | 4h | SPEC2 T20 |
 | **T21** Downloads screen: per-language selection, sizes computed from `ModelRegistry` | Sarthak | 1d | SPEC2 T21 |
 | **T22** Licence table in the README, including MMS CC-BY-NC | Sarthak | 3h | SPEC2 T22 |
@@ -334,7 +336,7 @@ The decision is to stop building new capability and start proving the capability
 Concretely, the gap to a top-5 submission is:
 
 - **One commit** (the FFT is already written, in the working tree) standing between you and a passing RTF — then one measurement to prove it.
-- **One conversion job** (five TTS voices, T17b) and **one export job** (Odia STT, T64) standing between you and full language coverage.
+- ~~**One conversion job** (five TTS voices, T17b)~~ (done, PR #24) and **one phone test** (T77: SraVaani INT8), then either the hybrid switch or **one export job** (Odia STT, T64), standing between you and full language coverage.
 - **Five small PS items** — echo gate, Bluetooth both ways, SOS send, voice notes, phrase pipelining — standing between you and every requirement being demonstrable.
 - **One config change** standing between you and a competitive app size.
 - **One week of measurement work** standing between you and being able to prove any of it.
