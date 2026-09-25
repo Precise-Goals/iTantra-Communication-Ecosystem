@@ -108,6 +108,7 @@ fun TransceiverScreen(
     val networkState by viewModel.networkState.collectAsState()
     val pipelineStage by viewModel.pipelineStage.collectAsState()
     val selectedLanguage by viewModel.selectedLanguage.collectAsState()
+    val isPhoneMode by viewModel.isPhoneMode.collectAsState()
 
     // ── Paired Bluetooth devices (BluetoothRFCOMMManager.connectToDevice needs a real
     // BluetoothDevice, which only bonded-device enumeration can supply without a scan) ──
@@ -213,23 +214,54 @@ fun TransceiverScreen(
                 )
                 Spacer(Modifier.height(6.dp))
 
-                // Selected walkie-talkie language pill (T72). The transceiver has no working
-                // auto-detect, so this shows the actual selection instead of toggling one.
+                // Selected walkie-talkie language pill (T72) & Phone mode Switch (T37)
                 Row(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(20.dp))
-                        .background(iTantraCardAlt)
-                        .border(1.dp, iTantraBorder, RoundedCornerShape(20.dp))
-                        .padding(horizontal = 12.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Icon(Icons.Filled.Translate, contentDescription = null, tint = iTantraBlack, modifier = Modifier.size(13.dp))
-                    Spacer(Modifier.width(5.dp))
-                    Text(
-                        text = IndicLanguage.fromCode(selectedLanguage).nativeName,
-                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, fontWeight = FontWeight.SemiBold),
-                        color = iTantraBlack
-                    )
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(iTantraCardAlt)
+                            .border(1.dp, iTantraBorder, RoundedCornerShape(20.dp))
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Filled.Translate, contentDescription = null, tint = iTantraBlack, modifier = Modifier.size(13.dp))
+                        Spacer(Modifier.width(5.dp))
+                        Text(
+                            text = IndicLanguage.fromCode(selectedLanguage).nativeName,
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, fontWeight = FontWeight.SemiBold),
+                            color = iTantraBlack
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(iTantraCardAlt)
+                            .border(1.dp, iTantraBorder, RoundedCornerShape(20.dp))
+                            .padding(start = 10.dp, end = 6.dp, top = 3.dp, bottom = 3.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Phone mode",
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, fontWeight = FontWeight.SemiBold),
+                            color = iTantraBlack
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Switch(
+                            checked = isPhoneMode,
+                            onCheckedChange = { viewModel.setPhoneMode(it) },
+                            modifier = Modifier.scale(0.75f).height(20.dp),
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = iTantraWhite,
+                                checkedTrackColor = iTantraBlack,
+                                uncheckedThumbColor = iTantraBlack60,
+                                uncheckedTrackColor = iTantraBorder
+                            )
+                        )
+                    }
                 }
             }
         }
@@ -262,17 +294,27 @@ fun TransceiverScreen(
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(16.dp))
-                            .background(if (isSelected) iTantraBlack else iTantraCardAlt)
-                            .border(1.dp, if (isSelected) iTantraBlack else iTantraBorder, RoundedCornerShape(16.dp))
+                            .background(
+                                if (isSelected) (if (isPhoneMode) iTantraBlack40 else iTantraBlack)
+                                else iTantraCardAlt
+                            )
+                            .border(
+                                1.dp,
+                                if (isSelected) (if (isPhoneMode) iTantraBlack40 else iTantraBlack)
+                                else iTantraBorder,
+                                RoundedCornerShape(16.dp)
+                            )
                             // Switching model mid-hold would transcribe half a phrase with the
-                            // wrong model, so the picker is locked while PTT is held (T72).
-                            .clickable(enabled = !isPttActive) { viewModel.setManualLanguage(code) }
+                            // wrong model, so the picker is locked while PTT is held (T72)
+                            // or when phone mode is on (changing model while listening would
+                            // transcribe half a phrase in the wrong language).
+                            .clickable(enabled = !isPttActive && !isPhoneMode) { viewModel.setManualLanguage(code) }
                             .padding(horizontal = 12.dp, vertical = 6.dp)
                     ) {
                         Text(
                             text = label,
                             style = MaterialTheme.typography.labelSmall,
-                            color = if (isSelected) iTantraWhite else iTantraBlack60
+                            color = if (isSelected) iTantraWhite else if (isPhoneMode) iTantraBlack40 else iTantraBlack60
                         )
                     }
                 }
@@ -316,9 +358,9 @@ fun TransceiverScreen(
                     Box(
                         modifier = Modifier
                             .size(230.dp)
-                            .scale(if (isPttActive) 1.05f else pulseScale)
+                            .scale(if (isPttActive) 1.05f else if (isPhoneMode) 1f else pulseScale)
                             .clip(CircleShape)
-                            .background(if (isPttActive) Color(0x1FDC2626) else Color(0xFFF3F4F6)),
+                            .background(if (isPttActive) Color(0x1FDC2626) else if (isPhoneMode) iTantraBackground else Color(0xFFF3F4F6)),
                         contentAlignment = Alignment.Center
                     ) {
                         // Middle ring
@@ -326,10 +368,10 @@ fun TransceiverScreen(
                             modifier = Modifier
                                 .size(185.dp)
                                 .clip(CircleShape)
-                                .background(if (isPttActive) Color(0x33DC2626) else iTantraWhite)
+                                .background(if (isPttActive) Color(0x33DC2626) else if (isPhoneMode) iTantraBackground else iTantraWhite)
                                 .border(
                                     2.dp,
-                                    if (isPttActive) iTantraError else iTantraBorder,
+                                    if (isPttActive) iTantraError else if (isPhoneMode) iTantraBorder.copy(alpha = 0.5f) else iTantraBorder,
                                     CircleShape
                                 ),
                             contentAlignment = Alignment.Center
@@ -338,24 +380,32 @@ fun TransceiverScreen(
                             Box(
                                 modifier = Modifier
                                     .size(145.dp)
-                                    .shadow(8.dp, CircleShape)
+                                    .shadow(if (isPhoneMode) 0.dp else 8.dp, CircleShape)
                                     .clip(CircleShape)
-                                    .background(if (isPttActive) iTantraError else iTantraBlack)
+                                    .background(
+                                        if (isPttActive) iTantraError
+                                        else if (isPhoneMode) iTantraCardAlt
+                                        else iTantraBlack
+                                    )
                                     .border(
                                         2.dp,
-                                        if (isPttActive) Color(0xFFF87171) else iTantraBlack,
+                                        if (isPttActive) Color(0xFFF87171)
+                                        else if (isPhoneMode) iTantraBorder
+                                        else iTantraBlack,
                                         CircleShape
                                     )
-                                    .pointerInput(Unit) {
-                                        detectTapGestures(
-                                            onPress = {
-                                                isPttActive = true
-                                                viewModel.startTransceiverPtt()
-                                                tryAwaitRelease()
-                                                isPttActive = false
-                                                viewModel.stopTransceiverPtt()
-                                            }
-                                        )
+                                    .pointerInput(isPhoneMode) {
+                                        if (!isPhoneMode) {
+                                            detectTapGestures(
+                                                onPress = {
+                                                    isPttActive = true
+                                                    viewModel.startTransceiverPtt()
+                                                    tryAwaitRelease()
+                                                    isPttActive = false
+                                                    viewModel.stopTransceiverPtt()
+                                                }
+                                            )
+                                        }
                                     },
                                 contentAlignment = Alignment.Center
                             ) {
@@ -365,19 +415,21 @@ fun TransceiverScreen(
                                 ) {
                                     Icon(
                                         imageVector = if (isPttActive) Icons.Filled.Mic else Icons.Filled.GraphicEq,
-                                        contentDescription = "Push to Talk",
-                                        tint = iTantraWhite,
+                                        contentDescription = if (isPhoneMode) "Phone mode active" else "Push to Talk",
+                                        tint = if (isPhoneMode) iTantraBlack40 else iTantraWhite,
                                         modifier = Modifier.size(46.dp)
                                     )
                                     Spacer(Modifier.height(4.dp))
                                     Text(
-                                        text = if (isPttActive) "RELEASE" else "HOLD PTT",
+                                        text = if (isPttActive) "RELEASE"
+                                            else if (isPhoneMode) "PHONE MODE"
+                                            else "HOLD PTT",
                                         style = MaterialTheme.typography.labelSmall.copy(
                                             fontWeight = FontWeight.Bold,
                                             fontSize = 11.sp,
                                             letterSpacing = 1.5.sp
                                         ),
-                                        color = iTantraWhite
+                                        color = if (isPhoneMode) iTantraBlack40 else iTantraWhite
                                     )
                                 }
                             }
@@ -387,13 +439,16 @@ fun TransceiverScreen(
                     Spacer(Modifier.height(16.dp))
 
                     Text(
-                        text = if (isPttActive) "Transmitting Audio Data…" else "Push to Talk (Walkie-Talkie)",
+                        text = if (isPttActive) "Transmitting Audio Data…"
+                            else if (isPhoneMode) "Continuous Listening (Phone Mode)"
+                            else "Push to Talk (Walkie-Talkie)",
                         style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
                         color = if (isPttActive) iTantraError else iTantraBlack
                     )
                     Spacer(Modifier.height(3.dp))
                     Text(
-                        text = "Silero VAD → IndicConformer STT → ~200B Protobuf Frame",
+                        text = if (isPhoneMode) "Continuous VAD-gated speech capture (PTT disabled)"
+                            else "Silero VAD → IndicConformer STT → ~200B Protobuf Frame",
                         style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
                         color = iTantraBlack60
                     )

@@ -13,6 +13,7 @@ import com.itantra.core.network.MeshHardwareManager
 import com.itantra.core.service.ITantraForegroundService
 import com.itantra.data.DeviceProfileRepository
 import com.itantra.data.PeerRegistryRepository
+import com.itantra.domain.model.ConnectionMode
 import com.itantra.domain.model.DeviceProfile
 import com.itantra.domain.model.DownloadState
 import com.itantra.domain.model.ModelPack
@@ -97,6 +98,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /** Start real PTT capture (hold) — no-op if the service hasn't finished binding yet. */
     fun startTransceiverPtt() {
         foregroundService?.startPTT()
+    }
+
+    private val _isPhoneMode = MutableStateFlow(false)
+    val isPhoneMode: StateFlow<Boolean> = _isPhoneMode.asStateFlow()
+
+    /**
+     * PTT off = phone mode: continuous VAD-gated capture instead of hold-to-talk.
+     * Required by the problem statement ("if turned off it should work like a phone").
+     */
+    fun setPhoneMode(enabled: Boolean) {
+        _isPhoneMode.value = enabled
+        foregroundService?.setConnectionMode(
+            if (enabled) ConnectionMode.PHONE_MODE else ConnectionMode.PUSH_TO_TALK
+        )
     }
 
     /** Stop PTT capture (release) — flushes to STT and attempts to transmit. */
