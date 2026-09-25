@@ -26,6 +26,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.lang.reflect.Method
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Direct Android Hardware P2P Network Manager.
@@ -67,6 +68,13 @@ class MeshHardwareManager(private val context: Context) {
 
     private val _liveDiscoveredPeers = MutableStateFlow<List<PeerDevice>>(emptyList())
     val liveDiscoveredPeers: StateFlow<List<PeerDevice>> = _liveDiscoveredPeers.asStateFlow()
+
+    private val wifiDiscoveredPeers = ConcurrentHashMap<String, PeerDevice>()
+    private val btDiscoveredPeers = ConcurrentHashMap<String, PeerDevice>()
+
+    private fun updateCombinedPeers() {
+        _liveDiscoveredPeers.value = (wifiDiscoveredPeers.values + btDiscoveredPeers.values).toList()
+    }
 
     private val _connectedGroupInfo = MutableStateFlow<String?>("STANDALONE")
     val connectedGroupInfo: StateFlow<String?> = _connectedGroupInfo.asStateFlow()
@@ -226,7 +234,7 @@ class MeshHardwareManager(private val context: Context) {
         val ch = wifiP2pChannel ?: return
 
         mgr.requestPeers(ch) { peerList: WifiP2pDeviceList ->
-            val updatedList = mutableListOf<PeerDevice>()
+            wifiDiscoveredPeers.clear()
 
             peerList.deviceList.forEach { device: WifiP2pDevice ->
                 val hardwareId = if (device.deviceName.isNullOrBlank()) {
@@ -247,11 +255,11 @@ class MeshHardwareManager(private val context: Context) {
                     isConnected = device.status == WifiP2pDevice.CONNECTED,
                     isAuthorized = device.status == WifiP2pDevice.CONNECTED
                 )
-                updatedList.add(peer)
+                wifiDiscoveredPeers[device.deviceAddress] = peer
             }
 
-            _liveDiscoveredPeers.value = updatedList
-            Log.d(TAG, "Live hardware peers updated: ${updatedList.size} nodes mapped")
+            updateCombinedPeers()
+            Log.d(TAG, "Live hardware peers updated: ${wifiDiscoveredPeers.size} wifi, ${btDiscoveredPeers.size} bt")
         }
     }
 
@@ -285,10 +293,7 @@ class MeshHardwareManager(private val context: Context) {
 
         device?.let { dev ->
             val address = dev.address ?: return
-            val name = dev.name ?: "BT_${Build.ID.takeLast(4)}"
-
-            val current = _liveDiscoveredPeers.value.toMutableList()
-            val existingIdx = current.indexOfFirst { it.deviceId == address }
+            val name = dev.name ?: "BT_${address.takeLast(4)}"
 
             val peer = PeerDevice(
                 deviceId = address,
@@ -298,12 +303,8 @@ class MeshHardwareManager(private val context: Context) {
                 isConnected = false
             )
 
-            if (existingIdx >= 0) {
-                current[existingIdx] = peer
-            } else {
-                current.add(peer)
-            }
-            _liveDiscoveredPeers.value = current
+            btDiscoveredPeers[address] = peer
+            updateCombinedPeers()
         }
     }
 
