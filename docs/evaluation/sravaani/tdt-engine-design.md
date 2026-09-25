@@ -1,4 +1,6 @@
-# SraVaani TDT engine — design sketch (not scheduled, no code written)
+# SraVaani TDT engine — design sketch
+
+> **Scheduled 2026-09-25 as T78** (`docs/IMPLEMENTATION_SPEC_2.md` Group I), chosen by Gaurav over T64. T64 is the fallback. The spec adds the order of work and the checkpoints, and treats the sizes and effort below as estimates to be replaced by T78 Step 1's measurements.
 
 > Written after T77 (`docs/evaluation/sravaani/phone/README.md`, PR #29) concluded "keep
 > IndicConformer, start T64" on the CTC route it actually tested. This document scopes the

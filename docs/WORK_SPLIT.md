@@ -5,6 +5,8 @@
 
 > **Status 2026-09-25.** Done and merged: **G1** (Stage A, PR #21, and the Assistant removal, PR #19), **G2** (T63 PR #22, T69 PR #23), **G3** (T17b PR #24), **G4** (T23 + T29 PR #26), **S0** and **S1** (T76 PR #27).
 > **Changed:** G5 no longer follows T76's own verdict. T76's decision rule was our own threshold, and it skipped the phone test. **G5 is now T77**, which measures INT8 SraVaani on the phones. Its result decides between **G5b-hybrid** (SraVaani for the nine Indic languages, IndicConformer for English, no T64) and **G5b-T64** (keep IndicConformer, export Odia). See §4 G5.
+>
+> **Update 2026-09-25 (later):** **G5 (T77) is done** (PR #29). The CTC route failed, and the TDT route was scoped. **G5b is now T78, the SraVaani TDT engine**, one week with three stop checkpoints. T64 is its fallback. See §4 G5b.
 
 | Person | Area | AI assistant | Owns these files |
 | --- | --- | --- | --- |
@@ -44,10 +46,10 @@ Day 1 = the first working day after Day 0. Times are AI work plus human testing,
 | 2 | ✅ **G3** — T17b five missing TTS voices (Colab conversion) | **S2** — T37 phone mode UI (needs T63 merged) → **S3** — T66 alert toggle (needs T69 merged) | T37, then T66 |
 | 3 | ✅ G3 continued — host voices, register them | **S4** — T67 voice notes · **joint two-phone Stage B test** | T67, T17b |
 | 4 | ✅ **G4** — T23 + T29 match the NeMo preprocessor, golden test | **S5** — T20 + T21 download only the selected language | T20/T21, T23/T29 |
-| 5 | **G5** — T77 SraVaani INT8 phone test (Colab + both phones, ~1.5–2 d) | **S6** — T75 metadata cleanup + README pass · **T30** IndicConformer re-run (S1 note) | — |
-| 5–6 | **G5b** — hybrid switch design, *or* T64 Odia export (from T77's decision) | Joins the T77 decision (rubric table, §4 G5) | — |
-| 6–7 | G6 — T15 single-runtime spike (optional) · G7 — T68 ESP32 (stretch) | **S7** — T54 TTS listening test | — |
-| 8+ | Dossier: T56–T61 together (§6) | | |
+| 5 | ✅ **G5** — T77 SraVaani INT8 test (PR #29: CTC route failed, TDT scoped) | **S6** — T75 metadata cleanup + README pass · **T30** IndicConformer re-run (S1 note) | — |
+| 6–12 | **G5b** — **T78 SraVaani TDT engine** (checkpoints C1 day 6, C2 day 9, C3 day 11; T64 on any fail) | **S5** (T20/T21) must merge before T78 Step 6 · joins T78 phone run (day 11) · T78 Step 6 manifest + Downloads text | T78 steps in order; S5 before T78 Step 6 |
+| 6–7 | ~~G6 — T15 single-runtime spike · G7 — T68 ESP32~~ **deferred behind T78**, only if time remains | **S7** — T54 TTS listening test | — |
+| 13+ | Dossier: T56–T61 together (§6) | | |
 
 **Why this order:**
 - **T63 lands before T37.** The echo gate is harmless on its own; phone mode without it re-transmits every received message. So the gate merges first and phone mode builds on it.
@@ -184,7 +186,7 @@ Never guess config values; if you cannot load the checkpoint, stop and tell me w
 
 **You do:** run the Colab cells if Sonnet cannot; review the config comparison; merge. Then tell Sarthak so the T76 IndicConformer numbers can be taken as the app's own WER (see S1 note).
 
-### G5 · T77 — SraVaani INT8 on the phone (Days 5–6)
+### G5 · T77 — SraVaani INT8 on the phone (Days 5–6) — ✅ done (PR #29)
 
 *Revised 2026-09-25.* This used to follow S1's verdict directly. S1 said "keep IndicConformer", but only because of our own ≥ 3-point threshold, and it skipped the phone test. Read against the PS, the S1 numbers make a **hybrid** worth measuring before anyone exports Odia:
 - SraVaani for `hi gu mr kn ml ta te bn or`.
@@ -217,45 +219,53 @@ Never push to main.
 
 **You do:** run the Colab cells and the phone steps. Then **decide with Sarthak** from the Step 6 table, write the decision at the end of the README, and merge.
 
-### G5b · Hybrid switch design *or* T64 (from T77's decision)
+### G5b · T78 — SraVaani TDT engine (Days 6–12, one engineering week)
 
-**If T77 adopts the hybrid** → do **not** start T64. Paste this prompt and review the design before any code:
+*Decided 2026-09-25 by Gaurav, after T77 (PR #29).* T77's CTC route failed (22.44% vs 19.99% WER). The native TDT decoder, which T76 scored at 19.31%, needs a Kotlin decoder, and that is the work of this week. Spec: `IMPLEMENTATION_SPEC_2.md` Group I → **T78**. Design: `docs/evaluation/sravaani/tdt-engine-design.md`.
+
+| Day | Step | Checkpoint (fail → stop, do T64 the same day) |
+| --- | --- | --- |
+| 6 | 1 — INT8 TDT pair: size, WER, RTF, fixtures (Colab) | **C1:** 8-language INT8 TDT WER ≤ 19.99% and pair ≤ ~550 MB |
+| 7 | 2 — 128-mel features + `SraVaaniMelGoldenTest` | — |
+| 8–9 | 3 — `TdtDecoder.kt`, tokenizer check, `TdtDecoderParityTest` | **C2:** both golden tests + parity test green |
+| 10 | 4 — dual-session loading, one shared pair for 9 codes | — |
+| 11 | 5 — phone run, both phones, with Sarthak | **C3:** no kill/ANR, RTF < 1, STT time ≤ ~1.5× IndicConformer |
+| 12 | 6–7 — shared pack (after S5), switch-over, WER table | Past day 7 of T78 without C3 → T64 |
 
 ```text
 You are working on iTantra. Repo: D:\Desktop\Projects\iTantra-Communication-Ecosystem.
-Task: design (no code) the hybrid STT switch decided in T77: SraVaani INT8 for
-hi gu mr kn ml ta te bn or, IndicConformer (existing mirror file) for en.
+Task: T78 — SraVaani TDT engine: SraVaani INT8 (encoder + TDT decoder_joint, decoded in Kotlin)
+for hi gu mr kn ml ta te bn or; IndicConformer stays for en.
 
-Read docs/IMPLEMENTATION_SPEC.md §0, docs/IMPLEMENTATION_SPEC_2.md T76 + T77, the T77 results in
-docs/evaluation/sravaani/phone/README.md, and core/audio/STTModule.kt, core/download/ModelRegistry.kt,
-domain/model/ModelManifest.kt. Write docs/evaluation/sravaani/switch-design.md covering, with file and
-function names from the real code:
-1. One shared SraVaani pack for nine language codes: registry entry hosted under the existing
-   team base URL (ITANTRA_MODELS_BASE — I upload the file), size, sha256, MIT licence row.
-2. STTModule: today it loads stt_{lang}_int8.onnx per language and caches sessions by language
-   code (LRU of 2, T46). Nine codes must share ONE session keyed by model file — otherwise switching
-   hi -> ta loads a second ~450 MB copy. Say exactly what changes.
-3. Feature pipeline: if T77 Step 2 found preprocessing differences, how STTModule selects
-   per-model features, plus a second golden test (as T29) for SraVaani.
-4. Downloads (T20/T21): what the compulsory pack becomes per selected language, with real sizes.
-5. Warm-up (T45), telemetry (T71) and RAM (T47) implications; English <-> Indic switching cost.
-6. Removal list: T64 and its Step 6 are dropped; which specs/tasks change.
-7. A step-by-step implementation plan in the spec style (ANCHOR / REPLACEMENT / VERIFY / DO NOT),
-   split into small PRs, with the phone test for each.
-Open a DRAFT PR with only the document. Do not change app code.
+Read docs/IMPLEMENTATION_SPEC.md §0 (binding), then docs/IMPLEMENTATION_SPEC_2.md Group I → "T77"
+(result note) and "T78 🔬 · SraVaani TDT engine", and docs/evaluation/sravaani/tdt-engine-design.md.
+Work step by step in the spec's order. Stop at each checkpoint (C1, C2, C3), show me the numbers and
+wait for my go-ahead. If a checkpoint fails, say so plainly — the plan then switches to T64.
+
+Step 1 is Colab: give me the cells one at a time. Print every ONNX graph's inputs/outputs before
+using them; copy the decode loop from the model card's sravaani_onnx_infer.py (decode_rnnt) — never
+guess names, shapes or dtypes.
+Steps 2–4: git fetch origin; git switch -c feature/t78-tdt-engine origin/main. One commit per step
+("T78 step N: ..."). The IndicConformer path must stay byte-for-byte unchanged and
+MelFeatureGoldenTest green with no tolerance change. .\gradlew.bat :app:testDebugUnitTest after
+each step. Push; DRAFT PR.
+Step 5: walk me through the phone run on both phones; tell me which files to pull.
+Step 6 touches Sarthak's ModelManifest.kt — only after his T20 (S5) is merged; do the
+ModelRegistry.kt half yourself and write the exact manifest change for him in the PR.
+Never push to main.
 ```
 
-**You do:** review the design with Sarthak (it touches his `ModelManifest.kt` and the Downloads screen), then schedule its PRs in place of T64.
+**You do:** run the Colab cells; host the INT8 files on the team Hugging Face repo and give Sonnet the URL (Step 6); run the phone test with Sarthak; merge step by step. **Watch the calendar:** T78 eats the days the table in §3 had for G6/G7, and the dossier (§6) must still start by about Day 13.
 
-**If T77 keeps IndicConformer** (or stopped early) → do T64:
+**Fallback — T64** (only if a T78 checkpoint fails, or T78 runs past day 7):
 
 ```text
 You are working on iTantra. Repo: D:\Desktop\Projects\iTantra-Communication-Ecosystem.
 Task: T64 — Odia STT from AI4Bharat's checkpoint (the download mirror has no Odia).
 
 Read docs/IMPLEMENTATION_SPEC.md §0 (binding), then docs/IMPLEMENTATION_SPEC_2.md Group G →
-"T64 🔬 · Odia STT, and a clean CTC-only export of all ten languages". Read the T77 decision
-in docs/evaluation/sravaani/phone/README.md first and quote it in the PR.
+"T64 🔬 · Odia STT, and a clean CTC-only export of all ten languages". This is the fallback for T78:
+quote the T78 checkpoint that failed, and its numbers, in the PR.
 
 Do Steps 1–5 (Colab/Linux) for Odia only. Skip Step 6 (the other nine languages) unless I say so.
 Step 7 hosting: I upload to the same Hugging Face repo used for the T17b voices and give you the

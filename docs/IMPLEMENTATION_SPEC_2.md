@@ -1169,7 +1169,7 @@ T69 (transport + dedup) ─┬─> T66 (SOS UI) ──> T68 (ESP32, stretch)
 T37 (phone mode) + T63 (echo gate)   ← always in the same PR
 T62 (Silero VAD) ──> T41 ──> T65 (phrase pipelining)   (T65 also needs T38 on the receiver)
 T13 ──> T67 (voice notes)
-T77 (SraVaani INT8 phone test) ──> T64 (Odia + CTC re-export) only if T77 does not adopt the hybrid
+T77 (done) ──> T78 (SraVaani TDT engine) ──> T64 (Odia + CTC re-export) only if a T78 checkpoint fails
 ```
 
 ---
@@ -1603,7 +1603,7 @@ REPLACEMENT:
 **Criterion:** REQ (10/10 languages), ACC, EFF (size)
 **Depends on:** a hosting location decided by a human (same one as T17b). **If no hosting URL has been given to you, do Steps 1–5, then stop and report.**
 
-> **Gated by T77 (2026-09-25).** Start T64 only if T77 keeps IndicConformer, or if T77 stops early because SraVaani cannot be exported. If T77 adopts the hybrid, SraVaani supplies Odia and T64 is dropped. Step 6 (re-exporting the other nine) is dropped too, since those languages would move to SraVaani.
+> **Fallback for T78 (2026-09-25).** T77 is done and the team chose the SraVaani TDT engine (T78). Start T64 only if a T78 checkpoint fails or T78 runs past day 7. Step 6 (re-exporting the other nine) is dropped, since those languages move to SraVaani.
 
 ### Background you need
 
@@ -3883,6 +3883,122 @@ Gaurav and Sarthak make the final call together from the table. Write the decisi
 - Do not compare SraVaani on one phone with IndicConformer on another.
 - Do not leave SraVaani in the Hindi slot after the test.
 
+> **T77 result (2026-09-25, PR #29).**
+> - The CTC route failed: INT8 CTC averaged 22.44% WER on the 8 non-English languages, against 19.99% for IndicConformer.
+> - The encoder needs 128 mel bins, where `STTModule` produces 80.
+> - Step 5 could not run.
+> - The TDT route was scoped in `docs/evaluation/sravaani/tdt-engine-design.md`.
+>
+> **Decision (Gaurav):** build the TDT engine, **T78**, with T64 as the fallback.
+
+---
+
+## T78 🔬 · SraVaani TDT engine: one on-device model for the nine Indic languages
+
+**Decided 2026-09-25 (Gaurav):** build this instead of T64. It takes about one engineering week, and T64 is kept as the fallback.
+**Criterion:** ACC (40%), EFF (20%), REQ (10/10 STT languages); LAT (20%) must not regress
+**Owners:** Gaurav writes the engine (`core/audio/**`, `core/download/ModelRegistry.kt`, `model-export/**`). Sarthak does the shared-pack manifest and download UI (`domain/model/ModelManifest.kt`, `ui/**`).
+**Depends on:** T77 (PR #29), T23/T29 (PR #26). The manifest part (Step 6) builds on **T20 (revised)**, so S5 must merge first.
+**Design:** `docs/evaluation/sravaani/tdt-engine-design.md` has the algorithm, file-by-file changes and sizes. This spec adds the order of work, the checkpoints and the stop rules.
+
+### Target
+
+- `hi gu mr kn ml ta te bn or` → one shared SraVaani INT8 encoder plus the TDT decoder, decoded in Kotlin.
+- `en` → the existing IndicConformer mirror model, unchanged.
+- The app routes by the selected language code (T72), so no language detection is needed.
+
+### Rules for this task
+
+- **Never guess an ONNX input/output name, shape or dtype.** Print them with `onnxruntime.InferenceSession(...).get_inputs()/get_outputs()` first and record them in the PR. The reference for the algorithm is the model card's `sravaani_onnx_infer.py` (`decode_rnnt`) and `modeling_sravaani.py::_greedy_one`.
+- **The IndicConformer path must not change.** English (and, until Step 7, every language) must decode exactly as before. `MelFeatureGoldenTest` must stay green with no tolerance change.
+- One PR per step group below, each a DRAFT PR, and never pushed to `main`.
+- **Checkpoints are real stop points.** If one fails, write down what was seen, stop T78 and start T64 (see "Fallback"). Odia STT is mandatory, so it must never be left without a working path.
+
+### Step 1 — Day 1: the INT8 TDT pair, measured (Colab)
+
+1. From the ONNX bundle T77 found (`sravaani_onnx/`), quantise `encoder-sravaani.onnx` and `decoder_joint-sravaani.onnx` separately with `quantize_dynamic(..., weight_type=QuantType.QUInt8)`, as in T77 Step 3. Record each file's size and sha256.
+2. Print both graphs' inputs and outputs, and check them against the names listed in the design doc §1c.
+3. Run the card's `sravaani_onnx_infer.py --decoder rnnt` on the **INT8** files over the T76/T77 clips (100 per language, 9 languages plus Odia), with the same normalisation and scoring. Write `docs/evaluation/sravaani/results_int8_tdt.csv` (same columns as `results_int8.csv`), including 1-thread RTF.
+4. Save one fixed clip's encoder output and the reference token ids from the script. These are the fixtures for the Step 3 parity test.
+
+**Checkpoint 1 (end of day 1):** the average INT8 TDT WER over the 8 non-English shared languages is **≤ 19.99%** (IndicConformer), and the pair is **≤ ~550 MB**.
+- Met: continue.
+- Missed: stop and go to the fallback. The accuracy advantage is the reason for the week.
+
+### Step 2 — 128-mel features, with a golden test (Gaurav, ~1 day)
+
+`STTModule` hardcodes `N_MELS = 80` (companion object) for the mel bank, the scratch buffers and the `[1, N_MELS, T]` tensor. Make the mel-bin count a per-model value:
+- 80 for IndicConformer.
+- 128 for SraVaani, per T77 Step 2. Every other STFT field is identical.
+
+The existing 80-band path must be byte-for-byte unchanged. Add `SraVaaniMelGoldenTest`, shaped like `MelFeatureGoldenTest`: a real FLEURS clip run through SraVaani's own `preproc.pt` in Colab, with the fixture and reference committed under `app/src/test/resources/`, asserted to 1e-3.
+**VERIFY:** `.\gradlew.bat :app:testDebugUnitTest`, with both golden tests green.
+
+### Step 3 — `TdtDecoder.kt`, with a decode-parity test (Gaurav, ~1.5–2 days)
+
+New pure-Kotlin file `core/audio/TdtDecoder.kt`, kept separate from ONNX like `CtcDecoder.kt`, implementing the greedy TDT loop from the design doc §1c:
+- blank = 5000, durations `[0,1,2,3,4]`, `max_symbols = 10`;
+- LSTM state zeroed per utterance;
+- the token and duration logits split at `vocab_size + 1`.
+
+Take the ONNX call as a function parameter, so the loop can be unit-tested without a model.
+
+Tokenizer: export SraVaani's SentencePiece vocabulary as a flat `<piece> <id>` file (blank last), then decode by joining pieces and turning `▁` into a space, the same rule `CtcDecoder.decodeToken` uses. In Colab, compare this with `sp.decode()` on every Step 1 hypothesis. **If any hypothesis differs, stop and report** rather than add a native SentencePiece dependency without a decision.
+
+`TdtDecoderParityTest`: feed the Step 1 encoder-output fixture through the loop with a decoder_joint stub that replays recorded outputs. The resulting token ids must match `decode_rnnt` exactly.
+**Checkpoint 2 (about day 3):** both golden tests and the parity test pass. If not, stop and go to the fallback.
+
+### Step 4 — dual-session loading in `STTModule` (Gaurav, ~1 day)
+
+- A SraVaani-backed language holds **two** sessions: the encoder and decoder_joint.
+- **All nine codes share one session pair**, keyed by model, not by language. Switching `hi` to `ta` must not load a second ~500 MB copy.
+- Rework the T46 LRU accounting so the shared pair counts once. English keeps its own IndicConformer session.
+- Warm-up (T45), telemetry stamps (T71) and the RAM figure (T47) must cover the new path. `stt_ms` and RTF must include the whole decoder loop.
+- For testing before Step 6, load the pair from fixed file names under `filesDir/models/`, pushed by hand with `adb` as in T77 Step 5.
+
+### Step 5 — phone run (Gaurav + Sarthak, ~1 day)
+
+This is T77 Step 5, now possible:
+- Run it on the cheapest phone and the run-1..3 phone, IndicConformer baseline first.
+- Use the same 10 fixed phrases, plus 5 Odia and 5 Tamil phrases, and a 10-minute phone-mode session with TTS and VAD loaded.
+- Record RTF, speech end → STT complete, load time, peak TOTAL PSS, and low-memory kills or ANRs.
+- Save the results in `docs/evaluation/sravaani/phone/tdt/`.
+
+**Checkpoint 3 (about day 5), all on the low-range phone:**
+- no kill or ANR;
+- RTF < 1.0;
+- speech end → STT complete no more than ~1.5× IndicConformer's on the same phone.
+
+If it misses, stop and go to the fallback. Record the numbers anyway, because they are still useful for the "why not SraVaani?" question.
+
+### Step 6 — shared pack, registry and downloads (after S5/T20 merges)
+
+- **Gaurav, `ModelRegistry.kt`:** two hosted entries (encoder and decoder_joint, plus the vocabulary file) under `ITANTRA_MODELS_BASE`, with real sizes and sha256 from Step 1. A human uploads the files and gives the URL; never invent it. Add the MIT licence row.
+- **Sarthak, `ModelManifest.kt`:** one `STT_SRAVAANI` pack. `sttPackFor(code)` returns it for the nine codes and the mirror pack for `en`. Update the Downloads screen text so one download is shown as unlocking nine languages, with its real size.
+- **Remove the mirror STT packs for the nine Indic languages** from the compulsory and optional lists only after Step 7 passes.
+
+### Step 7 — switch over, and prove it
+
+- Route the nine codes to the TDT path.
+- Re-run the Step 5 phone protocol on the release candidate.
+- Update the T30 WER table (`docs/evaluation/sravaani/README.md`) with the shipped numbers: INT8 TDT for the nine languages, IndicConformer for English.
+- Update `README.md`'s model and licence tables.
+
+### Fallback: T64
+
+If Checkpoint 1, 2 or 3 fails, or the week runs past **day 7**, stop T78 and run T64 (Odia export) the same day.
+- Keep whatever is merged if it is inert. The Step 2 parameterisation is harmless with 80 bins.
+- Revert anything that changes the default decode path.
+- T77's INT8 CTC graph remains the Odia-only last resort if T64 also fails.
+
+### DO NOT
+
+- Do not change the IndicConformer feature path, its golden test or its tolerance.
+- Do not load one SraVaani session pair per language.
+- Do not add a native SentencePiece library without a decision recorded in the PR.
+- Do not remove the mirror STT packs before Step 7's phone run passes.
+- Do not quote the estimated sizes (~500 MB, ~690 MB total) as measured. Use only Step 1's real numbers.
+
 ---
 
 # Group F — Dossier (T56–T61)
@@ -3929,7 +4045,7 @@ Before/after table from the week-0 and week-6 CSVs; rehearsed two-device demo; d
 | G — second audit | T62 🔬, T63, T64 🔬, T65, T66 🎨, T67 🎨, T68, T69 | Specced, anchors verified against committed code and working tree on 2026-09-23. T62, T65 done |
 | G — after first device run | T70, T71, T72 🎨; T45 revised | Anchors verified against `feature/latency-pipeline` @ `e57fb7d` on 2026-09-24. All four done in PR #17 |
 | H — after second device run | T43 (re-anchored), T73, T46 (explicit), T74 | Anchors verified against `feature/latency-pipeline-2` @ `71b2c17` (PR #17) on 2026-09-24 |
-| I — revised specs and evaluations | T20 (revised), T76 🔬, T77 🔬 | T76 done (PR #27); its decision rule retired 2026-09-25. T77 added 2026-09-25 and decides T64 vs the hybrid |
+| I — revised specs and evaluations | T20 (revised), T76 🔬, T77 🔬, T78 🔬 | T76 done (PR #27); its rule retired 2026-09-25. T77 done (PR #29): CTC route failed. T78 (TDT engine) chosen 2026-09-25, T64 is its fallback |
 | Judgement only | T01, T03, T04, T16, T25–T28, T36, T54 | Trivial, or covered inline in Part 1 |
 | Superseded | T19 → T64; T55 → merged into T64 Step 6 | — |
 
