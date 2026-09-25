@@ -16,7 +16,12 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -41,8 +46,11 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
+import androidx.compose.material.icons.filled.Phone
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SignalWifi4Bar
 import androidx.compose.material.icons.filled.Translate
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.outlined.PersonAdd
 import androidx.compose.material.icons.outlined.Radio
 import androidx.compose.material3.Icon
@@ -71,12 +79,16 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import android.widget.Toast
 import com.itantra.core.service.ITantraForegroundService
 import com.itantra.domain.model.ConnectionType
+import com.itantra.domain.model.Direction
 import com.itantra.domain.model.DownloadState
 import com.itantra.domain.model.IndicLanguage
+import com.itantra.domain.model.MessageType
 import com.itantra.domain.model.ModelPack
 import com.itantra.domain.model.PeerDevice
+import com.itantra.domain.model.TransceiverMessage
 import com.itantra.ui.MainViewModel
 import com.itantra.ui.component.ModelDownloadGate
 import com.itantra.ui.component.STT_LANGUAGES
@@ -110,6 +122,7 @@ fun TransceiverScreen(
     val selectedLanguage by viewModel.selectedLanguage.collectAsState()
     val isPhoneMode by viewModel.isPhoneMode.collectAsState()
     val alertArmed by viewModel.alertArmed.collectAsState()
+    val messages by viewModel.messageLog.collectAsState()
 
     // ── Paired Bluetooth devices (BluetoothRFCOMMManager.connectToDevice needs a real
     // BluetoothDevice, which only bonded-device enumeration can supply without a scan) ──
@@ -151,39 +164,34 @@ fun TransceiverScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(iTantraBackground),
-        horizontalAlignment = Alignment.CenterHorizontally
+            .background(iTantraBackground)
     ) {
-        // ── Header Bar ─────────────────────────────────────────────
+        // ── Top Header Bar (Fixed at top, statusBarsPadding) ─────────
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .statusBarsPadding()
-                .padding(horizontal = 20.dp, vertical = 14.dp),
+                .padding(horizontal = 16.dp, vertical = 12.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column {
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = "Radio Transceiver",
                     style = MaterialTheme.typography.titleLarge.copy(
                         fontWeight = FontWeight.Bold,
-                        fontSize = 22.sp
+                        fontSize = 20.sp
                     ),
                     color = iTantraBlack
                 )
                 Text(
-                    // Real pipeline stage (what the background service is actually doing right
-                    // now) takes priority when active — previously the only status shown was
-                    // isPttActive/hosting/discovering, with no visibility into listening vs
-                    // transcribing vs transmitting vs receiving vs speaking.
                     text = when {
                         pipelineStage == ITantraForegroundService.PipelineStage.LISTENING -> "Listening…"
-                        pipelineStage == ITantraForegroundService.PipelineStage.TRANSCRIBING -> "Transcribing…"
-                        pipelineStage == ITantraForegroundService.PipelineStage.TRANSMITTING -> "Transmitting…"
-                        pipelineStage == ITantraForegroundService.PipelineStage.RECEIVING -> "Message received…"
-                        pipelineStage == ITantraForegroundService.PipelineStage.SPEAKING -> "Speaking…"
-                        isHosting && isDiscovering -> "Mesh Beacon · Scanning Active"
+                        pipelineStage == ITantraForegroundService.PipelineStage.TRANSCRIBING -> "Transcribing speech…"
+                        pipelineStage == ITantraForegroundService.PipelineStage.TRANSMITTING -> "Transmitting frame…"
+                        pipelineStage == ITantraForegroundService.PipelineStage.RECEIVING -> "Receiving transmission…"
+                        pipelineStage == ITantraForegroundService.PipelineStage.SPEAKING -> "Synthesizing voice…"
+                        isHosting && isDiscovering -> "Beacon Active · Scanning"
                         isHosting -> "Beacon Active (Broadcasting)"
                         isDiscovering -> "Scanning for nearby peers…"
                         else -> "Radio Standby"
@@ -197,73 +205,26 @@ fun TransceiverScreen(
                 )
             }
 
-            Column(horizontalAlignment = Alignment.End) {
-                // Connection status pill — previously nothing in the UI showed whether a peer
-                // was actually connected, over either transport; ITantraForegroundService always
-                // tracked this precisely (networkStateFlow) but it never reached the screen.
-                val (connectionLabel, connectionColor) = when (networkState) {
-                    "CONNECTED_WIFI" -> "● Connected · Wi-Fi" to iTantraSuccess
-                    "CONNECTED_BLUETOOTH" -> "● Connected · Bluetooth" to iTantraSuccess
-                    "CONNECTING" -> "◌ Connecting…" to iTantraSuccessLight
-                    "DISCOVERING" -> "◌ Searching…" to iTantraSuccessLight
-                    else -> "○ Not connected" to iTantraBlack60
-                }
+            // Connection Badge Pill
+            val (badgeText, badgeBg, badgeFg) = when (networkState) {
+                "CONNECTED_WIFI" -> Triple("● Connected · Wi-Fi", Color(0xFFDCFCE7), iTantraSuccess)
+                "CONNECTED_BLUETOOTH" -> Triple("● Connected · BT", Color(0xFFDCFCE7), iTantraSuccess)
+                "CONNECTING" -> Triple("◌ Connecting…", Color(0xFFFEF3C7), Color(0xFFD97706))
+                "DISCOVERING" -> Triple("◌ Scanning…", Color(0xFFE0F2FE), Color(0xFF0284C7))
+                else -> Triple("○ Not Connected", iTantraCardAlt, iTantraBlack60)
+            }
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(badgeBg)
+                    .border(1.dp, badgeFg.copy(alpha = 0.25f), RoundedCornerShape(16.dp))
+                    .padding(horizontal = 10.dp, vertical = 6.dp)
+            ) {
                 Text(
-                    text = connectionLabel,
+                    text = badgeText,
                     style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, fontWeight = FontWeight.SemiBold),
-                    color = connectionColor
+                    color = badgeFg
                 )
-                Spacer(Modifier.height(6.dp))
-
-                // Selected walkie-talkie language pill (T72) & Phone mode Switch (T37)
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(20.dp))
-                            .background(iTantraCardAlt)
-                            .border(1.dp, iTantraBorder, RoundedCornerShape(20.dp))
-                            .padding(horizontal = 12.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(Icons.Filled.Translate, contentDescription = null, tint = iTantraBlack, modifier = Modifier.size(13.dp))
-                        Spacer(Modifier.width(5.dp))
-                        Text(
-                            text = IndicLanguage.fromCode(selectedLanguage).nativeName,
-                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, fontWeight = FontWeight.SemiBold),
-                            color = iTantraBlack
-                        )
-                    }
-
-                    Row(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(20.dp))
-                            .background(iTantraCardAlt)
-                            .border(1.dp, iTantraBorder, RoundedCornerShape(20.dp))
-                            .padding(start = 10.dp, end = 6.dp, top = 3.dp, bottom = 3.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "Phone mode",
-                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, fontWeight = FontWeight.SemiBold),
-                            color = iTantraBlack
-                        )
-                        Spacer(Modifier.width(6.dp))
-                        Switch(
-                            checked = isPhoneMode,
-                            onCheckedChange = { viewModel.setPhoneMode(it) },
-                            modifier = Modifier.scale(0.75f).height(20.dp),
-                            colors = SwitchDefaults.colors(
-                                checkedThumbColor = iTantraWhite,
-                                checkedTrackColor = iTantraBlack,
-                                uncheckedThumbColor = iTantraBlack60,
-                                uncheckedTrackColor = iTantraBorder
-                            )
-                        )
-                    }
-                }
             }
         }
 
@@ -273,210 +234,93 @@ fun TransceiverScreen(
                 requiredPacks = corePacks,
                 downloadStates = downloadStates,
                 onDownloadAll = onNavigateToDownloads,
-                modifier = Modifier.padding(horizontal = 20.dp)
+                modifier = Modifier.padding(horizontal = 16.dp)
             )
         } else {
-            // Divider
-            Box(
+            // ── Scrollable Body: Content never gets squished or cut off! ──
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(1.dp)
-                    .background(iTantraDivider)
-            )
-
-            // ── Walkie-talkie language (drives STT + TTS; T72) ──────
-            LazyRow(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                contentPadding = PaddingValues(bottom = 8.dp)
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                items(STT_LANGUAGES, key = { it.first }) { (code, label) ->
-                    val isSelected = code == selectedLanguage
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(
-                                if (isSelected) (if (isPhoneMode) iTantraBlack40 else iTantraBlack)
-                                else iTantraCardAlt
-                            )
-                            .border(
-                                1.dp,
-                                if (isSelected) (if (isPhoneMode) iTantraBlack40 else iTantraBlack)
-                                else iTantraBorder,
-                                RoundedCornerShape(16.dp)
-                            )
-                            // Switching model mid-hold would transcribe half a phrase with the
-                            // wrong model, so the picker is locked while PTT is held (T72)
-                            // or when phone mode is on (changing model while listening would
-                            // transcribe half a phrase in the wrong language).
-                            .clickable(enabled = !isPttActive && !isPhoneMode) { viewModel.setManualLanguage(code) }
-                            .padding(horizontal = 12.dp, vertical = 6.dp)
-                    ) {
-                        Text(
-                            text = label,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = if (isSelected) iTantraWhite else if (isPhoneMode) iTantraBlack40 else iTantraBlack60
-                        )
-                    }
-                }
-            }
-
-            // ── Host & Search Compact Control Row ───────────────────
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 10.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                TransceiverToggleCard(
-                    label = "Host Beacon",
-                    sublabel = "Discoverable to peers",
-                    checked = isHosting,
-                    onCheckedChange = { viewModel.setHosting(it) },
-                    modifier = Modifier.weight(1f)
-                )
-                TransceiverToggleCard(
-                    label = "Search Peers",
-                    sublabel = "Scan for nodes",
-                    checked = isDiscovering,
-                    onCheckedChange = { viewModel.setDiscovering(it) },
-                    modifier = Modifier.weight(1f)
-                )
-            }
-
-            // ── MAIN HERO: Giant Centered PTT Button ────────────────
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
+                // ── Row 1: Mode & Emergency Toggles (T37 & T66) ────────
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    // Outer ambient ring
-                    Box(
-                        modifier = Modifier
-                            .size(230.dp)
-                            .scale(if (isPttActive) 1.05f else if (isPhoneMode) 1f else pulseScale)
-                            .clip(CircleShape)
-                            .background(if (isPttActive || alertArmed) Color(0x1FDC2626) else if (isPhoneMode) iTantraBackground else Color(0xFFF3F4F6)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        // Middle ring
-                        Box(
-                            modifier = Modifier
-                                .size(185.dp)
-                                .clip(CircleShape)
-                                .background(if (isPttActive) Color(0x33DC2626) else if (alertArmed) Color(0x1FDC2626) else if (isPhoneMode) iTantraBackground else iTantraWhite)
-                                .border(
-                                    2.dp,
-                                    if (isPttActive || alertArmed) iTantraError else if (isPhoneMode) iTantraBorder.copy(alpha = 0.5f) else iTantraBorder,
-                                    CircleShape
-                                ),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            // Core tactile button
-                            Box(
-                                modifier = Modifier
-                                    .size(145.dp)
-                                    .shadow(if (isPhoneMode) 0.dp else 8.dp, CircleShape)
-                                    .clip(CircleShape)
-                                    .background(
-                                        if (isPttActive || alertArmed) iTantraError
-                                        else if (isPhoneMode) iTantraCardAlt
-                                        else iTantraBlack
-                                    )
-                                    .border(
-                                        2.dp,
-                                        if (isPttActive || alertArmed) Color(0xFFF87171)
-                                        else if (isPhoneMode) iTantraBorder
-                                        else iTantraBlack,
-                                        CircleShape
-                                    )
-                                    .pointerInput(isPhoneMode) {
-                                        if (!isPhoneMode) {
-                                            detectTapGestures(
-                                                onPress = {
-                                                    isPttActive = true
-                                                    viewModel.startTransceiverPtt()
-                                                    tryAwaitRelease()
-                                                    isPttActive = false
-                                                    viewModel.stopTransceiverPtt()
-                                                }
-                                            )
-                                        }
-                                    },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Column(
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.Center
-                                ) {
-                                    Icon(
-                                        imageVector = if (isPttActive || alertArmed) Icons.Filled.Mic else Icons.Filled.GraphicEq,
-                                        contentDescription = if (isPhoneMode) "Phone mode active" else if (alertArmed) "Send Alert" else "Push to Talk",
-                                        tint = if (isPhoneMode) iTantraBlack40 else iTantraWhite,
-                                        modifier = Modifier.size(46.dp)
-                                    )
-                                    Spacer(Modifier.height(4.dp))
-                                    Text(
-                                        text = if (isPttActive) "RELEASE"
-                                            else if (isPhoneMode) "PHONE MODE"
-                                            else if (alertArmed) "SEND ALERT"
-                                            else "HOLD PTT",
-                                        style = MaterialTheme.typography.labelSmall.copy(
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 11.sp,
-                                            letterSpacing = 1.5.sp
-                                        ),
-                                        color = if (isPhoneMode) iTantraBlack40 else iTantraWhite
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    Spacer(Modifier.height(16.dp))
-
-                    Text(
-                        text = if (isPttActive) "Transmitting Audio Data…"
-                            else if (alertArmed) "Emergency Alert Mode (Highest Volume)"
-                            else if (isPhoneMode) "Continuous Listening (Phone Mode)"
-                            else "Push to Talk (Walkie-Talkie)",
-                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                        color = if (isPttActive || alertArmed) iTantraError else iTantraBlack
-                    )
-                    Spacer(Modifier.height(3.dp))
-                    Text(
-                        text = if (isPhoneMode) "Continuous VAD-gated speech capture (PTT disabled)"
-                            else if (alertArmed) "Next transmission announces at max volume non-interruptible"
-                            else "Silero VAD → IndicConformer STT → ~200B Protobuf Frame",
-                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                        color = iTantraBlack60
-                    )
-
-                    Spacer(Modifier.height(14.dp))
-
-                    // ── Next message is an ALERT toggle (T66) ─────────────
+                    // Phone Mode Card (T37)
                     Row(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(20.dp))
-                            .background(if (alertArmed) Color(0x1FDC2626) else iTantraCardAlt)
-                            .border(1.dp, if (alertArmed) iTantraError else iTantraBorder, RoundedCornerShape(20.dp))
-                            .padding(start = 12.dp, end = 6.dp, top = 3.dp, bottom = 3.dp),
+                            .weight(1f)
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(if (isPhoneMode) Color(0xFFF0FDF4) else iTantraWhite)
+                            .border(
+                                1.dp,
+                                if (isPhoneMode) iTantraSuccess else iTantraBorder,
+                                RoundedCornerShape(16.dp)
+                            )
+                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = "Next message is an ALERT",
-                            style = MaterialTheme.typography.labelSmall.copy(
-                                fontSize = 11.sp,
-                                fontWeight = if (alertArmed) FontWeight.Bold else FontWeight.SemiBold
-                            ),
-                            color = if (alertArmed) iTantraError else iTantraBlack
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Phone Mode",
+                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                                color = if (isPhoneMode) iTantraSuccess else iTantraBlack
+                            )
+                            Text(
+                                text = if (isPhoneMode) "Continuous" else "Push-to-Talk",
+                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                                color = iTantraBlack60
+                            )
+                        }
+                        Switch(
+                            checked = isPhoneMode,
+                            onCheckedChange = { viewModel.setPhoneMode(it) },
+                            modifier = Modifier.scale(0.75f).height(20.dp),
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = iTantraWhite,
+                                checkedTrackColor = iTantraSuccess,
+                                uncheckedThumbColor = iTantraBlack60,
+                                uncheckedTrackColor = iTantraBorder
+                            )
                         )
-                        Spacer(Modifier.width(8.dp))
+                    }
+
+                    // Alert Mode Card (T66)
+                    Row(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(if (alertArmed) Color(0xFFFEF2F2) else iTantraWhite)
+                            .border(
+                                1.dp,
+                                if (alertArmed) iTantraError else iTantraBorder,
+                                RoundedCornerShape(16.dp)
+                            )
+                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Next as ALERT",
+                                style = MaterialTheme.typography.labelMedium.copy(
+                                    fontWeight = if (alertArmed) FontWeight.Bold else FontWeight.SemiBold
+                                ),
+                                color = if (alertArmed) iTantraError else iTantraBlack
+                            )
+                            Text(
+                                text = if (alertArmed) "Max alarm volume" else "Normal audio",
+                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                                color = if (alertArmed) iTantraError else iTantraBlack60
+                            )
+                        }
                         Switch(
                             checked = alertArmed,
                             onCheckedChange = { viewModel.setAlertArmed(it) },
@@ -490,21 +334,272 @@ fun TransceiverScreen(
                         )
                     }
                 }
-            }
 
-            // ── Nearby Peer Drawer (Bottom of screen) ───────────────
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
-                    .background(iTantraCardAlt)
-                    .border(1.dp, iTantraBorder, RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
-            ) {
-                Column {
+                // ── Row 2: Mesh Network Action Cards (Host & Search) ─────
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    TransceiverToggleCard(
+                        label = "Host Beacon",
+                        sublabel = if (isHosting) "Broadcasting group" else "Off · Tap to host",
+                        checked = isHosting,
+                        onCheckedChange = { viewModel.setHosting(it) },
+                        modifier = Modifier.weight(1f)
+                    )
+                    TransceiverToggleCard(
+                        label = "Search Peers",
+                        sublabel = if (isDiscovering) "Scanning nearby" else "Off · Tap to scan",
+                        checked = isDiscovering,
+                        onCheckedChange = { viewModel.setDiscovering(it) },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
+                // ── Row 3: Language Chips Bar (T72) ──────────────────────
+                Column(modifier = Modifier.fillMaxWidth()) {
                     Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Filled.Translate, contentDescription = null, tint = iTantraBlack, modifier = Modifier.size(13.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                text = "Language (STT & TTS)",
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                color = iTantraBlack
+                            )
+                        }
+                        Text(
+                            text = IndicLanguage.fromCode(selectedLanguage).nativeName,
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, fontWeight = FontWeight.Bold),
+                            color = iTantraSuccess
+                        )
+                    }
+                    LazyRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        items(STT_LANGUAGES, key = { it.first }) { (code, label) ->
+                            val isSelected = code == selectedLanguage
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(
+                                        if (isSelected) (if (isPhoneMode) iTantraBlack40 else iTantraBlack)
+                                        else iTantraWhite
+                                    )
+                                    .border(
+                                        1.dp,
+                                        if (isSelected) (if (isPhoneMode) iTantraBlack40 else iTantraBlack)
+                                        else iTantraBorder,
+                                        RoundedCornerShape(12.dp)
+                                    )
+                                    .clickable(enabled = !isPttActive && !isPhoneMode) { viewModel.setManualLanguage(code) }
+                                    .padding(horizontal = 10.dp, vertical = 5.dp)
+                            ) {
+                                Text(
+                                    text = label,
+                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                                    color = if (isSelected) iTantraWhite else if (isPhoneMode) iTantraBlack40 else iTantraBlack60
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // ── Hero Push-To-Talk / Phone Mode Centerpiece ───────────
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        // Ambient ring
+                        Box(
+                            modifier = Modifier
+                                .size(190.dp)
+                                .scale(if (isPttActive) 1.06f else if (isPhoneMode) 1f else pulseScale)
+                                .clip(CircleShape)
+                                .background(
+                                    if (isPttActive || alertArmed) Color(0x1FDC2626)
+                                    else if (isPhoneMode) Color(0xFFF0FDF4)
+                                    else Color(0xFFF3F4F6)
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            // Middle tactile ring
+                            Box(
+                                modifier = Modifier
+                                    .size(155.dp)
+                                    .clip(CircleShape)
+                                    .background(
+                                        if (isPttActive) Color(0x33DC2626)
+                                        else if (alertArmed) Color(0x1FDC2626)
+                                        else if (isPhoneMode) Color(0xFFDCFCE7)
+                                        else iTantraWhite
+                                    )
+                                    .border(
+                                        2.dp,
+                                        if (isPttActive || alertArmed) iTantraError
+                                        else if (isPhoneMode) iTantraSuccess.copy(alpha = 0.5f)
+                                        else iTantraBorder,
+                                        CircleShape
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                // Core action button with robust pointerInput (awaitEachGesture)
+                                Box(
+                                    modifier = Modifier
+                                        .size(125.dp)
+                                        .shadow(if (isPhoneMode) 0.dp else 6.dp, CircleShape)
+                                        .clip(CircleShape)
+                                        .background(
+                                            if (isPttActive || alertArmed) iTantraError
+                                            else if (isPhoneMode) Color(0xFFF9FAFB)
+                                            else iTantraBlack
+                                        )
+                                        .border(
+                                            2.dp,
+                                            if (isPttActive || alertArmed) Color(0xFFF87171)
+                                            else if (isPhoneMode) iTantraBorder
+                                            else iTantraBlack,
+                                            CircleShape
+                                        )
+                                        .pointerInput(isPhoneMode) {
+                                            if (!isPhoneMode) {
+                                                awaitEachGesture {
+                                                    awaitFirstDown(requireUnconsumed = false)
+                                                    isPttActive = true
+                                                    viewModel.startTransceiverPtt()
+                                                    waitForUpOrCancellation()
+                                                    isPttActive = false
+                                                    viewModel.stopTransceiverPtt()
+                                                }
+                                            }
+                                        },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = if (isPhoneMode) Icons.Filled.Phone
+                                                else if (isPttActive || alertArmed) Icons.Filled.Mic
+                                                else Icons.Filled.GraphicEq,
+                                            contentDescription = if (isPhoneMode) "Phone mode active" else if (alertArmed) "Send Alert" else "Push to Talk",
+                                            tint = if (isPhoneMode) iTantraSuccess else iTantraWhite,
+                                            modifier = Modifier.size(38.dp)
+                                        )
+                                        Spacer(Modifier.height(4.dp))
+                                        Text(
+                                            text = if (isPttActive) "RELEASE"
+                                                else if (isPhoneMode) "PHONE MODE"
+                                                else if (alertArmed) "SEND ALERT"
+                                                else "HOLD PTT",
+                                            style = MaterialTheme.typography.labelSmall.copy(
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 11.sp,
+                                                letterSpacing = 1.2.sp
+                                            ),
+                                            color = if (isPhoneMode) iTantraSuccess else iTantraWhite
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        Spacer(Modifier.height(10.dp))
+
+                        Text(
+                            text = if (isPttActive) "Transmitting Audio Data…"
+                                else if (alertArmed) "Emergency Alert Mode (Alarm Volume)"
+                                else if (isPhoneMode) "Continuous Hands-Free (Phone Mode)"
+                                else "Push to Talk (Walkie-Talkie)",
+                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                            color = if (isPttActive || alertArmed) iTantraError else iTantraBlack
+                        )
+                        Text(
+                            text = if (isPhoneMode) "Continuous VAD-gated speech capture (PTT disabled)"
+                                else if (alertArmed) "Spoken message broadcasts at highest volume non-interruptible"
+                                else "Hold button to record & transmit · Release to send",
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                            color = iTantraBlack60
+                        )
+                    }
+                }
+
+                // ── Transmissions Section (Voice Notes - T67) ────────────
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(iTantraWhite)
+                        .border(1.dp, iTantraBorder, RoundedCornerShape(18.dp))
+                        .padding(14.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Transmissions (${messages.size})",
+                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                            color = iTantraBlack
+                        )
+                        if (messages.isNotEmpty()) {
+                            Text(
+                                text = "tap ▶ to replay",
+                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                color = iTantraBlack60
+                            )
+                        }
+                    }
+
+                    Spacer(Modifier.height(8.dp))
+
+                    if (messages.isEmpty()) {
+                        Text(
+                            text = "No voice notes yet. Transmitted speech will appear here with instant audio replay.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = iTantraBlack40,
+                            modifier = Modifier.padding(vertical = 12.dp)
+                        )
+                    } else {
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            messages.forEach { msg ->
+                                MessageBubbleItem(
+                                    message = msg,
+                                    onReplay = {
+                                        if (!viewModel.replayVoiceNote(msg)) {
+                                            Toast.makeText(context, "Voice note not ready yet", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // ── Nearby & Connected Devices Section ───────────────────
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(iTantraWhite)
+                        .border(1.dp, iTantraBorder, RoundedCornerShape(18.dp))
+                        .padding(14.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -519,7 +614,7 @@ fun TransceiverScreen(
                                 Spacer(Modifier.width(6.dp))
                             }
                             Text(
-                                text = if (peers.isEmpty()) "No devices found nearby" else "Nearby Devices (${peers.size})",
+                                text = if (peers.isEmpty()) "Nearby Devices" else "Nearby Devices (${peers.size})",
                                 style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
                                 color = iTantraBlack
                             )
@@ -533,24 +628,34 @@ fun TransceiverScreen(
                         }
                     }
 
-                    if (peers.isNotEmpty()) {
-                        LazyColumn(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(minOf(peers.size * 72, 216).dp),
-                            contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 8.dp),
+                    Spacer(Modifier.height(8.dp))
+
+                    if (peers.isEmpty()) {
+                        Column(modifier = Modifier.padding(vertical = 8.dp)) {
+                            Text(
+                                text = if (isDiscovering) "Scanning for nearby Wi-Fi Direct & Bluetooth devices…"
+                                    else "No devices detected. Tap 'Search Peers' above or 'Host Beacon' on the other phone.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = iTantraBlack40
+                            )
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                text = "Tip: Ensure Wi-Fi, Bluetooth, and Location are ON on both phones.",
+                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                color = iTantraBlack60
+                            )
+                        }
+                    } else {
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
                             verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            items(peers, key = { it.deviceId }) { peer ->
+                            peers.forEach { peer ->
                                 PeerRowItemWhite(
                                     peer = peer,
                                     onClick = {
                                         when {
                                             peer.isConnected -> onPeerSelected(peer.deviceId)
-                                            // MeshHardwareManager's Bluetooth discovery surfaces
-                                            // devices here that may not be paired yet — this
-                                            // route was previously always attempting a Wi-Fi
-                                            // Direct connect regardless of the peer's real type.
                                             peer.connectionType == ConnectionType.BLUETOOTH ->
                                                 viewModel.pairAndConnectBluetoothPeer(peer.deviceId)
                                             else -> viewModel.connectToPeer(peer.deviceId)
@@ -563,12 +668,11 @@ fun TransceiverScreen(
                         }
                     }
 
-                    // ── Paired Bluetooth Devices ─────────────────────────
+                    // ── Paired Bluetooth Devices ──
                     if (bondedBtDevices.isNotEmpty()) {
+                        Spacer(Modifier.height(14.dp))
                         Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                            modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -578,19 +682,17 @@ fun TransceiverScreen(
                                 color = iTantraBlack
                             )
                             Text(
-                                text = "tap to connect",
+                                text = "tap to dial",
                                 style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
                                 color = iTantraBlack60
                             )
                         }
-                        LazyColumn(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(minOf(bondedBtDevices.size * 72, 216).dp),
-                            contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 8.dp),
+                        Spacer(Modifier.height(8.dp))
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
                             verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            items(bondedBtDevices, key = { it.deviceId }) { peer ->
+                            bondedBtDevices.forEach { peer ->
                                 PeerRowItemWhite(
                                     peer = peer,
                                     onClick = { viewModel.connectToBluetoothPeer(peer.deviceId) },
@@ -601,6 +703,8 @@ fun TransceiverScreen(
                         }
                     }
                 }
+
+                Spacer(Modifier.height(16.dp))
             }
         }
     }
@@ -711,6 +815,93 @@ private fun PeerRowItemWhite(
                 tint = if (peer.isAuthorized) iTantraSuccess else iTantraBlack60,
                 modifier = Modifier.size(18.dp)
             )
+        }
+    }
+}
+
+@Composable
+private fun MessageBubbleItem(
+    message: TransceiverMessage,
+    onReplay: () -> Unit
+) {
+    val isReceived = message.direction == Direction.RECEIVED
+    val timeStr = remember(message.timestamp) {
+        java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date(message.timestamp))
+    }
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalAlignment = if (isReceived) Alignment.Start else Alignment.End
+    ) {
+        Box(
+            modifier = Modifier
+                .clip(
+                    RoundedCornerShape(
+                        topStart = 16.dp,
+                        topEnd = 16.dp,
+                        bottomStart = if (isReceived) 4.dp else 16.dp,
+                        bottomEnd = if (isReceived) 16.dp else 4.dp
+                    )
+                )
+                .background(if (isReceived) iTantraWhite else iTantraBlack)
+                .border(
+                    1.dp,
+                    if (message.type == MessageType.ALERT) iTantraError
+                    else if (isReceived) iTantraBorder
+                    else iTantraBlack,
+                    RoundedCornerShape(16.dp)
+                )
+                .padding(horizontal = 12.dp, vertical = 8.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                if (isReceived) {
+                    // Small play icon button on RECEIVED message bubbles (T67)
+                    IconButton(
+                        onClick = onReplay,
+                        modifier = Modifier.size(28.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.PlayArrow,
+                            contentDescription = "Replay voice note",
+                            tint = if (message.type == MessageType.ALERT) iTantraError else iTantraBlack,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+                Column {
+                    if (message.type == MessageType.ALERT) {
+                        Text(
+                            text = "ALERT",
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, fontWeight = FontWeight.Bold),
+                            color = iTantraError
+                        )
+                    }
+                    Text(
+                        text = message.text,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = if (isReceived) iTantraBlack else iTantraWhite
+                    )
+                    Spacer(Modifier.height(2.dp))
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "[${message.srcLang.uppercase()}]",
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, fontWeight = FontWeight.Bold),
+                            color = if (isReceived) iTantraBlack60 else Color(0xFFD4D4D4)
+                        )
+                        Text(
+                            text = timeStr,
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                            color = if (isReceived) iTantraBlack40 else Color(0xFF999999)
+                        )
+                    }
+                }
+            }
         }
     }
 }

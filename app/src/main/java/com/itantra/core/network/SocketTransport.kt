@@ -18,6 +18,7 @@ import kotlinx.coroutines.withContext
 import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.io.IOException
+import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
 import java.util.UUID
@@ -55,9 +56,18 @@ class SocketTransport(
      * Accepts incoming connections from peer devices.
      */
     fun startServer() {
+        if (serverSocket?.isBound == true && !serverSocket!!.isClosed) {
+            Log.d(TAG, "TCP server already bound on port $TCP_PORT")
+            return
+        }
+        serverJob?.cancel()
         serverJob = scope.launch {
             try {
-                serverSocket = ServerSocket(TCP_PORT)
+                runCatching { serverSocket?.close() }
+                serverSocket = ServerSocket().apply {
+                    reuseAddress = true
+                    bind(InetSocketAddress(TCP_PORT))
+                }
                 Log.d(TAG, "TCP server listening on port $TCP_PORT")
 
                 while (isActive) {

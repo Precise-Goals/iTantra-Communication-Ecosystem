@@ -18,6 +18,7 @@ import com.itantra.domain.model.DeviceProfile
 import com.itantra.domain.model.DownloadState
 import com.itantra.domain.model.ModelPack
 import com.itantra.domain.model.PeerDevice
+import com.itantra.domain.model.TransceiverMessage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -61,6 +62,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         foregroundService?.sendNextAsAlert = armed
     }
 
+    private val _messageLog = MutableStateFlow<List<TransceiverMessage>>(emptyList())
+    val messageLog: StateFlow<List<TransceiverMessage>> = _messageLog.asStateFlow()
+
     private val _isBluetoothListening = MutableStateFlow(false)
 
     /** What "Host Beacon" should actually reflect — true if listenable over Wi-Fi Direct OR
@@ -77,6 +81,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 viewModelScope.launch { it.networkStateFlow.collect { s -> _networkState.value = s } }
                 viewModelScope.launch { it.pipelineStage.collect { s -> _pipelineStage.value = s } }
                 viewModelScope.launch { it.isBluetoothListening.collect { b -> _isBluetoothListening.value = b } }
+                viewModelScope.launch { it.messageLogFlow.collect { list -> _messageLog.value = list } }
                 // Push the current selection before warming, so the right model is loaded (T72).
                 it.setSTTLanguage(_selectedLanguage.value)
                 it.setTTSLanguage(_selectedLanguage.value)
@@ -130,6 +135,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         foregroundService?.stopPTT()
         _alertArmed.value = false
     }
+
+    /** Replay a received message's voice note (T67). Returns false if it is not stored yet. */
+    fun replayVoiceNote(message: TransceiverMessage): Boolean =
+        foregroundService?.replayVoiceNote(message.senderId, message.sequence) ?: false
 
     /** Initiate a real Wi-Fi Direct connection to a peer discovered via [meshHardwareManager]. */
     fun connectToPeer(deviceAddress: String) {
