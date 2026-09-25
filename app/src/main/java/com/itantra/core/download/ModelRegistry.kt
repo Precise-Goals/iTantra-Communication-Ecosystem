@@ -150,10 +150,8 @@ object ModelRegistry {
      * `SRAVAANI_ENCODER_FILE`/`SRAVAANI_DECODER_JOINT_FILE`/`SRAVAANI_TOKENS_FILE` constants point
      * at these exact paths.
      *
-     * Not yet wired into [registry] below — that needs `ModelPack.STT_SRAVAANI` to exist first,
-     * which is Sarthak's T78 Step 6 addition to `ModelManifest.kt` (`WORK_SPLIT.md` S5b). Takes
-     * `pack` as a parameter (matching [sttInfo]/[sherpaTtsInfo]/[mmsTtsInfo]'s shape) so the entry
-     * becomes exactly `ModelPack.STT_SRAVAANI to sravaaniTdtInfo(ModelPack.STT_SRAVAANI)` once it exists.
+     * Wired into [registry] below for [ModelPack.STT_SRAVAANI] (S5a). Takes `pack` as a
+     * parameter (matching [sttInfo]/[sherpaTtsInfo]/[mmsTtsInfo]'s shape).
      */
     private fun sravaaniTdtInfo(pack: ModelPack): ModelInfo = ModelInfo(
         pack = pack,
@@ -184,6 +182,7 @@ object ModelRegistry {
         ModelPack.STT_TELUGU to sttInfo(ModelPack.STT_TELUGU, "te", 197_595_500L),
         ModelPack.STT_BENGALI to sttInfo(ModelPack.STT_BENGALI, "bn", 197_595_500L),
         ModelPack.STT_ENGLISH to sttInfo(ModelPack.STT_ENGLISH, "en", 197_595_500L),
+        ModelPack.STT_SRAVAANI to sravaaniTdtInfo(ModelPack.STT_SRAVAANI),
 
         // Shared by every TTS voice below — real espeak-ng phoneme/language data.
         ModelPack.ESPEAK_NG_DATA to ModelInfo(
