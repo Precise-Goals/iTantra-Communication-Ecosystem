@@ -59,11 +59,11 @@ These are requirements in the PS text. Failing one can disqualify you regardless
 | --- | --- | --- |
 | STT for 10 languages | **9/10** — the registry's mirror lacks Odia, but AI4Bharat publishes [`indicconformer_stt_or_hybrid_ctc_rnnt_large`](https://huggingface.co/ai4bharat/indicconformer_stt_or_hybrid_ctc_rnnt_large) (§10.3). **2026-09-25:** Odia now comes from T77 (SraVaani hybrid) if it passes on the phone, otherwise from T64 | ~1.5–2 days (T77), then T64 only if needed |
 | TTS for 10 languages | ✅ **10/10** since T17b (PR #24, 2026-09-25). Was 5/10: Marathi, Kannada, Tamil, Telugu, Odia missing | Done. The truncated Malayalam file is in `KNOWN_ISSUES.md` |
-| "if turned off it should work like a phone" | **Unreachable** — `PHONE_MODE` exists in the service, never called from the UI. **Once wired it self-oscillates**: no echo gate, so received TTS is re-transcribed and sent back. **2026-09-25:** echo gate merged (T63, PR #22); only the UI wiring remains | ~1 day (T37) |
-| Alert messages "non-interruptible", highest volume | Receive side done (`USAGE_ALARM`, `FLAG_AUDIBILITY_ENFORCED`, max volume, `AUDIOFOCUS_GAIN`). **Send side unreachable** — nothing in `ui/` calls `broadcastAlert()`, so an alert cannot be demonstrated | ~1 day (T66) + 2 h (T39) |
+| "if turned off it should work like a phone" | ✅ **Satisfied** — wired in T37 (PR #32). Switch beside language selector enables continuous VAD-gated listening while echo gate (T63, PR #22) prevents re-transcription feedback loops | Done (T37, PR #32) |
+| Alert messages "non-interruptible", highest volume | ✅ **Satisfied** — wired in T66 (PR #33). "Next message is an ALERT" toggle beside PTT sends `MessageType.ALERT` and auto-resets; received alerts play at highest alarm volume without interruption | Done (T66, PR #33) |
 | TTS "played as a voice note" | **Missing** — audio played once and discarded; no stored note, no replay | ~0.5 day (T67) |
 | Voice notes must not overlap | **Broken** — no playback queue, concurrent messages garble | ~0.5 day |
-| Wi-Fi/Bluetooth transport, both directions | Wi-Fi Direct fine. **Bluetooth sends only from the hosting phone** — the client phone's messages go to TCP, where it has no peer | 2 h (T69) |
+| Wi-Fi/Bluetooth transport, both directions | ✅ **Satisfied** since T69 (PR #23). Sends across all active transports with receive deduplication | Done (T69, PR #23) |
 | Translation between languages | **Not required** by the PS — do not build it (`IMPROVEMENT_PLAN.md` §10.12) | — |
 | Open-source only, fully offline | Satisfied | — |
 | Runs on low/mid-range phones | **Unverified** — never measured on one | see §5 |
@@ -259,10 +259,10 @@ This is the 40% week. Treat it as the most important one.
 
 | Task | Owner | Effort | Spec |
 | --- | --- | --- | --- |
-| **T37** Wire `setConnectionMode` to a UI toggle; PTT off = phone mode | Sarthak | 1d | SPEC T37 🎨 |
-| **T63** Echo gate: mute capture while speaking + 250 ms tail. **Must land with T37**, not after | Gaurav | 3h | SPEC2 T63 |
-| **T69** Send on every live transport + receive dedup — Bluetooth currently only sends from the host | Gaurav | 2h | SPEC2 T69 |
-| **T66** SOS control: preset alert phrases + speak-as-alert; full-screen alert on receipt | Sarthak | 1d | SPEC2 T66 🎨 |
+| ✅ **T37** Wire `setConnectionMode` to a UI toggle; PTT off = phone mode | Sarthak | 1d | Merged (PR #32, `1ca0aae`) |
+| **T63** Echo gate: mute capture while speaking + 250 ms tail. **Must land with T37**, not after | Gaurav | 3h | SPEC2 T63 · Merged (PR #22) |
+| **T69** Send on every live transport + receive dedup — Bluetooth currently only sends from the host | Gaurav | 2h | SPEC2 T69 · Merged (PR #23) |
+| ✅ **T66** SOS control: next-message-is-an-ALERT toggle (minimum version) | Sarthak | 2h | Merged (PR #33, `942b7a6`) |
 | **T67** Voice notes: store each received utterance as WAV, replay from the bubble | Gaurav + Sarthak | 0.5d | SPEC2 T67 🎨 |
 | **T38, T39** Single-consumer playback queue; ALERT pre-empts and cannot be ducked | Gaurav | 7h | SPEC T38 |
 | **T40** Streaming TTS on sentence/clause boundaries, danda-aware | Gaurav | 1d | SPEC2 T40 |

@@ -317,10 +317,11 @@ Treat this as the most important week in the plan.
 
 ## Week 4 — PS compliance and remaining latency
 
-- [ ] **T37 · Wire phone mode to the UI** — *S · REQ · 1d*
+- [x] **T37 · Wire phone mode to the UI** — *S · REQ · 1d*
   `ConnectionMode.PHONE_MODE` exists and `setConnectionMode()` handles it, but **nothing in `ui/` ever calls it**. The PS requires: *"if turned off it should work like a phone."*
   **Done when:** toggling PTT off gives continuous VAD-gated operation.
   ⚠️ ~~Must ship in the same PR as T63.~~ T63 is merged (PR #22), so T37 can ship on its own.
+  ✅ `1ca0aae`, PR #32. Added Phone Mode switch beside language selector in `TransceiverScreen.kt`. Continuous listening runs when enabled, PTT button and language chips are disabled/dimmed. Combined with T63 echo gate to suppress feedback.
 
 - [x] **T63 · Echo gate** — *G · REQ · 3h*
   Without it, phone mode transcribes its own loudspeaker and sends received messages back to the sender. Discard microphone input while `AudioPlaybackManager` is playing, plus a 250 ms tail.
@@ -342,11 +343,12 @@ Treat this as the most important week in the plan.
   🟡 *Partial:* `setWillPauseWhenDucked(false)` is in (`5c3ea07`). Pre-emption is not: an ALERT still waits behind queued messages.
   *Optional:* the PS says alerts must be "non-interruptible", i.e. an alert must not be cut off once playing — the T38 queue already guarantees that. Jumping ahead of queued messages is a nice extra, not a requirement.
 
-- [ ] ⚠️ **T66 · Send alert-type messages (minimum version)** — *S+G · REQ · 2h* 🎨
+- [x] ⚠️ **T66 · Send alert-type messages (minimum version)** — *S+G · REQ · 2h* 🎨
   Nothing in `ui/` can send an ALERT, so "alert type messages will be announced at highest volume non-interruptible" cannot be demonstrated. The receive side (alarm stream, forced max volume, DND bypass attempt, non-interruptible playback) already works.
   **Trimmed 2026-09-24:** the PS asks only that alert-*type* messages exist and play loudly without interruption. It does not ask for an SOS screen, preset phrases or a full-screen dialog. Do only the "next message is an ALERT" toggle — no dependency on T69 any more. Presets, the receiver dialog and recorded phrase clips are optional polish.
   ⚠️ After T43, an alert in a language with no voice yet (Marathi, Kannada, Tamil, Telugu, Odia) arrives as text only. T17b closes that; until then, say so in the demo.
   **Done when:** with the toggle on, a spoken PTT message plays on the other phone at alarm volume; the next message is normal. Spec: `IMPLEMENTATION_SPEC_2.md` T66 → "Minimum version".
+  ✅ `942b7a6`, PR #33. Added "Next message is an ALERT" switch on `TransceiverScreen.kt` and `sendNextAsAlert` flag in `ITantraForegroundService`. Transmits with `MessageType.ALERT` and automatically disarms after transmission.
 
 - [ ] **T67 · Voice notes** — *G+S · REQ · 0.5d* 🎨
   The PS says TTS output is "played as a voice note". Store each received utterance as a WAV and add replay on the bubble. Depends on T13.

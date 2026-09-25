@@ -43,7 +43,7 @@ Day 1 = the first working day after Day 0. Times are AI work plus human testing,
 | --- | --- | --- | --- |
 | 0 | ✅ G1 — finish Stage A | ✅ S0 — set-up, first build | Stage A PR → PR #19 → PR #20 |
 | 1 | ✅ **G2** — T63 echo gate + T69 two-way Bluetooth | ✅ **S1** — T76 SraVaani evaluation (Colab; runs all day, no app code) | T63, then T69 |
-| 2 | ✅ **G3** — T17b five missing TTS voices (Colab conversion) | **S2** — T37 phone mode UI (needs T63 merged) → **S3** — T66 alert toggle (needs T69 merged) | T37, then T66 |
+| 2 | ✅ **G3** — T17b five missing TTS voices (Colab conversion) | ✅ **S2** — T37 phone mode UI (PR #32) → ✅ **S3** — T66 alert toggle (PR #33) | T37, then T66 |
 | 3 | ✅ G3 continued — host voices, register them | **S4** — T67 voice notes · **joint two-phone Stage B test** | T67, T17b |
 | 4 | ✅ **G4** — T23 + T29 match the NeMo preprocessor, golden test | **S5** — T20 + T21 download only the selected language | T20/T21, T23/T29 |
 | 5 | ✅ **G5** — T77 SraVaani INT8 test (PR #29: CTC route failed, TDT scoped) | **S6** — T75 metadata cleanup + README pass · **T30** IndicConformer re-run (S1 note) | — |
@@ -456,6 +456,8 @@ Build must pass. Commit "T37: phone mode toggle (PTT off = continuous listening)
 
 **You do (with Gaurav, two phones):** both phones in phone mode. Speak one sentence on phone A; phone B speaks it; **nothing comes back to A** (this proves T63 and T37 together). Then speak on B: A hears it. Record the result in the PR. Merge.
 
+✅ **Merged in PR #32** (`1ca0aae`). Continuous VAD listening wired via `setConnectionMode(ConnectionMode.PHONE_MODE)`, PTT and language chips disabled while phone mode is active, echo gate suppresses self-oscillation.
+
 ### S3 · T66 — "Next message is an ALERT" toggle (Day 2, after T69 is merged)
 
 ```text
@@ -482,6 +484,8 @@ Build must pass. Commit "T66: next-message-is-an-ALERT toggle". Push; DRAFT PR.
 ```
 
 **You do (two phones):** toggle on, hold PTT, speak: the other phone plays it at alarm volume. The next message is normal. Merge.
+
+✅ **Merged in PR #33** (`942b7a6`). Added `sendNextAsAlert` flag to `ITantraForegroundService`, `alertArmed` flow in `MainViewModel`, and "Next message is an ALERT" switch beside PTT in `TransceiverScreen.kt`. Transmits with `MessageType.ALERT` and automatically resets to normal speech. Plays at max alarm volume non-interruptible on receiver.
 
 ### S4 · T67 — Voice notes (Day 3)
 

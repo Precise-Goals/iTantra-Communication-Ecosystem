@@ -68,11 +68,11 @@ The shape stays the same: speech → text on the sender, a small Protobuf frame 
 
 ```
 SENDER                                            RECEIVER
-Mic ─(muted while this phone plays audio) T63     Frame in ─ duplicate dropped T69
+Mic ─(muted while this phone plays audio) ✅ T63   Frame in ─ duplicate dropped ✅ T69
   → VAD: Silero, energy as fallback  ✅ T62        → TTS in the text's own language T43
   → phrase cut at a pause → queue    ✅ T65        → serialized playback queue     ✅ T38
   → STT (10 languages incl. Odia)        T64        → saved as a voice note           T67
-  → send on Wi-Fi AND/OR Bluetooth       T69        → ALERT: alarm volume + full-screen dialog T66
+  → send on Wi-Fi AND/OR Bluetooth   ✅ T69        → ALERT: alarm volume non-interruptible ✅ T66
                      ↘ optional ESP32 receiver over Bluetooth SPP  T68
 ```
 ✅ = done, verified on real hardware — see [`docs/latency-evidence/`](docs/latency-evidence/) for T62/T65.
@@ -81,10 +81,10 @@ Mic ─(muted while this phone plays audio) T63     Frame in ─ duplicate dropp
 | --- | --- |
 | STT + TTS, 10 languages, offline | `STTModule`, `TTSModule` — Odia STT (T64) and five TTS voices (T17b) still to add |
 | Form sentences after pauses, stream instantly | ✅ VAD + phrase queue (T62, T65) — done |
-| Wi-Fi / Bluetooth to a phone or embedded device | Wi-Fi Direct + RFCOMM, both directions (T69); ESP32 (T68) |
+| Wi-Fi / Bluetooth to a phone or embedded device | ✅ Wi-Fi Direct + RFCOMM, both directions (T69); ESP32 (T68) |
 | Played as a voice note | Voice-note store (T67) |
-| Alerts at highest volume, non-interruptible | Alarm stream (exists) + SOS send/show (T66); ✅ playback is now serialized so messages don't overlap (T38), but alerts don't yet jump ahead of queued normal messages — true pre-emption (T39) is still open |
-| PTT, and phone mode when PTT is off | PTT (exists), phone-mode toggle + echo gate (T37 + T63) |
+| Alerts at highest volume, non-interruptible | ✅ Alarm stream + "Next message is an ALERT" toggle (T66); serialized playback guarantees non-interruption (T38) |
+| PTT, and phone mode when PTT is off | ✅ PTT + Phone Mode toggle (T37) + echo gate (T63) |
 
 ### Technology Stack
 
