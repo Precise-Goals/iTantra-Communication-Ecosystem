@@ -3921,7 +3921,7 @@ Gaurav and Sarthak make the final call together from the table. Write the decisi
 3. Run the card's `sravaani_onnx_infer.py --decoder rnnt` on the **INT8** files over the T76/T77 clips (100 per language, 9 languages plus Odia), with the same normalisation and scoring. Write `docs/evaluation/sravaani/results_int8_tdt.csv` (same columns as `results_int8.csv`), including 1-thread RTF.
 4. Save one fixed clip's encoder output and the reference token ids from the script. These are the fixtures for the Step 3 parity test.
 
-**Checkpoint 1 (end of day 1):** the average INT8 TDT WER over the 8 non-English shared languages is **≤ 19.99%** (IndicConformer), and the pair is **≤ ~550 MB**.
+**Checkpoint 1 (end of day 1):** the average INT8 TDT WER over the 8 non-English shared languages is **≤ IndicConformer's** (19.99% from T76, or T30's app-features figure if S1b has landed, whichever is lower), and the pair is **≤ ~550 MB**.
 - Met: continue.
 - Missed: stop and go to the fallback. The accuracy advantage is the reason for the week.
 
@@ -3974,7 +3974,7 @@ If it misses, stop and go to the fallback. Record the numbers anyway, because th
 ### Step 6 — shared pack, registry and downloads (after S5/T20 merges)
 
 - **Gaurav, `ModelRegistry.kt`:** two hosted entries (encoder and decoder_joint, plus the vocabulary file) under `ITANTRA_MODELS_BASE`, with real sizes and sha256 from Step 1. A human uploads the files and gives the URL; never invent it. Add the MIT licence row.
-- **Sarthak, `ModelManifest.kt`:** one `STT_SRAVAANI` pack. `sttPackFor(code)` returns it for the nine codes and the mirror pack for `en`. Update the Downloads screen text so one download is shown as unlocking nine languages, with its real size.
+- **Sarthak, `ModelManifest.kt`:** one `STT_SRAVAANI` pack. `sttPackFor(code)` returns it for the nine codes and the mirror pack for `en`. Update the Downloads screen text so one download is shown as unlocking nine languages, with its real size. Add `"or" to "ଓଡ଼ିଆ"` to `ui/component/Languages.kt` `STT_LANGUAGES`, where it is missing today. Prompt: `WORK_SPLIT.md` S5b.
 - **Remove the mirror STT packs for the nine Indic languages** from the compulsory and optional lists only after Step 7 passes.
 
 ### Step 7 — switch over, and prove it

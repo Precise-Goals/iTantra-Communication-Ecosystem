@@ -63,7 +63,7 @@ Per the decision rule in `docs/IMPLEMENTATION_SPEC_2.md` T76:
 > - The 10-language footprint is about half (next section).
 > - SraVaani is +0.69 points better on the 8 non-English languages. English stays on IndicConformer.
 >
-> The open questions are RAM, speed and smooth running on a low-range phone. **T77** (`docs/IMPLEMENTATION_SPEC_2.md` Group I) measures exactly that. G5 in `WORK_SPLIT.md` is now T77, followed by either the hybrid switch design or T64. Results will go in `phone/`.
+> The open questions are RAM, speed and smooth running on a low-range phone. **T77** (`docs/IMPLEMENTATION_SPEC_2.md` Group I) measures exactly that. G5 in `WORK_SPLIT.md` is now T77, followed by either the hybrid switch design or T64. Results will go in `phone/`. **Update:** T77 is done (`phone/README.md`). Its CTC route failed, and the team chose the TDT engine, **T78**, with T64 as the fallback.
 
 ## Discussion: scope of the size comparison, and a hybrid option (raised in PR review, not evaluated)
 
