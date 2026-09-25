@@ -134,6 +134,36 @@ object ModelRegistry {
         extractDirName = "tts/$lang"
     )
 
+    /**
+     * T78 — the shared SraVaani INT8 encoder + decoder_joint pair + SentencePiece vocab (as a flat
+     * `<piece> <id>` file), serving all nine Indic languages `hi gu mr kn ml ta te bn or` from one
+     * download. Packaged as a single `.tar.bz2` (like [mmsTtsInfo]'s voices) rather than as two
+     * separate registry entries, because [ModelInfo]/[ModelDownloadManager] only support one main
+     * file + one auxiliary file per pack — a `.tar.bz2` with all three files reuses the existing
+     * bundle-extraction path instead of extending that shape for a single pack. Uploaded to
+     * [ITANTRA_MODELS_BASE] (same repo as the T17b MMS voices); size and sha256 below are the real,
+     * verified values (`docs/evaluation/sravaani/tdt/README.md` — quantized in Colab, sha256
+     * confirmed via the HTTP response's `X-Linked-ETag` after upload, not assumed).
+     *
+     * Extracts to `modelsDir/stt/sravaani/` containing `encoder-sravaani.int8.onnx`,
+     * `decoder_joint-sravaani.int8.onnx`, and `sravaani_tokens.txt` — [STTModule]'s
+     * `SRAVAANI_ENCODER_FILE`/`SRAVAANI_DECODER_JOINT_FILE`/`SRAVAANI_TOKENS_FILE` constants point
+     * at these exact paths.
+     *
+     * Not yet wired into [registry] below — that needs `ModelPack.STT_SRAVAANI` to exist first,
+     * which is Sarthak's T78 Step 6 addition to `ModelManifest.kt` (`WORK_SPLIT.md` S5b). Takes
+     * `pack` as a parameter (matching [sttInfo]/[sherpaTtsInfo]/[mmsTtsInfo]'s shape) so the entry
+     * becomes exactly `ModelPack.STT_SRAVAANI to sravaaniTdtInfo(ModelPack.STT_SRAVAANI)` once it exists.
+     */
+    private fun sravaaniTdtInfo(pack: ModelPack): ModelInfo = ModelInfo(
+        pack = pack,
+        fileName = "sravaani_tdt.tar.bz2",
+        downloadUrl = "$ITANTRA_MODELS_BASE/sravaani_tdt.tar.bz2",
+        sha256 = "287816154cd5c966e04b9588ad966b2d05246832418e79881efbc62f87371471",
+        sizeBytes = 401_576_328L,
+        extractDirName = "stt/sravaani"
+    )
+
     val registry: Map<ModelPack, ModelInfo> = mapOf(
         ModelPack.VAD_MODEL to ModelInfo(
             pack = ModelPack.VAD_MODEL,

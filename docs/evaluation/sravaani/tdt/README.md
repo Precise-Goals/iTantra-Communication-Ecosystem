@@ -300,3 +300,73 @@ explicitly out of scope for Gaurav's steps and gated on Sarthak's T20 (S5) mergi
   `loaded in ... [cacheKey=sravaani]` lines. Not a blocker for Step 6, but worth Sarthak knowing
   when he builds the Downloads-screen messaging — there's no existing UI precedent to reuse for
   "this language is currently backed by the shared pack."
+
+## Step 6 (Gaurav's half) — DONE. Sarthak's half still blocked on his T20 (S5)
+
+**Gate check, per `WORK_SPLIT.md` S5b's own instruction:** `git grep "fun sttPackFor" origin/main`
+returns no match — T20 (S5) has not merged. `sttPackFor` doesn't exist anywhere yet, not just
+"unmerged" — it's T20's own function to write. Sarthak's `ModelManifest.kt`/`DownloadsScreen.kt`/
+`Languages.kt` changes cannot start until it does. Nothing in those files was touched here.
+
+### What was done (Gaurav's half, doesn't depend on T20)
+
+1. **Uploaded the real model bundle.** Packaged `encoder-sravaani.int8.onnx` +
+   `decoder_joint-sravaani.int8.onnx` + `sravaani_tokens.txt` into one `sravaani_tdt.tar.bz2`
+   (wrapped in a top-level `sravaani_tdt/` folder — required, since `ArchiveExtractor` always
+   strips exactly one top-level directory from every entry, matching sherpa-onnx's own bundle
+   convention; a flat/unwrapped tar would have every entry silently dropped on extraction).
+   Uploaded to `huggingface.co/Chgauravpc/itantra` (the same repo as the T17b MMS voices).
+   Verified via the HTTP response after upload, not assumed: `X-Linked-Size: 401576328` and
+   `X-Linked-ETag: "287816154cd5c966e04b9588ad966b2d05246832418e79881efbc62f87371471"` — both match
+   the locally-computed archive size/sha256 exactly.
+2. **A real structural gap found and worked around, without touching `ModelDownloadManager.kt`.**
+   `ModelInfo`/`ModelDownloadManager` only support one main file + one optional aux file per pack —
+   there's no way to register 3 independent files under one pack as the spec's "two hosted entries
+   (encoder and decoder_joint, plus the vocabulary file)" literally describes. Packaging all three
+   into one `.tar.bz2` reuses the *existing* bundle-extraction path (already built for the TTS
+   voices) instead of extending `ModelInfo`'s shape and `ModelDownloadManager`'s download/verify/
+   delete logic for a single pack — a smaller, better-scoped change.
+3. **`ModelRegistry.kt`: added `sravaaniTdtInfo(pack: ModelPack)`** — real, verified URL/sha256/size,
+   `extractDirName = "stt/sravaani"`. Not yet wired into the `registry` map (needs
+   `ModelPack.STT_SRAVAANI` to exist first) — the wiring is exactly one line, given below.
+4. **`STTModule.kt`: updated the three `SRAVAANI_*_FILE` path constants** from T78 Step 4's flat
+   dev-testing names to the nested paths the real bundle actually extracts to
+   (`stt/sravaani/encoder-sravaani.int8.onnx`, etc.). **This means T77-Step-5-style manual `adb`
+   testing now needs `mkdir -p files/models/stt/sravaani` first** — the flat paths Step 5 of this
+   PR used no longer match.
+5. **`README.md`:** added the SraVaani (ARTPARK-IISc/SraVaani-1.0, MIT) licence row.
+
+### Exact handoff for Sarthak (once his T20 PR merges)
+
+**`ModelManifest.kt`** — add this enum case (values are real: size from the uploaded archive; pick
+`isRequired`/placement in `coreTransceiverPacks()` based on what T20's actual pack-selection logic
+needs — that's your call, not guessed here):
+
+```kotlin
+STT_SRAVAANI(
+    "SraVaani STT Engine (9 languages)",
+    "SraVaani INT8 TDT (T78) — shared encoder + decoder_joint for hi/gu/mr/kn/ml/ta/te/bn/or",
+    sizeMb = 383,
+    isRequired = false, // your call — depends on T20's default-language handling
+    requiredFor = "Transceiver"
+),
+```
+
+Then in `ModelRegistry.kt`'s `registry` map, add exactly one line:
+```kotlin
+ModelPack.STT_SRAVAANI to sravaaniTdtInfo(ModelPack.STT_SRAVAANI),
+```
+
+`sttPackFor(code)` (wherever your T20 PR defines it) needs to return `ModelPack.STT_SRAVAANI` for
+`hi gu mr kn ml ta te bn or`, and the existing mirror pack for `en` — per the spec, don't remove
+the nine mirror STT packs from `coreTransceiverPacks()` yet (T78 Step 7 does that, after the
+phone run passes on the real switch-over).
+
+**`ui/component/Languages.kt`:** add `"or" to "ଓଡ଼ିଆ"` to `STT_LANGUAGES` — confirmed missing by
+direct read (see the "UI/manifest gaps" section above).
+
+**`DownloadsScreen.kt`:** show the STT row for any of the nine SraVaani languages as one shared
+~383 MB download unlocking all nine — real size from `ModelRegistry.getInfo(ModelPack.STT_SRAVAANI)`,
+not restated as a literal.
+
+Full prompt already drafted: `WORK_SPLIT.md` S5b.

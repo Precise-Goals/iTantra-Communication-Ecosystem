@@ -69,11 +69,16 @@ class STTModule(
          *  share this one entry, never one pair per language. */
         private const val SRAVAANI_CACHE_KEY = "sravaani"
 
-        /** Fixed dev-testing file names under filesDir/models/ (T78 Step 4), pushed by hand with
-         *  `adb` as in T77 Step 5. Step 6 replaces this with a real ModelRegistry/manifest entry. */
-        private const val SRAVAANI_ENCODER_FILE = "stt_sravaani_encoder_int8.onnx"
-        private const val SRAVAANI_DECODER_JOINT_FILE = "stt_sravaani_decoder_joint_int8.onnx"
-        private const val SRAVAANI_TOKENS_FILE = "stt_sravaani_tokens.txt"
+        /** Paths under filesDir/models/ where the shared SraVaani pack lands once
+         *  `ModelRegistry.sravaaniTdtInfo()` (T78 Step 6) extracts its `.tar.bz2` — matching
+         *  `extractDirName = "stt/sravaani"` and the archive's real internal file names exactly
+         *  (verified: `docs/evaluation/sravaani/tdt/README.md`). For manual dev-testing before the
+         *  registry/manifest wiring lands, push files to these same paths by hand with `adb`
+         *  (mkdir -p files/models/stt/sravaani first) — T77 Step 5's flat-path convention no longer
+         *  applies now that the real download path is nested. */
+        private const val SRAVAANI_ENCODER_FILE = "stt/sravaani/encoder-sravaani.int8.onnx"
+        private const val SRAVAANI_DECODER_JOINT_FILE = "stt/sravaani/decoder_joint-sravaani.int8.onnx"
+        private const val SRAVAANI_TOKENS_FILE = "stt/sravaani/sravaani_tokens.txt"
 
         // SraVaani ONNX I/O names — verified via onnxruntime.InferenceSession(...).get_inputs()/
         // get_outputs() in Colab (T78 Step 1), never assumed. See docs/evaluation/sravaani/tdt/README.md.
