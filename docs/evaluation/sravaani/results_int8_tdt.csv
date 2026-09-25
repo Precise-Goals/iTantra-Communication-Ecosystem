@@ -1,0 +1,10 @@
+model,lang,n_clips,wer,cer,rtf,load_ms,size_mb,notes
+sravaani_int8_tdt,hi_in,100,0.1000,0.0387,0.167,,464.70,encoder_plus_decoder_joint_dynamic_int8_pair;load_ms_not_measured_colab_runtime_reset
+sravaani_int8_tdt,gu_in,100,0.1985,0.0628,0.173,,464.70,encoder_plus_decoder_joint_dynamic_int8_pair;load_ms_not_measured_colab_runtime_reset
+sravaani_int8_tdt,mr_in,100,0.2014,0.0623,0.168,,464.70,encoder_plus_decoder_joint_dynamic_int8_pair;load_ms_not_measured_colab_runtime_reset
+sravaani_int8_tdt,kn_in,100,0.1919,0.0447,0.168,,464.70,encoder_plus_decoder_joint_dynamic_int8_pair;load_ms_not_measured_colab_runtime_reset
+sravaani_int8_tdt,ml_in,100,0.1994,0.0535,0.169,,464.70,encoder_plus_decoder_joint_dynamic_int8_pair;load_ms_not_measured_colab_runtime_reset
+sravaani_int8_tdt,ta_in,100,0.3291,0.1690,0.170,,464.70,encoder_plus_decoder_joint_dynamic_int8_pair;load_ms_not_measured_colab_runtime_reset
+sravaani_int8_tdt,te_in,100,0.2222,0.0637,0.169,,464.70,encoder_plus_decoder_joint_dynamic_int8_pair;load_ms_not_measured_colab_runtime_reset
+sravaani_int8_tdt,bn_in,100,0.1645,0.0496,0.165,,464.70,encoder_plus_decoder_joint_dynamic_int8_pair;load_ms_not_measured_colab_runtime_reset
+sravaani_int8_tdt,or_in,100,0.2231,0.0633,0.167,,464.70,encoder_plus_decoder_joint_dynamic_int8_pair;load_ms_not_measured_colab_runtime_reset

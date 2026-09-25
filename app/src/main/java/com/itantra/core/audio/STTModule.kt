@@ -14,17 +14,24 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.nio.FloatBuffer
+import java.nio.IntBuffer
 import kotlin.math.ln
 import kotlin.math.PI
 
 /**
- * Speech-to-Text module using AI4Bharat IndicConformer (sherpa-onnx export, ONNX INT8).
+ * Speech-to-Text module using AI4Bharat IndicConformer (sherpa-onnx export, ONNX INT8) for
+ * English, and SraVaani's INT8 encoder + hand-rolled TDT decoder (T78) for the nine Indic
+ * languages `hi gu mr kn ml ta te bn or`.
  *
- * There is no single "multilingual" model — sherpa-onnx ships one ONNX graph per language,
- * each with its own tokens.txt vocabulary alongside it. Sessions and vocabularies are
- * lazy-loaded and cached per language code.
+ * IndicConformer has no single "multilingual" model — sherpa-onnx ships one ONNX graph per
+ * language, each with its own tokens.txt vocabulary alongside it, cached per language code.
+ * SraVaani is the opposite: one shared encoder + decoder_joint pair serves all nine Indic
+ * languages, cached under one shared key regardless of which of the nine is active (see
+ * [cacheKeyFor], [SttBackend]).
  *
- * Model files: filesDir/models/stt_{lang}_int8.onnx + stt_{lang}_tokens.txt
+ * Model files: filesDir/models/stt_{lang}_int8.onnx + stt_{lang}_tokens.txt (IndicConformer);
+ * filesDir/models/stt_sravaani_encoder_int8.onnx + stt_sravaani_decoder_joint_int8.onnx +
+ * stt_sravaani_tokens.txt (SraVaani, shared).
  *
  * If a language's model/vocab isn't downloaded, [transcribe] returns
  * [AppResult.Error] with [ErrorCode.MODEL_LOAD_FAILED] — it never fabricates text.
@@ -39,6 +46,10 @@ class STTModule(
         private const val MAX_CACHED_LANGUAGES = 2
         const val SAMPLE_RATE = 16000
         private const val N_MELS = 80
+        /** T78: SraVaani's encoder needs 128 mel bins (confirmed via T77 Step 2 and the real
+         *  preproc.pt params) — every other STFT field (N_FFT, FRAME_LENGTH, HOP_LENGTH, preemph,
+         *  log guard, per-feature normalization) is identical to IndicConformer's. */
+        internal const val SRAVAANI_N_MELS = 128
         private const val FRAME_LENGTH = 400   // 25ms window at 16kHz
         private const val HOP_LENGTH = 160     // 10ms hop at 16kHz
         /** FFT size: next power of two at or above FRAME_LENGTH. NeMo pads the 400-sample
@@ -49,32 +60,98 @@ class STTModule(
         private val FEATURE_INPUT_ALIASES = listOf("audio_signal", "x", "features", "input", "waveform")
         /** Candidate input names for the sequence-length tensor, in priority order. */
         private val LENGTH_INPUT_ALIASES = listOf("length", "x_lens", "input_length", "x_length")
+
+        /** T78: the nine languages SraVaani serves. Everything else (currently just "en") stays
+         *  on IndicConformer. The app already knows the selected language (T72), so this is a
+         *  plain lookup, never language detection. */
+        private val SRAVAANI_LANGUAGES = setOf("hi", "gu", "mr", "kn", "ml", "ta", "te", "bn", "or")
+        /** Cache key every SraVaani-backed language code maps to — see [cacheKeyFor]. All nine
+         *  share this one entry, never one pair per language. */
+        private const val SRAVAANI_CACHE_KEY = "sravaani"
+
+        /** Paths under filesDir/models/ where the shared SraVaani pack lands once
+         *  `ModelRegistry.sravaaniTdtInfo()` (T78 Step 6) extracts its `.tar.bz2` — matching
+         *  `extractDirName = "stt/sravaani"` and the archive's real internal file names exactly
+         *  (verified: `docs/evaluation/sravaani/tdt/README.md`). For manual dev-testing before the
+         *  registry/manifest wiring lands, push files to these same paths by hand with `adb`
+         *  (mkdir -p files/models/stt/sravaani first) — T77 Step 5's flat-path convention no longer
+         *  applies now that the real download path is nested. */
+        private const val SRAVAANI_ENCODER_FILE = "stt/sravaani/encoder-sravaani.int8.onnx"
+        private const val SRAVAANI_DECODER_JOINT_FILE = "stt/sravaani/decoder_joint-sravaani.int8.onnx"
+        private const val SRAVAANI_TOKENS_FILE = "stt/sravaani/sravaani_tokens.txt"
+
+        // SraVaani ONNX I/O names — verified via onnxruntime.InferenceSession(...).get_inputs()/
+        // get_outputs() in Colab (T78 Step 1), never assumed. See docs/evaluation/sravaani/tdt/README.md.
+        private const val SRAVAANI_ENC_FEATURE_INPUT = "audio_signal"
+        private const val SRAVAANI_ENC_LENGTH_INPUT = "length"
+        private const val SRAVAANI_ENC_OUTPUT = "outputs"
+        private const val SRAVAANI_ENC_LENGTH_OUTPUT = "encoded_lengths"
+        private const val SRAVAANI_DJT_ENCODER_INPUT = "encoder_outputs"
+        private const val SRAVAANI_DJT_TARGETS_INPUT = "targets"
+        private const val SRAVAANI_DJT_TARGET_LENGTH_INPUT = "target_length"
+        private const val SRAVAANI_DJT_STATE1_INPUT = "input_states_1"
+        private const val SRAVAANI_DJT_STATE2_INPUT = "input_states_2"
+        private const val SRAVAANI_DJT_OUTPUT = "outputs"
+        private const val SRAVAANI_DJT_STATE1_OUTPUT = "output_states_1"
+        private const val SRAVAANI_DJT_STATE2_OUTPUT = "output_states_2"
+        /** decoder_joint's logits width: [TdtDecoder.VOCAB_SIZE] + 1 token logits + 5 duration logits. */
+        private const val SRAVAANI_DJT_LOGITS_WIDTH = 5006
+        private const val SRAVAANI_ENCODER_WIDTH = 1024
     }
 
     private val ortEnv: OrtEnvironment by lazy { OrtEnvironment.getEnvironment() }
-    // Bounded LRU (T46). Each session is a ~197MB native allocation; caching every language a
-    // user ever tapped held them all for the process lifetime. Eviction only happens inside
-    // ensureLoaded(), which holds inferenceLock, so a session is never closed while in use.
-    private val sessionCache = object : LinkedHashMap<String, OrtSession>(4, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, OrtSession>): Boolean {
+
+    private data class IoNames(val featureInput: String, val lengthInput: String?, val outputName: String)
+
+    /** T78 Step 4: unifies what used to be three parallel per-language maps (session, vocab,
+     *  I/O names) into one cache entry per *model identity* — see [cacheKeyFor]. */
+    private sealed class SttBackend {
+        abstract val vocab: Array<String>
+        abstract fun close()
+    }
+    private class IndicConformerBackend(
+        val session: OrtSession,
+        override val vocab: Array<String>,
+        val ioNames: IoNames,
+    ) : SttBackend() {
+        override fun close() { runCatching { session.close() } }
+    }
+    private class SraVaaniBackend(
+        val encoder: OrtSession,
+        val decoderJoint: OrtSession,
+        override val vocab: Array<String>,
+    ) : SttBackend() {
+        override fun close() {
+            runCatching { encoder.close() }
+            runCatching { decoderJoint.close() }
+        }
+    }
+
+    /** Resolves the cache key for a requested language: every SraVaani-backed code shares
+     *  [SRAVAANI_CACHE_KEY], so switching e.g. "hi" -> "ta" reuses the same loaded pair instead
+     *  of loading a second ~465MB copy. IndicConformer languages key by their own code. */
+    private fun cacheKeyFor(languageCode: String): String =
+        if (languageCode in SRAVAANI_LANGUAGES) SRAVAANI_CACHE_KEY else languageCode
+
+    // Bounded LRU (T46, reworked T78 Step 4 for shared-pair caching). Keyed by *model identity*
+    // (cacheKeyFor), not the requested language — the SraVaani pair (~465MB, two sessions) and an
+    // IndicConformer session (~197MB, one session) each count as exactly one entry here, however
+    // many of the nine SraVaani language codes route to it. Eviction only happens inside
+    // ensureLoaded(), which holds inferenceLock, so a backend is never closed while in use.
+    private val backendCache = object : LinkedHashMap<String, SttBackend>(4, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, SttBackend>): Boolean {
             if (size > MAX_CACHED_LANGUAGES) {
-                runCatching { eldest.value.close() }
-                vocabCache.remove(eldest.key)
-                ioNamesCache.remove(eldest.key)
-                Log.d(TAG, "Evicted STT session '${eldest.key}' (LRU)")
+                eldest.value.close()
+                Log.d(TAG, "Evicted STT backend '${eldest.key}' (LRU)")
                 return true
             }
             return false
         }
     }
-    private val vocabCache = mutableMapOf<String, Array<String>>()
-    private val ioNamesCache = mutableMapOf<String, IoNames>()
 
     /** One inference or model load at a time (T65). The feature extractor reuses member scratch
      *  buffers and the caches are plain HashMaps, so concurrent calls corrupt each other. */
     private val inferenceLock = kotlinx.coroutines.sync.Mutex()
-
-    private data class IoNames(val featureInput: String, val lengthInput: String?, val outputName: String)
 
     /** Set by the caller before transcribe(); used to stamp feature-extraction timing. */
     @Volatile var currentUtterance: com.itantra.core.telemetry.Telemetry.Utterance? = null
@@ -109,7 +186,11 @@ class STTModule(
     /** Sparse mel filterbank: for each mel band, the first FFT bin and its triangular weights. */
     private class MelBank(val startBin: IntArray, val weights: Array<FloatArray>)
 
-    private val melBank: MelBank by lazy { buildMelBank() }
+    /** T78: built once per distinct mel-bin count (80 for IndicConformer, 128 for SraVaani),
+     *  not once per class instance — [buildMelBank] takes no other per-call parameters, so the
+     *  bin count alone determines the bank. */
+    private val melBankCache = mutableMapOf<Int, MelBank>()
+    private fun melBankFor(nMels: Int): MelBank = melBankCache.getOrPut(nMels) { buildMelBank(nMels) }
 
     /** Scratch buffers, reused across frames to keep allocation constant per utterance. */
     private val fftRe = DoubleArray(N_FFT)
@@ -124,19 +205,19 @@ class STTModule(
      * (`htk=False`, the call's default since NeMo never passes `htk=True`) — a separate thing
      * from the area normalization, and previously wrong (T23).
      */
-    private fun buildMelBank(): MelBank {
+    private fun buildMelBank(nMels: Int): MelBank {
         val nBins = N_FFT / 2 + 1
         val melMin = hzToMel(0.0)
         val melMax = hzToMel(SAMPLE_RATE / 2.0)
-        val melPoints = DoubleArray(N_MELS + 2) { i ->
-            melToHz(melMin + i * (melMax - melMin) / (N_MELS + 1))
+        val melPoints = DoubleArray(nMels + 2) { i ->
+            melToHz(melMin + i * (melMax - melMin) / (nMels + 1))
         }
         val binFreq = DoubleArray(nBins) { k -> k.toDouble() * SAMPLE_RATE / N_FFT }
 
-        val starts = IntArray(N_MELS)
-        val weightRows = Array(N_MELS) { FloatArray(0) }
+        val starts = IntArray(nMels)
+        val weightRows = Array(nMels) { FloatArray(0) }
 
-        for (m in 0 until N_MELS) {
+        for (m in 0 until nMels) {
             val lower = melPoints[m]
             val center = melPoints[m + 1]
             val upper = melPoints[m + 2]
@@ -219,61 +300,141 @@ class STTModule(
         inferenceLock.withLock { ensureLoadedUnlocked(languageCode) }
 
     private suspend fun ensureLoadedUnlocked(languageCode: String): Boolean = withContext(Dispatchers.Default) {
-        if (sessionCache.containsKey(languageCode) && vocabCache.containsKey(languageCode)) {
+        val cacheKey = cacheKeyFor(languageCode)
+        if (backendCache.containsKey(cacheKey)) {
             return@withContext true
         }
 
         try {
             val startMs = System.currentTimeMillis()
 
-            val modelPath = ModelAssetExtractor.getPhysicalModelPath(
-                context, "stt_${languageCode}_int8.onnx", "models/stt/${languageCode}_model.int8.onnx"
-            )
-            val vocabPath = ModelAssetExtractor.getPhysicalModelPath(
-                context, "stt_${languageCode}_tokens.txt", "models/stt/${languageCode}_tokens.txt"
-            )
+            val backend = if (languageCode in SRAVAANI_LANGUAGES) {
+                loadSraVaaniBackend()
+            } else {
+                loadIndicConformerBackend(languageCode)
+            } ?: return@withContext false
 
-            if (modelPath == null || vocabPath == null) {
-                Log.w(TAG, "STT model or tokenizer not available on disk for '$languageCode' (model=$modelPath, vocab=$vocabPath)")
-                return@withContext false
-            }
-
-            val vocab = parseTokensFile(vocabPath)
-            if (vocab.isEmpty()) {
-                Log.w(TAG, "STT tokenizer for '$languageCode' parsed to an empty vocabulary")
-                return@withContext false
-            }
-
-            val sessionOptions = OrtSession.SessionOptions().apply {
-                setIntraOpNumThreads(2)
-                setInterOpNumThreads(1)
-                setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
-                try {
-                    addNnapi()
-                    Log.d(TAG, "STT('$languageCode'): NNAPI delegate enabled")
-                } catch (e: Exception) {
-                    Log.d(TAG, "STT('$languageCode'): NNAPI unavailable, falling back to CPU XNNPACK")
-                }
-            }
-
-            val session = ortEnv.createSession(modelPath, sessionOptions)
-            val ioNames = resolveIoNames(session) ?: run {
-                Log.e(TAG, "STT('$languageCode'): could not resolve input/output tensor names, closing session")
-                session.close()
-                return@withContext false
-            }
-
-            sessionCache[languageCode] = session
-            vocabCache[languageCode] = vocab
-            ioNamesCache[languageCode] = ioNames
+            backendCache[cacheKey] = backend
 
             val loadMs = System.currentTimeMillis() - startMs
-            Log.d(TAG, "STT('$languageCode') loaded in ${loadMs}ms — vocab size ${vocab.size}, inputs=${ioNames}")
+            Log.d(TAG, "STT('$languageCode') loaded in ${loadMs}ms [cacheKey=$cacheKey] — vocab size ${backend.vocab.size}")
             true
         } catch (e: Exception) {
             Log.e(TAG, "STT('$languageCode') load failed: ${e.message}", e)
             false
         }
+    }
+
+    /** Byte-for-byte the same loading logic as before T78 — only the return type changed, from
+     *  three separate cache-map writes to one [IndicConformerBackend]. */
+    private fun loadIndicConformerBackend(languageCode: String): IndicConformerBackend? {
+        val modelPath = ModelAssetExtractor.getPhysicalModelPath(
+            context, "stt_${languageCode}_int8.onnx", "models/stt/${languageCode}_model.int8.onnx"
+        )
+        val vocabPath = ModelAssetExtractor.getPhysicalModelPath(
+            context, "stt_${languageCode}_tokens.txt", "models/stt/${languageCode}_tokens.txt"
+        )
+
+        if (modelPath == null || vocabPath == null) {
+            Log.w(TAG, "STT model or tokenizer not available on disk for '$languageCode' (model=$modelPath, vocab=$vocabPath)")
+            return null
+        }
+
+        val vocab = parseTokensFile(vocabPath)
+        if (vocab.isEmpty()) {
+            Log.w(TAG, "STT tokenizer for '$languageCode' parsed to an empty vocabulary")
+            return null
+        }
+
+        val sessionOptions = OrtSession.SessionOptions().apply {
+            setIntraOpNumThreads(2)
+            setInterOpNumThreads(1)
+            setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
+            try {
+                addNnapi()
+                Log.d(TAG, "STT('$languageCode'): NNAPI delegate enabled")
+            } catch (e: Exception) {
+                Log.d(TAG, "STT('$languageCode'): NNAPI unavailable, falling back to CPU XNNPACK")
+            }
+        }
+
+        val session = ortEnv.createSession(modelPath, sessionOptions)
+        val ioNames = resolveIoNames(session) ?: run {
+            Log.e(TAG, "STT('$languageCode'): could not resolve input/output tensor names, closing session")
+            session.close()
+            return null
+        }
+
+        return IndicConformerBackend(session, vocab, ioNames)
+    }
+
+    /** T78 Step 4: loads the shared SraVaani encoder + decoder_joint pair from fixed file names
+     *  (see [SRAVAANI_ENCODER_FILE] etc.) — called at most once regardless of which of the nine
+     *  SraVaani-backed language codes triggered it, since [ensureLoadedUnlocked] keys the cache
+     *  by [SRAVAANI_CACHE_KEY]. */
+    private fun loadSraVaaniBackend(): SraVaaniBackend? {
+        val encoderPath = ModelAssetExtractor.getPhysicalModelPath(context, SRAVAANI_ENCODER_FILE)
+        val decoderJointPath = ModelAssetExtractor.getPhysicalModelPath(context, SRAVAANI_DECODER_JOINT_FILE)
+        val tokensPath = ModelAssetExtractor.getPhysicalModelPath(context, SRAVAANI_TOKENS_FILE)
+
+        if (encoderPath == null || decoderJointPath == null || tokensPath == null) {
+            Log.w(TAG, "SraVaani model files not available on disk (encoder=$encoderPath, " +
+                "decoder_joint=$decoderJointPath, tokens=$tokensPath)")
+            return null
+        }
+
+        val vocab = parseTokensFile(tokensPath)
+        if (vocab.isEmpty()) {
+            Log.w(TAG, "SraVaani tokenizer parsed to an empty vocabulary")
+            return null
+        }
+
+        val sessionOptions = OrtSession.SessionOptions().apply {
+            setIntraOpNumThreads(2)
+            setInterOpNumThreads(1)
+            setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
+            try {
+                addNnapi()
+                Log.d(TAG, "SraVaani: NNAPI delegate enabled")
+            } catch (e: Exception) {
+                Log.d(TAG, "SraVaani: NNAPI unavailable, falling back to CPU XNNPACK")
+            }
+        }
+
+        val encoderSession = ortEnv.createSession(encoderPath, sessionOptions)
+        val decoderJointSession = try {
+            ortEnv.createSession(decoderJointPath, sessionOptions)
+        } catch (e: Exception) {
+            encoderSession.close()
+            throw e
+        }
+
+        if (!verifySraVaaniIoNames(encoderSession, decoderJointSession)) {
+            Log.e(TAG, "SraVaani: encoder/decoder_joint I/O names don't match what T78 verified, closing sessions")
+            encoderSession.close()
+            decoderJointSession.close()
+            return null
+        }
+
+        return SraVaaniBackend(encoderSession, decoderJointSession, vocab)
+    }
+
+    /** Confirms the on-device SraVaani files still expose the exact I/O names verified in Colab
+     *  (T78 Step 1) — fails loudly rather than guessing wrong if they ever diverge. */
+    private fun verifySraVaaniIoNames(encoder: OrtSession, decoderJoint: OrtSession): Boolean {
+        val encOk = SRAVAANI_ENC_FEATURE_INPUT in encoder.inputNames &&
+            SRAVAANI_ENC_LENGTH_INPUT in encoder.inputNames &&
+            SRAVAANI_ENC_OUTPUT in encoder.outputNames &&
+            SRAVAANI_ENC_LENGTH_OUTPUT in encoder.outputNames
+        val djtOk = SRAVAANI_DJT_ENCODER_INPUT in decoderJoint.inputNames &&
+            SRAVAANI_DJT_TARGETS_INPUT in decoderJoint.inputNames &&
+            SRAVAANI_DJT_TARGET_LENGTH_INPUT in decoderJoint.inputNames &&
+            SRAVAANI_DJT_STATE1_INPUT in decoderJoint.inputNames &&
+            SRAVAANI_DJT_STATE2_INPUT in decoderJoint.inputNames &&
+            SRAVAANI_DJT_OUTPUT in decoderJoint.outputNames &&
+            SRAVAANI_DJT_STATE1_OUTPUT in decoderJoint.outputNames &&
+            SRAVAANI_DJT_STATE2_OUTPUT in decoderJoint.outputNames
+        return encOk && djtOk
     }
 
     /**
@@ -325,11 +486,9 @@ class STTModule(
         audioBuffer: FloatArray,
         languageCode: String
     ): AppResult<String> = withContext(Dispatchers.Default) {
-        val sess = sessionCache[languageCode]
-        val vocab = vocabCache[languageCode]
-        val ioNames = ioNamesCache[languageCode]
+        val backend = backendCache[cacheKeyFor(languageCode)]
 
-        if (sess == null || vocab == null || ioNames == null) {
+        if (backend == null) {
             val error = AppResult.Error(
                 ErrorCode.MODEL_LOAD_FAILED,
                 "STT model not downloaded for language '$languageCode'"
@@ -340,46 +499,9 @@ class STTModule(
 
         val inferenceStart = System.currentTimeMillis()
         try {
-            val features = extractLogMelSpectrogram(audioBuffer)
-            currentUtterance?.featureDoneNs = System.nanoTime()
-            val numFrames = features.size / N_MELS
-            if (numFrames <= 0) {
-                return@withContext AppResult.Error(ErrorCode.STT_INFERENCE_FAILED, "Audio buffer too short to transcribe")
-            }
-
-            val featureTensor = OnnxTensor.createTensor(
-                ortEnv,
-                FloatBuffer.wrap(features),
-                longArrayOf(1, N_MELS.toLong(), numFrames.toLong())
-            )
-
-            val inputs = mutableMapOf(ioNames.featureInput to featureTensor)
-            val lengthTensor = if (ioNames.lengthInput != null) {
-                OnnxTensor.createTensor(ortEnv, longArrayOf(numFrames.toLong())).also { inputs[ioNames.lengthInput] = it }
-            } else null
-
-            val outputs = sess.run(inputs)
-
-            @Suppress("UNCHECKED_CAST")
-            val logits = outputs[0].value as Array<Array<FloatArray>>
-            // NeMo/IndicConformer CTC convention: blank is the LAST vocab entry, not id 0
-            // (confirmed on-device: hi's tokens.txt has "<unk> 0" ... "<blk> 5632").
-            val text = CtcDecoder.greedyDecode(logits[0], vocab, blankId = vocab.size - 1)
-
-            val inferenceMs = System.currentTimeMillis() - inferenceStart
-            Log.d(TAG, "STT inference: '${text.take(50)}' in ${inferenceMs}ms [${languageCode}]")
-
-            featureTensor.close()
-            lengthTensor?.close()
-            outputs.close()
-
-            if (text.isBlank()) {
-                AppResult.Error(ErrorCode.STT_INFERENCE_FAILED, "Empty transcription")
-            } else {
-                currentUtterance?.charCount = text.length
-                val confidence = estimateConfidence(logits[0])
-                callbacks.onSTTResult(AppResult.Success(text), confidence, inferenceMs)
-                AppResult.Success(text)
+            when (backend) {
+                is IndicConformerBackend -> transcribeIndicConformer(audioBuffer, languageCode, backend, inferenceStart)
+                is SraVaaniBackend -> transcribeSraVaani(audioBuffer, languageCode, backend, inferenceStart)
             }
         } catch (e: Exception) {
             Log.e(TAG, "STT inference error: ${e.message}", e)
@@ -390,14 +512,182 @@ class STTModule(
         }
     }
 
+    /** IndicConformer CTC path — byte-for-byte the same computation as before T78, just reading
+     *  from [backend] instead of three separate cache maps. */
+    private fun transcribeIndicConformer(
+        audioBuffer: FloatArray,
+        languageCode: String,
+        backend: IndicConformerBackend,
+        inferenceStart: Long,
+    ): AppResult<String> {
+        val features = extractLogMelSpectrogram(audioBuffer)
+        currentUtterance?.featureDoneNs = System.nanoTime()
+        val numFrames = features.size / N_MELS
+        if (numFrames <= 0) {
+            return AppResult.Error(ErrorCode.STT_INFERENCE_FAILED, "Audio buffer too short to transcribe")
+        }
+
+        val featureTensor = OnnxTensor.createTensor(
+            ortEnv,
+            FloatBuffer.wrap(features),
+            longArrayOf(1, N_MELS.toLong(), numFrames.toLong())
+        )
+
+        val inputs = mutableMapOf(backend.ioNames.featureInput to featureTensor)
+        val lengthTensor = if (backend.ioNames.lengthInput != null) {
+            OnnxTensor.createTensor(ortEnv, longArrayOf(numFrames.toLong())).also { inputs[backend.ioNames.lengthInput] = it }
+        } else null
+
+        val outputs = backend.session.run(inputs)
+
+        @Suppress("UNCHECKED_CAST")
+        val logits = outputs[0].value as Array<Array<FloatArray>>
+        // NeMo/IndicConformer CTC convention: blank is the LAST vocab entry, not id 0
+        // (confirmed on-device: hi's tokens.txt has "<unk> 0" ... "<blk> 5632").
+        val text = CtcDecoder.greedyDecode(logits[0], backend.vocab, blankId = backend.vocab.size - 1)
+
+        val inferenceMs = System.currentTimeMillis() - inferenceStart
+        Log.d(TAG, "STT inference: '${text.take(50)}' in ${inferenceMs}ms [${languageCode}]")
+
+        featureTensor.close()
+        lengthTensor?.close()
+        outputs.close()
+
+        return if (text.isBlank()) {
+            AppResult.Error(ErrorCode.STT_INFERENCE_FAILED, "Empty transcription")
+        } else {
+            currentUtterance?.charCount = text.length
+            val confidence = estimateConfidence(logits[0])
+            callbacks.onSTTResult(AppResult.Success(text), confidence, inferenceMs)
+            AppResult.Success(text)
+        }
+    }
+
+    /** T78 Step 4: SraVaani TDT path — encoder ONNX run once, then [TdtDecoder.decode]'s greedy
+     *  loop calling decoder_joint once per emitted symbol. `stt_ms`/RTF (Telemetry, T71) cover the
+     *  whole thing because this function only returns after the loop finishes, same as the CTC
+     *  path only returns after its single ONNX call finishes. */
+    private fun transcribeSraVaani(
+        audioBuffer: FloatArray,
+        languageCode: String,
+        backend: SraVaaniBackend,
+        inferenceStart: Long,
+    ): AppResult<String> {
+        val features = extractLogMelSpectrogram(audioBuffer, SRAVAANI_N_MELS)
+        currentUtterance?.featureDoneNs = System.nanoTime()
+        val numFrames = features.size / SRAVAANI_N_MELS
+        if (numFrames <= 0) {
+            return AppResult.Error(ErrorCode.STT_INFERENCE_FAILED, "Audio buffer too short to transcribe")
+        }
+
+        val featureTensor = OnnxTensor.createTensor(
+            ortEnv,
+            FloatBuffer.wrap(features),
+            longArrayOf(1, SRAVAANI_N_MELS.toLong(), numFrames.toLong())
+        )
+        val lengthTensor = OnnxTensor.createTensor(ortEnv, longArrayOf(numFrames.toLong()))
+
+        val encoderInputs = mapOf(
+            SRAVAANI_ENC_FEATURE_INPUT to featureTensor,
+            SRAVAANI_ENC_LENGTH_INPUT to lengthTensor,
+        )
+        val encoderOutputs = backend.encoder.run(encoderInputs)
+
+        val encOutTensor = encoderOutputs.outputTensor(SRAVAANI_ENC_OUTPUT)
+        val encLenTensor = encoderOutputs.outputTensor(SRAVAANI_ENC_LENGTH_OUTPUT)
+
+        val encoderTimeSteps = encOutTensor.info.shape[2].toInt()
+        val encoderOutFlat = FloatArray(SRAVAANI_ENCODER_WIDTH * encoderTimeSteps)
+        encOutTensor.floatBuffer.get(encoderOutFlat)
+        val encoderLen = encLenTensor.longBuffer.get(0).toInt()
+
+        featureTensor.close()
+        lengthTensor.close()
+        encoderOutputs.close()
+
+        if (encoderLen <= 0) {
+            return AppResult.Error(ErrorCode.STT_INFERENCE_FAILED, "Audio buffer too short to transcribe")
+        }
+
+        // Rough analog of estimateConfidence(): average of the winning token logit at every
+        // decoder_joint step (including ones that resolve to blank), clipped to [0,1].
+        val tokenLogitMaxes = mutableListOf<Float>()
+        val decoderJointCall = TdtDecoder.DecoderJointCall { encoderFrame, lastToken, h, c ->
+            val frameTensor = OnnxTensor.createTensor(
+                ortEnv, FloatBuffer.wrap(encoderFrame), longArrayOf(1, SRAVAANI_ENCODER_WIDTH.toLong(), 1)
+            )
+            val targetsTensor = OnnxTensor.createTensor(ortEnv, IntBuffer.wrap(intArrayOf(lastToken)), longArrayOf(1, 1))
+            val targetLengthTensor = OnnxTensor.createTensor(ortEnv, IntBuffer.wrap(intArrayOf(1)), longArrayOf(1))
+            val hTensor = OnnxTensor.createTensor(ortEnv, FloatBuffer.wrap(h), longArrayOf(1, 1, TdtDecoder.PRED_HIDDEN.toLong()))
+            val cTensor = OnnxTensor.createTensor(ortEnv, FloatBuffer.wrap(c), longArrayOf(1, 1, TdtDecoder.PRED_HIDDEN.toLong()))
+
+            val djtInputs = mapOf(
+                SRAVAANI_DJT_ENCODER_INPUT to frameTensor,
+                SRAVAANI_DJT_TARGETS_INPUT to targetsTensor,
+                SRAVAANI_DJT_TARGET_LENGTH_INPUT to targetLengthTensor,
+                SRAVAANI_DJT_STATE1_INPUT to hTensor,
+                SRAVAANI_DJT_STATE2_INPUT to cTensor,
+            )
+            val djtOutputs = backend.decoderJoint.run(djtInputs)
+
+            val logitsTensor = djtOutputs.outputTensor(SRAVAANI_DJT_OUTPUT)
+            val hOutTensor = djtOutputs.outputTensor(SRAVAANI_DJT_STATE1_OUTPUT)
+            val cOutTensor = djtOutputs.outputTensor(SRAVAANI_DJT_STATE2_OUTPUT)
+
+            val logits = FloatArray(SRAVAANI_DJT_LOGITS_WIDTH)
+            logitsTensor.floatBuffer.get(logits)
+            val hOut = FloatArray(TdtDecoder.PRED_HIDDEN)
+            hOutTensor.floatBuffer.get(hOut)
+            val cOut = FloatArray(TdtDecoder.PRED_HIDDEN)
+            cOutTensor.floatBuffer.get(cOut)
+
+            var best = logits[0]
+            for (i in 1..TdtDecoder.VOCAB_SIZE) if (logits[i] > best) best = logits[i]
+            tokenLogitMaxes.add(best)
+
+            frameTensor.close(); targetsTensor.close(); targetLengthTensor.close()
+            hTensor.close(); cTensor.close(); djtOutputs.close()
+
+            TdtDecoder.StepResult(logits, hOut, cOut)
+        }
+
+        val tokens = TdtDecoder.decode(encoderOutFlat, encoderLen, decoderJointCall)
+        val text = TdtDecoder.decodeToText(tokens, backend.vocab)
+
+        val inferenceMs = System.currentTimeMillis() - inferenceStart
+        Log.d(TAG, "STT inference: '${text.take(50)}' in ${inferenceMs}ms [${languageCode}]")
+
+        return if (text.isBlank()) {
+            AppResult.Error(ErrorCode.STT_INFERENCE_FAILED, "Empty transcription")
+        } else {
+            currentUtterance?.charCount = text.length
+            val confidence = if (tokenLogitMaxes.isEmpty()) 0f else tokenLogitMaxes.average().toFloat().coerceIn(0f, 1f)
+            callbacks.onSTTResult(AppResult.Success(text), confidence, inferenceMs)
+            AppResult.Success(text)
+        }
+    }
+
+    /** Fetches a named ONNX output tensor from a [OrtSession.Result], failing loudly rather than
+     *  guessing a position if the name isn't there. */
+    private fun OrtSession.Result.outputTensor(name: String): OnnxTensor {
+        val value = this.get(name)
+        require(value.isPresent) { "ONNX output '$name' not found in result" }
+        return value.get() as OnnxTensor
+    }
+
     /**
-     * Extract 80-dimensional log-mel spectrogram features from raw PCM audio, matching NeMo's
-     * AudioToMelSpectrogramPreprocessor as configured for the AI4Bharat IndicConformer
+     * Extract [nMels]-dimensional log-mel spectrogram features from raw PCM audio, matching
+     * NeMo's AudioToMelSpectrogramPreprocessor as configured for the AI4Bharat IndicConformer
      * checkpoints — confirmed field-by-field against the real checkpoint config and the
      * installed nemo_toolkit's FilterbankFeatures source (T23), not assumed defaults.
+     *
+     * T78: [nMels] defaults to 80 (IndicConformer) so this call is byte-for-byte unchanged for
+     * every existing caller; pass [SRAVAANI_N_MELS] (128) for the SraVaani path. Every other STFT
+     * field (N_FFT, FRAME_LENGTH, HOP_LENGTH, preemph, log guard, normalization) is identical
+     * between the two models (confirmed against SraVaani's real preproc.pt in T77/T78 Step 2).
      */
     @androidx.annotation.VisibleForTesting
-    internal fun extractLogMelSpectrogram(input: FloatArray): FloatArray {
+    internal fun extractLogMelSpectrogram(input: FloatArray, nMels: Int = N_MELS): FloatArray {
         // NeMo applies preemph=0.97 once to the whole signal before framing, not per-frame.
         val audio = FloatArray(input.size)
         if (input.isNotEmpty()) {
@@ -405,7 +695,7 @@ class STTModule(
             for (i in 1 until input.size) audio[i] = input[i] - 0.97f * input[i - 1]
         }
 
-        val bank = melBank
+        val bank = melBankFor(nMels)
         // NeMo's log_zero_guard_value default is 2**-24, not the 1e-10 used previously.
         val logGuard = 5.9604645e-8
 
@@ -414,7 +704,7 @@ class STTModule(
         // index outside the audio treated as zero. Physical frame count is 1 + size/HOP_LENGTH.
         val half = FRAME_LENGTH / 2
         val numFrames = audio.size / HOP_LENGTH + 1
-        val frames = Array(numFrames) { FloatArray(N_MELS) }
+        val frames = Array(numFrames) { FloatArray(nMels) }
 
         for (t in 0 until numFrames) {
             val frameStart = t * HOP_LENGTH - half
@@ -428,7 +718,7 @@ class STTModule(
 
             fftPowerInPlace()
 
-            for (m in 0 until N_MELS) {
+            for (m in 0 until nMels) {
                 val w = bank.weights[m]
                 val s = bank.startBin[m]
                 var energy = 0f
@@ -450,7 +740,7 @@ class STTModule(
         // exactly zero. Reproduced here because the golden reference (T29) comes from that exact
         // code path, and unbiased (N-1) variance, per NeMo's normalize_batch.
         val validLen = numFrames - 1
-        for (m in 0 until N_MELS) {
+        for (m in 0 until nMels) {
             var mean = 0.0
             for (t in 0 until validLen) mean += frames[t][m]
             mean /= validLen
@@ -465,10 +755,10 @@ class STTModule(
             frames[validLen][m] = 0f
         }
 
-        // Flatten [T, N_MELS] → [N_MELS, T] (transpose for model input)
-        val result = FloatArray(N_MELS * numFrames)
+        // Flatten [T, nMels] → [nMels, T] (transpose for model input)
+        val result = FloatArray(nMels * numFrames)
         for (t in 0 until numFrames) {
-            for (m in 0 until N_MELS) {
+            for (m in 0 until nMels) {
                 result[m * numFrames + t] = frames[t][m]
             }
         }
@@ -503,13 +793,11 @@ class STTModule(
     }
 
     fun release() {
-        sessionCache.values.forEach { runCatching { it.close() } }
-        sessionCache.clear()
-        vocabCache.clear()
-        ioNamesCache.clear()
+        backendCache.values.forEach { it.close() }
+        backendCache.clear()
         Log.d(TAG, "STTModule released")
     }
 
     fun isLanguageLoaded(languageCode: String): Boolean =
-        sessionCache.containsKey(languageCode) && vocabCache.containsKey(languageCode)
+        backendCache.containsKey(cacheKeyFor(languageCode))
 }

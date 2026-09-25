@@ -3999,6 +3999,30 @@ If Checkpoint 1, 2 or 3 fails, or the week runs past **day 7**, stop T78 and run
 - Do not remove the mirror STT packs before Step 7's phone run passes.
 - Do not quote the estimated sizes (~500 MB, ~690 MB total) as measured. Use only Step 1's real numbers.
 
+> **T78 progress (2026-09-25, PR #34, `feature/t78-tdt-engine`).**
+> - **Steps 1–4: done.** Pair quantized to 464.7 MB (encoder 454.4 MB + decoder_joint 10.3 MB).
+>   Mel pipeline parameterized (80/128), `TdtDecoder.kt` + parity test, dual-session loading in
+>   `STTModule` (all nine codes share one cache entry).
+> - **Checkpoint 1: MISSED, overridden by Gaurav.** Desktop INT8 TDT WER (8 non-English languages)
+>   is 20.09% vs IndicConformer's 19.99% — misses by 0.10 points (pair size passes at 464.7 MB).
+>   T30 (S1b), which would give a possibly-different bar, has not landed (checked: no
+>   `results_app_features.csv`, no merged PR). Recorded as a deliberate deviation, not a pass —
+>   see `docs/evaluation/sravaani/tdt/README.md`.
+> - **Checkpoint 2: PASSED.** `MelFeatureGoldenTest`, `SraVaaniMelGoldenTest`,
+>   `TdtDecoderParityTest` all green.
+> - **Checkpoint 3: PASSES on the low-range phone (CPH2467) only.** No kill/ANR, RTF median 0.260,
+>   STT latency median 682.6 ms (≤ 834.2 ms = 1.5× IndicConformer's 556.2 ms). **TOTAL PSS nearly
+>   doubles (737 MB → 1364 MB) with the pair loaded** — not a formal gate, but material for the
+>   adopt/keep call. Mid-range phone (Vivo V2338), the full 10-minute sustained session, and native
+>   Tamil/Odia speakers are still outstanding — see `docs/evaluation/sravaani/phone/tdt/README.md`.
+> - **Step 6: Gaurav's `ModelRegistry.kt` half done** — real bundle uploaded to
+>   `huggingface.co/Chgauravpc/itantra` as `sravaani_tdt.tar.bz2`, verified via the upload
+>   response's `X-Linked-Size`/`X-Linked-ETag`. **Sarthak's `ModelManifest.kt` half is still
+>   blocked** — `git grep "fun sttPackFor" origin/main` finds no match; T20 (S5) has not merged,
+>   though it was originally scheduled for Day 4 (`WORK_SPLIT.md` §3). Exact handoff (the enum
+>   case, the one-line registry wiring) is in the PR/README, not guessed here.
+> - Step 7 (switch-over) not started.
+
 ---
 
 # Group F — Dossier (T56–T61)
@@ -4045,7 +4069,7 @@ Before/after table from the week-0 and week-6 CSVs; rehearsed two-device demo; d
 | G — second audit | T62 🔬, T63, T64 🔬, T65, T66 🎨, T67 🎨, T68, T69 | Specced, anchors verified against committed code and working tree on 2026-09-23. T62, T65 done |
 | G — after first device run | T70, T71, T72 🎨; T45 revised | Anchors verified against `feature/latency-pipeline` @ `e57fb7d` on 2026-09-24. All four done in PR #17 |
 | H — after second device run | T43 (re-anchored), T73, T46 (explicit), T74 | Anchors verified against `feature/latency-pipeline-2` @ `71b2c17` (PR #17) on 2026-09-24 |
-| I — revised specs and evaluations | T20 (revised), T76 🔬, T77 🔬, T78 🔬 | T76 done (PR #27); its rule retired 2026-09-25. T77 done (PR #29): CTC route failed. T78 (TDT engine) chosen 2026-09-25, T64 is its fallback |
+| I — revised specs and evaluations | T20 (revised), T76 🔬, T77 🔬, T78 🔬 | T76 done (PR #27); its rule retired 2026-09-25. T77 done (PR #29): CTC route failed. T78 (TDT engine) in progress in PR #34: Steps 1-4 done, C1 missed/overridden, C2 passed, C3 passes on the low-range phone only (memory flagged), Step 6 half-done (Gaurav's registry entry; Sarthak's half blocked on T20). T64 remains the fallback |
 | Judgement only | T01, T03, T04, T16, T25–T28, T36, T54 | Trivial, or covered inline in Part 1 |
 | Superseded | T19 → T64; T55 → merged into T64 Step 6 | — |
 

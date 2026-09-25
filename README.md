@@ -409,6 +409,7 @@ The commit history documents genuine, iterative on-device engineering:
 | Component | License |
 | --- | --- |
 | AI4Bharat IndicConformer (sherpa-onnx export) | Apache 2.0 |
+| ARTPARK-IISc SraVaani-1.0 (T78 TDT engine) | MIT |
 | sherpa-onnx / Piper / Coqui / Mimic3 voices | Apache 2.0 / MIT (voice-dependent) |
 | MMS voices (Marathi/Kannada/Tamil/Telugu/Odia, self-converted, T17b) | **CC-BY-NC 4.0 (non-commercial)** |
 | Silero VAD | MIT |

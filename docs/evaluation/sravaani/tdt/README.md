@@ -1,0 +1,372 @@
+# T78 — SraVaani TDT engine
+
+> Spec: `docs/IMPLEMENTATION_SPEC_2.md`, Group I → "T78 🔬 · SraVaani TDT engine: one on-device model
+> for the nine Indic languages". Design: `docs/evaluation/sravaani/tdt-engine-design.md`.
+> Depends on: T77 (PR #29), T23/T29 (PR #26).
+
+## Step 1 — the INT8 TDT pair, measured (Colab)
+
+**Source:** the ONNX bundle T77 found, linked from the SraVaani model card's own README
+(`https://drive.google.com/file/d/1ap6qSg-DG5va-noeNY8diMVLqygutqBa/view`) — a 1.7 GB zip
+containing `encoder-sravaani.onnx` (1.77 GB FP32), `decoder_joint-sravaani.onnx` (43 MB FP32),
+`ctc-sravaani.onnx` (unused here), `sravaani_onnx_infer.py` (the model card's own reference
+inference script, printed and read in full — its `decode_rnnt` is the source for every ONNX I/O
+name below), and `tokenizer.model`.
+
+### 1. Quantization
+
+`quantize_dynamic(..., weight_type=QuantType.QUInt8)`, exactly as T77 Step 3, applied separately
+to the encoder and decoder_joint (not merged — unlike T77's CTC route, these stay two graphs and
+two ONNX sessions).
+
+| File | Size | sha256 |
+| --- | --- | --- |
+| `encoder-sravaani.int8.onnx` | 454.4 MB | `3bf1c5d2cb91640135d32b87d9b1764335f356a981fa2cfeea4e5fcdfdeb19fd` |
+| `decoder_joint-sravaani.int8.onnx` | 10.3 MB | `ee795c233163b21a4a051f9deeb36111f9c3872d6947382ef166aa4cddeabc4a` |
+| **Pair total** | **464.7 MB** | — |
+
+Quantization warnings (`Slice`/`Tile`/depthwise-conv ops left FP32) match exactly what T77 saw on
+the CTC merge — expected for `quantize_dynamic` on a Conformer-style architecture, not a problem.
+
+### 2. I/O verification (printed before use, never assumed)
+
+FP32 and INT8 graphs have identical I/O names/shapes/dtypes (quantization did not rename anything):
+
+- **Encoder:** `audio_signal[*, 128, *]` float32 + `length[*]` int64 → `outputs[*, 1024, *]`
+  float32 + `encoded_lengths[*]` int64.
+- **Decoder_joint:** `encoder_outputs[*,1024,*]` float32, `targets[*,*]` int32, `target_length[*]`
+  int32, `input_states_1/2[1,*,640]` float32 → `outputs[*,*,*,5006]` float32 (5001 token logits +
+  5 duration logits), `prednet_lengths` int32, `output_states_1/2[1,*,640]` float32.
+
+Matches the design doc §1c and `sravaani_onnx_infer.py`'s `decode_rnnt` exactly: `BLANK_ID=5000`,
+`VOCAB_SIZE=5000`, `DURATIONS=[0,1,2,3,4]`, `max_symbols=10` (hardcoded via `range(10)` in the
+script, not read from a config file).
+
+**Note for Step 3/4 (Kotlin):** `length` is **int64** on the encoder but `targets`/`target_length`
+are **int32** on decoder_joint — a real dtype split to carry through exactly.
+
+### 3. Desktop accuracy and RTF (INT8, 1 CPU thread)
+
+Same 100 FLEURS clips per language as T76/T77 (first 100 rows of `data/<lang>/test.tsv` sorted by
+filename; column 1 = filename, column 3 = normalized transcription — verified directly against
+raw TSV rows). Preprocessing via `sravaani_onnx_infer.py`'s own `preprocess()` (librosa-based —
+note this omits the 0.97 preemphasis step that the real `preproc.pt` applies; used here only
+because it's the model card's own documented reference inference path for an end-to-end WER
+number, not for the Step 2 golden test, which uses the real `preproc.pt` instead). Same
+NFC → lowercase → strip Unicode `P*` punctuation → collapse-whitespace scoring as T76/T77,
+`jiwer` for corpus WER/CER. Full numbers in `docs/evaluation/sravaani/results_int8_tdt.csv`.
+
+| Lang | IndicConformer (T76) | SraVaani TDT FP32 (T76) | **SraVaani INT8 TDT** | Median RTF |
+| --- | --- | --- | --- | --- |
+| hi | 11.46% | 9.38% | **10.00%** | 0.167 |
+| gu | 19.57% | 19.52% | **19.85%** | 0.173 |
+| mr | 19.80% | 19.16% | **20.14%** | 0.168 |
+| kn | 17.40% | 17.96% | **19.19%** | 0.168 |
+| ml | 23.36% | 19.00% | **19.94%** | 0.169 |
+| ta | 31.94% | 33.03% | **32.91%** | 0.170 |
+| te | 21.81% | 21.10% | **22.22%** | 0.169 |
+| bn | 14.57% | 15.32% | **16.45%** | 0.165 |
+| or | — (no model) | 21.69% | **22.31%** | 0.167 |
+
+**Average, 8 non-English shared languages:**
+
+| | IndicConformer | SraVaani TDT FP32 (T76) | **SraVaani INT8 TDT** |
+| --- | --- | --- | --- |
+| Avg WER | 19.99% | 19.31% | **20.09%** |
+
+### Checkpoint 1 — MISSED, overridden by Gaurav
+
+Checkpoint 1 requires **both** avg INT8 TDT WER ≤ 19.99% **and** pair size ≤ ~550 MB.
+
+- Size: **464.7 MB — passes** (better than the design doc's ~490–500 MB estimate).
+- Accuracy: **20.09% vs 19.99% — misses by 0.10 points.** INT8 quantization erased essentially
+  all of TDT's FP32 accuracy advantage over IndicConformer (19.31% → 20.09%, a 0.78-point
+  quantization loss) and pushed the average just past IndicConformer's number.
+
+Per spec: *"Missed: stop and go to the fallback. The accuracy advantage is the reason for the
+week."* **Gaurav explicitly overrode this stop rule** and directed the work to continue to Step 2,
+judging the 0.10-point margin (driven mostly by Hindi's quantization loss, 9.38%→10.00%) close
+enough to proceed given RTF and size are both strong. This is a deliberate, recorded deviation
+from the spec's literal checkpoint rule, not a passing result — if T78 is ultimately not adopted,
+this is the number that says why.
+
+**Known gaps in this record:** the Colab runtime reset between Steps 1 and 2, which lost the
+per-clip hypothesis TSVs (only the aggregate WER/CER/RTF numbers above survived, from console
+output) and the model cold-load time (`load_ms` in `results_int8_tdt.csv` is blank, not
+measured — not fabricated). The Step 1.4 parity fixture (one clip's encoder output + reference
+token ids, for the Step 3 `TdtDecoderParityTest`) was also lost and was regenerated in Step 3
+below.
+
+## Step 2 — 128-mel features, with a golden test
+
+`STTModule.kt`'s mel filterbank and `extractLogMelSpectrogram` were parameterized by `nMels`
+(default `N_MELS=80`, so every existing call site — including `MelFeatureGoldenTest` — is
+byte-for-byte unchanged). A new `SRAVAANI_N_MELS=128` constant and `SraVaaniMelGoldenTest` were
+added, mirroring `MelFeatureGoldenTest`'s structure exactly.
+
+**Golden reference source:** not the librosa-based `sravaani_onnx_infer.py::preprocess()` used for
+Step 1's WER run (which omits preemphasis), but the model's **real, documented preprocessor** —
+`SraVaaniProcessor`, loaded via `AutoProcessor.from_pretrained(..., trust_remote_code=True)` per
+the model card's own "Sample Usage" section. Its `from_pretrained` expects a local directory
+containing `tokenizer.model` and `preproc.pt` (both fetched directly from the HF repo
+`ARTPARK-IISc/SraVaani-1.0` at revision `f5dd5358325a5208775b91dad98918e079ea2b27`, not from the
+ONNX bundle). Its source (`processing_sravaani.py`, read in full) confirmed every param T77 Step 2
+already found:
+
+```
+{'sample_rate': 16000, 'n_fft': 512, 'hop_length': 160, 'win_length': 400, 'preemph': 0.97,
+ 'mag_power': 2.0, 'log_zero_guard_value': 5.960464477539063e-08, 'normalize': 'per_feature',
+ 'pad_value': 0.0, 'CONSTANT': 1e-05}
+```
+
+— and its `_normalize_per_feature`/masking logic matches the Kotlin implementation's
+`validLen = numFrames - 1` / last-frame-zeroed approach exactly (`seq_len = floor(wav_len/hop)`,
+mean/variance over valid steps only, unbiased variance, then `masked_fill(pad_value=0.0)` beyond
+`seq_len` — the same one-fewer-valid-frame convention already reproduced in
+`extractLogMelSpectrogram`). `fb.shape == [1, 128, 257]` confirms the 128-band filterbank over the
+512-point FFT's 257 bins.
+
+**Fixture:** the same hi_in FLEURS clip validated end-to-end in Step 1
+(`10011266027513218401.wav`, 145,920 samples @ 16kHz), run through the real `SraVaaniProcessor`.
+Output `input_features` shape `[1, 128, 913]`, `feature_lengths=912` — matches the Kotlin formula
+(`numFrames = audio.size/HOP_LENGTH + 1 = 912+1 = 913`, `validLen=912`) exactly.
+
+Fixtures committed: `app/src/test/resources/fixture_sravaani.wav` (32-bit float mono WAV),
+`app/src/test/resources/golden_features_sravaani.npy` (float32, shape `[128, 913]`).
+
+**VERIFY:** `.\gradlew.bat :app:testDebugUnitTest` — both `MelFeatureGoldenTest` (unchanged,
+80-mel) and `SraVaaniMelGoldenTest` (new, 128-mel) green at 1e-3 tolerance.
+
+## Step 3 — `TdtDecoder.kt`, with a decode-parity test
+
+New pure-Kotlin `app/src/main/java/com/itantra/core/audio/TdtDecoder.kt`, kept separate from ONNX
+like `CtcDecoder.kt`, implementing the greedy TDT loop from the design doc §1c: `blank=5000`,
+`durations=[0,1,2,3,4]`, `max_symbols=10`, LSTM state zeroed per utterance, token/duration logits
+split at `vocab_size+1`. The `decoder_joint` ONNX call is taken as a function parameter
+(`TdtDecoder.DecoderJointCall`) so the loop is unit-tested without a model.
+
+### Parity fixture (regenerated after the runtime reset)
+
+The encoder + decoder_joint pair was re-quantized (same method as Step 1; not re-verified against
+the committed sha256s since a fresh Colab runtime produces a fresh file each time, but decoding
+the same hi_in clip through them reproduced the **exact same token ids and hypothesis text** as
+Step 1's original sanity check — confirming determinism). `decode_rnnt` was re-run on the same
+fixture clip (`10011266027513218401.wav`) with every one of its 97 `decoder_joint` calls recorded:
+the encoder time index and last-emitted-token fed in, the LSTM state in and out, and the full 5006
+logits out. Fixtures committed under `app/src/test/resources/`:
+
+| File | Shape/content |
+| --- | --- |
+| `parity_encoder_out.npy` | `[1024, 114]` float32 (encoder output, batch dim dropped) |
+| `parity_encoder_len.txt` | `114` |
+| `parity_trace_t.txt` / `parity_trace_last_token.txt` | 97 lines each — per-step encoder time index and last token |
+| `parity_trace_h_in.npy` / `parity_trace_c_in.npy` | `[97, 640]` — LSTM state fed into each step |
+| `parity_trace_logits.npy` | `[97, 5006]` — decoder_joint output at each step |
+| `parity_trace_h_out.npy` / `parity_trace_c_out.npy` | `[97, 640]` — updated LSTM state from each step |
+| `parity_reference_tokens.txt` | the 43 final emitted token ids |
+
+`TdtDecoderParityTest` replays this trace through a stub `DecoderJointCall`: at every step it
+asserts the encoder frame and last-token `TdtDecoder.decode` requests match the recorded ones
+exactly (not just the final answer), then returns the recorded logits/state. **Passed** — every
+step's inputs matched, and the decoded token list equals `parity_reference_tokens.txt` exactly.
+
+### Tokenizer: piece-join rule vs `sp.decode()`
+
+Exported SraVaani's SentencePiece vocabulary as a flat `<piece> <id>` file (`sravaani_tokens.txt`,
+committed alongside this README; blank last, `<blk> 5000`, 5001 lines — same format
+`CtcDecoder.parseTokens` reads). Rather than re-downloading ~4 GB of FLEURS audio across 8
+languages to re-derive "every Step 1 hypothesis" (lost to the runtime reset), the piece-join rule
+(`▁`→space, same as `CtcDecoder.decodeToken`) was checked against `sp.decode()` on **every one of
+the 5000 vocabulary pieces individually** — broader coverage than a sample of hypotheses would
+give.
+
+**Result: 4999/5000 match exactly.** The one mismatch is id 0 (`<unk>`): `sp.decode([0])` renders
+it as `" ⁇ "`, but the literal piece text is `"<unk>"`. Follow-up checks (embedding id 0 between
+real tokens) showed the substitution `" ⁇ "` is correct in every position; the only remaining
+divergence is a single incidental leading/trailing space when `<unk>` is the very first or last
+token of the **whole utterance**, caused by `CtcDecoder`-style final `.trim()` — a whitespace-only
+edge case, not a text-content one, and consistent with the trim already applied everywhere else in
+this codebase.
+
+**Decision (Gaurav):** special-case `UNK_ID=0` in `TdtDecoder.decodeToText` to emit `" ⁇ "`
+directly, rather than adding a native SentencePiece dependency. Implemented and documented in
+`TdtDecoder.kt`.
+
+**Checkpoint 2 — PASSED.** `MelFeatureGoldenTest`, `SraVaaniMelGoldenTest`, and
+`TdtDecoderParityTest` are all green (`.\gradlew.bat :app:testDebugUnitTest`). No override needed.
+
+## Step 4 — dual-session loading in `STTModule`
+
+`STTModule`'s three parallel per-language caches (`sessionCache`, `vocabCache`, `ioNamesCache`)
+are unified into one `backendCache: LinkedHashMap<String, SttBackend>`, keyed by **model
+identity** rather than requested language (`cacheKeyFor`): every one of the nine SraVaani-backed
+codes (`hi gu mr kn ml ta te bn or`) maps to the single `SRAVAANI_CACHE_KEY`, so switching between
+them reuses the same loaded pair — the shared-pair requirement falls out of the cache key choice
+itself, with no separate size-weighted accounting needed. `en` (and any other IndicConformer
+language) still keys by its own code. The bounded-LRU eviction logic (`MAX_CACHED_LANGUAGES = 2`)
+is unchanged; it just now evicts whole backends (`SttBackend.close()`) instead of three
+separately-tracked map entries.
+
+`SttBackend` is a sealed class: `IndicConformerBackend` (one session — the exact same computation
+as before T78, moved into `transcribeIndicConformer` verbatim, just reading from the backend
+object instead of three local variables) and `SraVaaniBackend` (encoder + decoder_joint sessions).
+`transcribeSraVaani` runs the encoder once, then drives `TdtDecoder.decode` with a
+`DecoderJointCall` that wraps the actual ONNX `decoder_joint.run(...)` call — allocating small
+per-step tensors (encoder frame, targets, target_length, LSTM state) exactly as the Python
+reference does per decode step.
+
+**Telemetry/warm-up:** no changes needed to `Telemetry.kt` or
+`ITantraForegroundService.warmUp()`/`onSpeechReady` — both already call `STTModule` generically
+(`ensureLoaded(lang)` then `transcribe(audio, lang)`), and `inferDoneNs` is stamped by the caller
+right after `transcribe()` returns. Since `transcribeSraVaani` only returns after the whole decode
+loop finishes (same as `transcribeIndicConformer` only returning after its one ONNX call), `stt_ms`
+and RTF automatically cover the entire TDT loop with no plumbing changes. `currentUtterance`'s
+`featureDoneNs`/`charCount` stamps are set at the same points in both paths.
+
+**Confidence:** `estimateConfidence` (CTC per-frame max-logit average) doesn't apply to the TDT
+loop's shape, so `transcribeSraVaani` computes an analogous heuristic — the average of the winning
+token logit at every decoder_joint step (including ones that resolve to blank), clipped to
+`[0,1]` — computed as a side effect inside the `DecoderJointCall` closure rather than by changing
+`TdtDecoder.decode`'s already-tested return type.
+
+**I/O names:** SraVaani's encoder/decoder_joint names are fixed constants (verified in Step 1),
+not resolved via the alias-list/shape-inference fallback IndicConformer uses (`resolveIoNames`) —
+but `verifySraVaaniIoNames` still checks the on-device files expose exactly those names at load
+time, failing the load loudly rather than assuming they still match if a future model swap
+diverges.
+
+**Dev-testing file names** (Step 6 replaces these with a real `ModelRegistry`/manifest entry):
+
+| File | filesDir/models/ name |
+| --- | --- |
+| Encoder | `stt_sravaani_encoder_int8.onnx` |
+| Decoder_joint | `stt_sravaani_decoder_joint_int8.onnx` |
+| Tokens | `stt_sravaani_tokens.txt` |
+
+**VERIFY:** `.\gradlew.bat :app:testDebugUnitTest` — full suite green, including
+`MelFeatureGoldenTest`, `SraVaaniMelGoldenTest`, and `TdtDecoderParityTest`. `:app:compileDebugKotlin`
+also checked clean (confirms the ONNX Runtime Java API usage — `OrtSession.Result.get(name)`,
+`OnnxTensor.info.shape`, `.floatBuffer`, `.longBuffer` — against the real library, not assumed).
+
+No on-device phone test yet — that's Step 5, which needs the actual SraVaani files pushed via
+`adb` to the file names above.
+
+## Step 5 — phone run (PARTIAL — low-range phone only)
+
+Full details: `docs/evaluation/sravaani/phone/tdt/README.md`.
+
+**A real gap found:** Step 4's routing is unconditional — every SraVaani-backed language code
+(including `hi`) always resolves to the SraVaani backend, with no code path left to run Hindi
+through IndicConformer. Worked around with a temporary, uncommitted, local-only edit for the
+baseline capture only (excluded `"hi"` from `SRAVAANI_LANGUAGES`, rebuilt, measured, reverted —
+confirmed clean via `git diff` before restoring the real routing and rebuilding again).
+
+**Checkpoint 3's three literal gates all PASS on CPH2467 (low-range, the gate phone):** no
+kill/ANR, RTF median 0.260 (< 1.0), STT latency median 682.6ms (≤ 834.2ms = 1.5× IndicConformer's
+556.2ms). **But TOTAL PSS jumped from ~737MB to ~1364MB with the SraVaani pair loaded** — nearly
+double the team's <700MB guide, on the phone the PS calls "low range." This isn't one of
+Checkpoint 3's formal gates, but it's a material number for the eventual adopt/keep decision.
+
+**Not done / incomplete:** the mid-range phone (Vivo V2338, flaky connection this session), the
+full 10-minute sustained session (ran ~30s instead), and reliable Tamil/Odia coverage (neither
+tester is a native speaker; Odia isn't in the language picker yet). These remain before
+Checkpoint 3 is treated as final.
+
+## UI / manifest gaps confirmed during Step 5 (Sarthak's Step 6 scope — none fixed here)
+
+Testing on-device surfaced, and this section confirms with direct file references, exactly what
+T78 Step 6 (`WORK_SPLIT.md` S5b) already expected to find. Nothing below was changed — Step 6 is
+explicitly out of scope for Gaurav's steps and gated on Sarthak's T20 (S5) merging first.
+
+- **The Downloads/manifest system is still one-pack-per-language.**
+  `app/src/main/java/com/itantra/domain/model/ModelManifest.kt`'s `ModelPack` enum has a separate
+  188 MB entry per IndicConformer language (`STT_HINDI`, `STT_GUJARATI`, `STT_MARATHI`, ...) and no
+  `STT_SRAVAANI` entry at all. This is exactly the "old" architecture Step 6's `sttPackFor()` change
+  is meant to replace for the nine SraVaani-backed codes with one shared pack. Until then, the
+  Downloads screen has no way to express "one ~465-500MB download unlocks nine languages" — it can
+  only show N independent per-language rows, which is what looked like "old STT engines" during
+  testing.
+- **Odia (`or`) is completely absent from the language picker.**
+  `app/src/main/java/com/itantra/ui/component/Languages.kt`'s `STT_LANGUAGES` list has exactly nine
+  entries (`hi, en, gu, mr, kn, ml, ta, te, bn`) — confirmed by direct read, not inferred. There is
+  no way to select Odia in the app UI at all right now, which is why it couldn't be phone-tested in
+  Step 5 despite being one of the nine SraVaani-backed target languages. `STT_LANGUAGES` is
+  consumed by the language-selector chips in
+  `app/src/main/java/com/itantra/ui/screen/TransceiverScreen.kt` (`items(STT_LANGUAGES, ...)`) —
+  adding `"or" to "ଓଡ଼ିଆ"` there is a one-line fix already specified in `WORK_SPLIT.md` S5b Step 3.
+- **No UI signal distinguishes which backend is active.** Selecting Hindi looks identical in the
+  UI whether it resolves to IndicConformer or SraVaani underneath — the only way to tell during
+  Step 5 testing was reading `adb logcat` for `STTModule`'s `SraVaani: NNAPI delegate enabled` /
+  `loaded in ... [cacheKey=sravaani]` lines. Not a blocker for Step 6, but worth Sarthak knowing
+  when he builds the Downloads-screen messaging — there's no existing UI precedent to reuse for
+  "this language is currently backed by the shared pack."
+
+## Step 6 (Gaurav's half) — DONE. Sarthak's half still blocked on his T20 (S5)
+
+**Gate check, per `WORK_SPLIT.md` S5b's own instruction:** `git grep "fun sttPackFor" origin/main`
+returns no match — T20 (S5) has not merged. `sttPackFor` doesn't exist anywhere yet, not just
+"unmerged" — it's T20's own function to write. Sarthak's `ModelManifest.kt`/`DownloadsScreen.kt`/
+`Languages.kt` changes cannot start until it does. Nothing in those files was touched here.
+
+### What was done (Gaurav's half, doesn't depend on T20)
+
+1. **Uploaded the real model bundle.** Packaged `encoder-sravaani.int8.onnx` +
+   `decoder_joint-sravaani.int8.onnx` + `sravaani_tokens.txt` into one `sravaani_tdt.tar.bz2`
+   (wrapped in a top-level `sravaani_tdt/` folder — required, since `ArchiveExtractor` always
+   strips exactly one top-level directory from every entry, matching sherpa-onnx's own bundle
+   convention; a flat/unwrapped tar would have every entry silently dropped on extraction).
+   Uploaded to `huggingface.co/Chgauravpc/itantra` (the same repo as the T17b MMS voices).
+   Verified via the HTTP response after upload, not assumed: `X-Linked-Size: 401576328` and
+   `X-Linked-ETag: "287816154cd5c966e04b9588ad966b2d05246832418e79881efbc62f87371471"` — both match
+   the locally-computed archive size/sha256 exactly.
+2. **A real structural gap found and worked around, without touching `ModelDownloadManager.kt`.**
+   `ModelInfo`/`ModelDownloadManager` only support one main file + one optional aux file per pack —
+   there's no way to register 3 independent files under one pack as the spec's "two hosted entries
+   (encoder and decoder_joint, plus the vocabulary file)" literally describes. Packaging all three
+   into one `.tar.bz2` reuses the *existing* bundle-extraction path (already built for the TTS
+   voices) instead of extending `ModelInfo`'s shape and `ModelDownloadManager`'s download/verify/
+   delete logic for a single pack — a smaller, better-scoped change.
+3. **`ModelRegistry.kt`: added `sravaaniTdtInfo(pack: ModelPack)`** — real, verified URL/sha256/size,
+   `extractDirName = "stt/sravaani"`. Not yet wired into the `registry` map (needs
+   `ModelPack.STT_SRAVAANI` to exist first) — the wiring is exactly one line, given below.
+4. **`STTModule.kt`: updated the three `SRAVAANI_*_FILE` path constants** from T78 Step 4's flat
+   dev-testing names to the nested paths the real bundle actually extracts to
+   (`stt/sravaani/encoder-sravaani.int8.onnx`, etc.). **This means T77-Step-5-style manual `adb`
+   testing now needs `mkdir -p files/models/stt/sravaani` first** — the flat paths Step 5 of this
+   PR used no longer match.
+5. **`README.md`:** added the SraVaani (ARTPARK-IISc/SraVaani-1.0, MIT) licence row.
+
+### Exact handoff for Sarthak (once his T20 PR merges)
+
+**`ModelManifest.kt`** — add this enum case (values are real: size from the uploaded archive; pick
+`isRequired`/placement in `coreTransceiverPacks()` based on what T20's actual pack-selection logic
+needs — that's your call, not guessed here):
+
+```kotlin
+STT_SRAVAANI(
+    "SraVaani STT Engine (9 languages)",
+    "SraVaani INT8 TDT (T78) — shared encoder + decoder_joint for hi/gu/mr/kn/ml/ta/te/bn/or",
+    sizeMb = 383,
+    isRequired = false, // your call — depends on T20's default-language handling
+    requiredFor = "Transceiver"
+),
+```
+
+Then in `ModelRegistry.kt`'s `registry` map, add exactly one line:
+```kotlin
+ModelPack.STT_SRAVAANI to sravaaniTdtInfo(ModelPack.STT_SRAVAANI),
+```
+
+`sttPackFor(code)` (wherever your T20 PR defines it) needs to return `ModelPack.STT_SRAVAANI` for
+`hi gu mr kn ml ta te bn or`, and the existing mirror pack for `en` — per the spec, don't remove
+the nine mirror STT packs from `coreTransceiverPacks()` yet (T78 Step 7 does that, after the
+phone run passes on the real switch-over).
+
+**`ui/component/Languages.kt`:** add `"or" to "ଓଡ଼ିଆ"` to `STT_LANGUAGES` — confirmed missing by
+direct read (see the "UI/manifest gaps" section above).
+
+**`DownloadsScreen.kt`:** show the STT row for any of the nine SraVaani languages as one shared
+~383 MB download unlocking all nine — real size from `ModelRegistry.getInfo(ModelPack.STT_SRAVAANI)`,
+not restated as a literal.
+
+Full prompt already drafted: `WORK_SPLIT.md` S5b.

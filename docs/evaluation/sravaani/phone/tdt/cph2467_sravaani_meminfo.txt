@@ -1,0 +1,69 @@
+Applications Memory Usage (in Kilobytes):
+Uptime: 90236874 Realtime: 135485669
+
+** MEMINFO in pid 23098 [com.itantra.debug] **
+                   Pss  Private  Private  SwapPss      Rss     Heap     Heap     Heap
+                 Total    Dirty    Clean    Dirty    Total     Size    Alloc     Free
+                ------   ------   ------   ------   ------   ------   ------   ------
+  Native Heap   916230   912904     3288   479530   917520  2036736  1990634    46102
+  Dalvik Heap    30608    25196     5224      765    31892    28483    14242    14241
+ Dalvik Other    14350     5360       60      376    23476                           
+        Stack     1184     1172       12      968     1192                           
+       Ashmem      660       72        0        0     1724                           
+      Gfx dev     3264     3264        0        0     3268                           
+    Other dev       16        0        8        0      584                           
+     .so mmap     4439      192     2076      162    35700                           
+    .jar mmap     2219        0      136        0    48936                           
+    .apk mmap    18526      288    18068      492    20176                           
+    .ttf mmap      645        0      580        0      764                           
+    .dex mmap     6065     5700      356    55388     6824                           
+    .oat mmap       30        0        0        0     2396                           
+    .art mmap     5866     3020     2140     5554    16404                           
+   Other mmap       75        4       60        0      996                           
+   EGL mtrack    41104    41104        0        0    41104                           
+    GL mtrack     8908     8908        0        0     8908                           
+      Unknown      429      276      136      514      932                           
+        TOTAL  1598367  1007460    32144   543749  1162796  2065219  2004876    60343
+ 
+ App Summary
+                       Pss(KB)                        Rss(KB)
+                        ------                         ------
+           Java Heap:    30356                          48296
+         Native Heap:   912904                         917520
+                Code:    28284                         133540
+               Stack:     1172                           1192
+            Graphics:    53276                          53280
+       Private Other:    13612
+              System:   558763
+             Unknown:                                    8968
+ 
+           TOTAL PSS:  1598367            TOTAL RSS:  1162796       TOTAL SWAP PSS:   543749
+ 
+ Objects
+               Views:        9         ViewRootImpl:        1
+         AppContexts:        6           Activities:        1
+              Assets:       54        AssetManagers:        0
+       Local Binders:       28        Proxy Binders:       81
+       Parcel memory:        8         Parcel count:       34
+    Death Recipients:        0             WebViews:        0
+ 
+ SQL
+         MEMORY_USED:      456
+  PAGECACHE_OVERFLOW:      157          MALLOC_SIZE:       46
+ 
+ DATABASES
+      pgsz     dbsz   Lookaside(b) cache hits cache misses cache size  Dbname
+PER CONNECTION STATS
+         4      104            111     4    38     5  /data/user/0/com.itantra.debug/no_backup/androidx.work.workdb
+         4        8                    0     0     0    (attached) temp
+         4      104             45     6    26     5  /data/user/0/com.itantra.debug/no_backup/androidx.work.workdb (1)
+         4       24             21     1    36     2  /data/user/0/com.itantra.debug/databases/itantra_peers.db
+         4        8                    0     0     0    (attached) temp
+         4       24             52     3    24     4  /data/user/0/com.itantra.debug/databases/itantra_peers.db (1)
+POOL STATS
+     cache hits  cache misses    cache size  Dbname
+             10            68            78  /data/user/0/com.itantra.debug/no_backup/androidx.work.workdb
+              4            64            68  /data/user/0/com.itantra.debug/databases/itantra_peers.db
+
+
+
