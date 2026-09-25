@@ -88,7 +88,11 @@ fun DownloadsScreen(viewModel: MainViewModel) {
         add("eSpeak-NG phonemizer data (6.6 MB)")
         if (currentStt != null) {
             val sttMb = (ModelRegistry.getInfo(currentStt)?.sizeBytes ?: 0L) / (1024 * 1024)
-            add("AI4Bharat IndicConformer STT ($sttMb MB)")
+            if (currentStt == ModelPack.STT_SRAVAANI) {
+                add("SraVaani INT8 TDT STT ($sttMb MB, shared across 9 languages)")
+            } else {
+                add("${currentStt.displayName} ($sttMb MB)")
+            }
         } else {
             add("speech recognition not available yet")
         }
@@ -360,7 +364,7 @@ fun DownloadsScreen(viewModel: MainViewModel) {
             }
 
             if (otherStt != null) {
-                item(key = "other_stt_${otherStt.name}") {
+                item(key = "other_stt_${lang.code}_${otherStt.name}") {
                     ModelPackRowItem(
                         pack = otherStt,
                         state = downloadStates[otherStt] ?: DownloadState.NotDownloaded,
@@ -371,7 +375,7 @@ fun DownloadsScreen(viewModel: MainViewModel) {
             }
 
             if (otherTts != null) {
-                item(key = "other_tts_${otherTts.name}") {
+                item(key = "other_tts_${lang.code}_${otherTts.name}") {
                     ModelPackRowItem(
                         pack = otherTts,
                         state = downloadStates[otherTts] ?: DownloadState.NotDownloaded,
@@ -410,6 +414,11 @@ private fun ModelPackRowItem(
 ) {
     val info = ModelRegistry.getInfo(pack)
     val sizeMb = (info?.sizeBytes ?: 0L) / (1024 * 1024)
+    val subtitle = if (pack == ModelPack.STT_SRAVAANI) {
+        "${sizeMb} MB · One shared download for 9 languages · ${info?.fileName ?: ""}"
+    } else {
+        "${sizeMb} MB · ${info?.fileName ?: ""}"
+    }
 
     Box(
         modifier = Modifier
@@ -456,7 +465,7 @@ private fun ModelPackRowItem(
                             color = iTantraBlack
                         )
                         Text(
-                            text = "${sizeMb} MB · ${info?.fileName ?: ""}",
+                            text = subtitle,
                             style = MaterialTheme.typography.bodySmall,
                             color = iTantraBlack60
                         )
