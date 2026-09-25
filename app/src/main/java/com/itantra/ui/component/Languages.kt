@@ -10,5 +10,6 @@ val STT_LANGUAGES = listOf(
     "ml" to "മലയാളം",
     "ta" to "தமிழ்",
     "te" to "తెలుగు",
-    "bn" to "বাংলা"
+    "bn" to "বাংলা",
+    "or" to "ଓଡ଼ିଆ"
 )

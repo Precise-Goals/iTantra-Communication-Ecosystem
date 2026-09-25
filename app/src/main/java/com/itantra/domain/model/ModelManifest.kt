@@ -175,11 +175,10 @@ enum class ModelPack(
         /** Always needed, whatever language is selected (T20). ~9 MB. */
         fun baselinePacks(): List<ModelPack> = listOf(VAD_MODEL, ESPEAK_NG_DATA)
 
-        /** STT model for [code]; null if none exists yet (Odia, until T64). */
+        /** STT model for [code]: shared [STT_SRAVAANI] for 9 Indic languages, [STT_ENGLISH] for English (T78 Step 6). */
         fun sttPackFor(code: String): ModelPack? = when (code) {
-            "hi" -> STT_HINDI; "gu" -> STT_GUJARATI; "mr" -> STT_MARATHI
-            "kn" -> STT_KANNADA; "ml" -> STT_MALAYALAM; "ta" -> STT_TAMIL
-            "te" -> STT_TELUGU; "bn" -> STT_BENGALI; "en" -> STT_ENGLISH
+            "hi", "gu", "mr", "kn", "ml", "ta", "te", "bn", "or" -> STT_SRAVAANI
+            "en" -> STT_ENGLISH
             else -> null
         }
 
