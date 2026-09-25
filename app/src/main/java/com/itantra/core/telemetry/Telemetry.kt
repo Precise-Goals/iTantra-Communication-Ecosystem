@@ -31,6 +31,12 @@ object Telemetry {
     data class Utterance(
         val id: Long,
         var lang: String = "",
+        /** Wire sequence of the TransceiverMessage this row belongs to — set on send once the
+         *  message's own sequence is assigned, and on receive from the decoded message (T11). */
+        var sequence: Int = 0,
+        /** Device UUID that originated the message (this device on send, message.senderId on
+         *  receive) — the other half of the (sender, sequence) join key (T11). */
+        var senderId: String = "",
         // ── send path ──
         var captureEndNs: Long = 0,
         /** When STT processing actually started: after any queue wait and model load (T71). */
@@ -65,6 +71,12 @@ object Telemetry {
         val rtf: Double get() =
             // Processing time only: queue wait and model load are not the model's speed (T71).
             if (audioDurationMs <= 0) 0.0 else (ns(procStartNs, inferDoneNs) / audioDurationMs)
+        /** Rubric metric 4 (send side), wall-clock epoch ms of the VAD cut. 0 until captureEndNs
+         *  is stamped (T11). */
+        val speechEndEpochMs: Long get() = if (captureEndNs == 0L) 0L else Telemetry.nsToEpochMs(captureEndNs)
+        /** Rubric metric 4 (receive side), wall-clock epoch ms of the first played audio frame.
+         *  0 until firstAudioFrameNs is stamped (T11). */
+        val firstAudioEpochMs: Long get() = if (firstAudioFrameNs == 0L) 0L else Telemetry.nsToEpochMs(firstAudioFrameNs)
 
         private fun ns(a: Long, b: Long): Double =
             if (a == 0L || b == 0L || b < a) 0.0 else (b - a) / 1_000_000.0
@@ -76,10 +88,34 @@ object Telemetry {
     private val recentRtf = ArrayDeque<Double>()
 
     /**
-     * Clock offset to the peer, milliseconds: peerWallClock + offset = ourWallClock.
-     * Estimated as RTT/2 from the SocketTransport ping loop. Zero until measured.
+     * Clock offset to the peer, milliseconds: offset(peer − us). Derived via an NTP-style
+     * exchange in SocketTransport (t0 = our send time, t1 = peer's clock on its ACK, t2 = our
+     * receive time): offset = t1 − (t0 + t2) / 2, rtt = t2 − t0 (T11). Zero until measured.
+     * Add offset to our epoch reading to express it on the peer's clock.
      */
     @Volatile var peerClockOffsetMs: Long = 0
+
+    /** Round-trip time to the peer, milliseconds, from the same exchange as [peerClockOffsetMs]. */
+    @Volatile var peerRttMs: Long = 0
+
+    /**
+     * NTP-style offset/RTT from one ping/ACK round trip. t0/t2 are on our clock (send, receive);
+     * t1 is the peer's clock, as carried by its ACK. Pulled out of SocketTransport so the formula
+     * has a single, unit-tested definition (T11).
+     */
+    fun computeOffsetAndRtt(t0: Long, t1: Long, t2: Long): Pair<Long, Long> =
+        (t1 - (t0 + t2) / 2) to (t2 - t0)
+
+    /**
+     * Converts a monotonic [System.nanoTime] reading into a wall-clock epoch-ms estimate, by
+     * pairing a fresh nanoTime/currentTimeMillis reading now and projecting backwards. Accurate
+     * to within the gap between when [monotonicNs] was captured and when this is called (T11).
+     */
+    fun nsToEpochMs(monotonicNs: Long): Long {
+        val nowNs = System.nanoTime()
+        val nowEpoch = System.currentTimeMillis()
+        return nowEpoch - (nowNs - monotonicNs) / 1_000_000
+    }
 
     fun begin(lang: String): Utterance {
         val u = Utterance(id = nextId.getAndIncrement(), lang = lang)
@@ -112,13 +148,18 @@ object Telemetry {
         try {
             val f = File(context.filesDir, "telemetry.csv")
             if (!f.exists()) {
-                f.appendText("id,lang,audio_ms,chars,stt_ms,wait_ms,feature_ms,infer_ms,rtf,tts_ms,tts_synth_ms,tts_audio_ms\n")
+                f.appendText(
+                    "id,lang,audio_ms,chars,stt_ms,wait_ms,feature_ms,infer_ms,rtf,tts_ms,tts_synth_ms,tts_audio_ms," +
+                        "sequence,sender_id,speech_end_epoch_ms,first_audio_epoch_ms,peer_offset_ms,peer_rtt_ms\n"
+                )
             }
             f.appendText(
-                "%d,%s,%d,%d,%.1f,%.1f,%.1f,%.1f,%.4f,%.1f,%.1f,%d\n".format(
+                "%d,%s,%d,%d,%.1f,%.1f,%.1f,%.1f,%.4f,%.1f,%.1f,%d,%d,%s,%d,%d,%d,%d\n".format(
                     u.id, u.lang, u.audioDurationMs, u.charCount,
                     u.sttLatencyMs, u.waitMs, u.featureMs, u.inferMs, u.rtf,
-                    u.ttsLatencyMs, u.ttsSynthMs, u.ttsAudioDurationMs
+                    u.ttsLatencyMs, u.ttsSynthMs, u.ttsAudioDurationMs,
+                    u.sequence, u.senderId, u.speechEndEpochMs, u.firstAudioEpochMs,
+                    peerClockOffsetMs, peerRttMs
                 )
             )
         } catch (e: Exception) {

@@ -224,6 +224,9 @@ class ITantraForegroundService : Service() {
                 val targetLang = message.srcLang.ifBlank { ttsLanguage }
                 val utt = Telemetry.begin(targetLang)
                 utt.rxNs = rxStampNs
+                // (sender, sequence) join key back to the sender's own telemetry row (T11).
+                utt.sequence = message.sequence
+                utt.senderId = message.senderId
                 val synth = ttsModule.synthesize(message.text, targetLang)
                 utt.ttsDoneNs = System.nanoTime()
                 if (synth != null) {
@@ -274,6 +277,13 @@ class ITantraForegroundService : Service() {
 
         override fun onSTTResult(result: AppResult<String>, confidence: Float, inferenceMs: Long) {
             if (result is AppResult.Success) {
+                val seq = ++sequenceCounter
+                // Tag the in-flight send-side Utterance (T11) so its CSV row can be joined with
+                // the receiver's by (sender, sequence) — same sequence this message goes out with.
+                sttModule.currentUtterance?.let {
+                    it.sequence = seq
+                    it.senderId = deviceId
+                }
                 val message = TransceiverMessage(
                     type = if (sendNextAsAlert) MessageType.ALERT else MessageType.SPEECH,
                     text = result.data,
@@ -282,7 +292,7 @@ class ITantraForegroundService : Service() {
                     senderId = deviceId,
                     timestamp = System.currentTimeMillis(),
                     confidence = confidence,
-                    sequence = ++sequenceCounter,
+                    sequence = seq,
                     direction = Direction.SENT
                 )
                 sendNextAsAlert = false
