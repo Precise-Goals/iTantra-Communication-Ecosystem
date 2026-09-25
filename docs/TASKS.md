@@ -1,6 +1,6 @@
 # iTantra — Task Checklist
 
-> Smart India Hackathon 2026 · PS-26173 · As of 2026-09-21 · **Revised 2026-09-23** (second audit: T62–T69 added, T19/T43/T55 corrected — see [`IMPROVEMENT_PLAN.md` §10](IMPROVEMENT_PLAN.md#10-addendum--second-audit-2026-09-23))
+> Smart India Hackathon 2026 · PS-26173 · As of 2026-09-21 · **Revised 2026-09-23** (second audit: T62–T69 added, T19/T43/T55 corrected — see [`IMPROVEMENT_PLAN.md` §10](IMPROVEMENT_PLAN.md#10-addendum--second-audit-2026-09-23)) · **Revised 2026-09-25** (G1–G4, S0, S1 done; T76's rule retired; **T77** added; T64 gated on T77)
 > Execution list for [`ACTION_PLAN.md`](ACTION_PLAN.md); technical detail in [`IMPROVEMENT_PLAN.md`](IMPROVEMENT_PLAN.md)
 >
 > **G** = Gaurav (engine) · **S** = Sarthak (shell) · **B** = both
@@ -14,12 +14,15 @@
 | --- | --- | --- | --- | --- |
 | 0 | Stop work / clear the decks | 4 | 1 / 4 | — |
 | 1 | Make it fast, make it measurable | 12 | 9 / 12 | T11 |
-| 2 | Close the language gap | 7 | 0 / 7 | — |
-| 3 | Accuracy — the 40% week | 15 | 3 / 15 | T26, T28 |
-| 4 | PS compliance + remaining latency | 22 | 12 / 22 | T39 |
-| 5 | Quality and headroom | 9 | 0 / 9 | — |
+| 2 | Close the language gap | 7 | 2 / 7 | — |
+| 3 | Accuracy — the 40% week | 15 | 8 / 15 | — |
+| 4 | PS compliance + remaining latency | 21 | 14 / 21 | T39 |
+| 5 | Quality and headroom | 8 | 0 / 8 | — |
 | 6 | The dossier | 6 | 0 / 6 | — |
-| — | **Total** | **77** (T19, T55 superseded) | **25 / 77** | |
+| C | Listed after the critical path (T75, T76, T77) | 3 | 1 / 3 | — |
+| — | **Total** | **76** (T19, T55 superseded and not counted) | **35 / 76** | |
+
+Recounted from the checkboxes on 2026-09-25.
 
 ### Status key
 
@@ -27,9 +30,9 @@
 - 🟡 partly done — the note on the task says which part remains
 - ⚠️ corrected or superseded — read the note before starting
 
-### Status as of 2026-09-24 (night)
+### Status as of 2026-09-25
 
-On `main` (PRs #15, #17), on **`feature/stage-a`** (pushed, no PR yet, run 3 pending), or in **PR #19** (AI Assistant removal, stacked on `feature/stage-a`):
+Everything below is merged to `main` (PRs #15, #17, #19, #21–#27):
 
 | Commit | Tasks | Where |
 | --- | --- | --- |
@@ -45,12 +48,18 @@ On `main` (PRs #15, #17), on **`feature/stage-a`** (pushed, no PR yet, run 3 pen
 | `6a45bd3` | T71 telemetry stamps | `main` |
 | `bda505c` | T38/T62 comment and log cleanups | `main` |
 | `71b2c17` | Run 2 evidence, in `docs/latency-evidence/run2/` | `main` |
-| `489cccb` | T43 receiver speaks the text's own language | `feature/stage-a` |
-| `2e897d6` | T73 VAD re-initialised after its model downloads | `feature/stage-a` |
-| `2006d4c` | T46 LRU model caches (2 per module) | `feature/stage-a` |
-| `7559320` | T47 RAM figure includes native memory | `feature/stage-a` |
-| `0d6bde5` | T74 Assistant shares the service's models — superseded by the removal below | `feature/stage-a` |
-| `a0850da` | **AI Assistant removed** (T02), plus the unused fastText pack — debug APK 99.3 MB → 60.8 MB | PR #19 |
+| `489cccb` | T43 receiver speaks the text's own language | `main` (PR #21) |
+| `2e897d6` | T73 VAD re-initialised after its model downloads | `main` (PR #21) |
+| `2006d4c` | T46 LRU model caches (2 per module) | `main` (PR #21) |
+| `7559320` | T47 RAM figure includes native memory | `main` (PR #21) |
+| `0d6bde5` | T74 Assistant shares the service's models — superseded by the removal below | `main` (PR #21) |
+| `a0850da` | **AI Assistant removed** (T02), plus the unused fastText pack — debug APK 99.3 MB → 60.8 MB | `main` (PR #19) |
+| `9ea315d` | Run 3 two-phone evidence (T43/T73/T46/T47/T74) | `main` (PR #21) |
+| `c7a0447` | T63 echo gate | `main` (PR #22) |
+| `132745f`, `7212958` | T69 send on every live transport + receive dedup, with two-phone Bluetooth evidence | `main` (PR #23) |
+| `7619193`, `282c52a`, `8e1e9a8` | T17b + T18 five MMS voices (mr/kn/ta/te/or), team-hosted — **10/10 TTS** | `main` (PR #24) |
+| `7942307`, `a125fba` | T23–T29 NeMo preprocessor match + golden test | `main` (PR #26) |
+| `c8c3fa5`, `6e9dd3e` | T76 SraVaani vs IndicConformer evaluation | `main` (PR #27) |
 
 **Measured so far** (from `docs/latency-evidence/`, run 2, warm models; every figure re-checked against the raw files):
 - Phrase 1 finished transcribing **4.39 s before** PTT release and phrase 2 **0.20 s before** (run 1, cold models: +0.24 s / −0.14 s).
@@ -64,19 +73,20 @@ On `main` (PRs #15, #17), on **`feature/stage-a`** (pushed, no PR yet, run 3 pen
 
 > **Who does what:** [`WORK_SPLIT.md`](WORK_SPLIT.md) splits everything below between Gaurav (Claude Sonnet) and Sarthak (Gemini), with a day-by-day timeline, merge order, and a ready-to-paste prompt for every run.
 
-**0. Finish Stage A and the removal.** Stage A's code (T43, T73, T46, T47, T74) is on `feature/stage-a`. Remaining: the run-3 two-phone evidence, then a PR for `feature/stage-a` → `main`. After that merges, retarget **PR #19** (AI Assistant removal) to `main` and merge it. A human has to merge; agents are blocked from it.
+**0. ~~Finish Stage A and the removal.~~** ✅ Done: PR #21 (Stage A + run 3 evidence) and PR #19 (Assistant removal) are merged.
 
 **Stage B — PS requirements that are still pass/fail (≈ 2.5 days).** Specs: `IMPLEMENTATION_SPEC_2.md` Group G.
-5. **T37 + T63** — phone mode with the echo gate (same PR).
-6. **T69** — Bluetooth in both directions.
+5. **T37** — phone mode. T63 (echo gate) is merged (PR #22), so T37 can go in on its own.
+6. ~~**T69** — Bluetooth in both directions.~~ ✅ PR #23.
 7. **T66 (minimum)** — a "next message is an ALERT" toggle beside PTT. That is all the PS needs; alert playback (alarm stream, max volume, non-interruptible) already works. ~2 h. See the T66 entry for what was dropped.
 8. **T67** — voice notes.
 
 **Stage C — the 40% Accuracy criterion and the footprint (needs a human for hosting).**
-8a. **T76 (optional, priority)** — evaluate **SraVaani 1.0** (IISc, one open model for 65 Indian languages including Odia) against the current IndicConformer models on the same test clips. Offline Python work, no app code, so it can **start now in parallel** with Stage A and B. Its verdict decides T64 (Odia) and whether the STT model should change at all.
-9. **T17b + T64** — the five missing TTS voices and Odia STT (10/10 languages). Needs a hosting URL from a human.
+8a. ~~**T76**~~ ✅ PR #27. Its own ≥ 3-point rule said "keep IndicConformer". That rule is retired, see T76.
+8b. **T77 (next, priority)** — INT8 SraVaani on the phones. It decides between a **hybrid** (SraVaani for the nine Indic languages, IndicConformer for English, Odia included, no T64) and **keeping IndicConformer + T64**.
+9. ~~**T17b**~~ ✅ PR #24 (10/10 TTS). **T64** (Odia STT) runs only if T77 keeps IndicConformer, or if T77's export fails early. Either way, 10/10 STT comes from T77 or T64.
 10. **T20 (revised) + T21** — download only the selected language (2.18 GB → ~250 MB). Easy now that T72 gives the app a selected language.
-11. **T23 → T29 → T30** — match the NeMo preprocessor, golden test, WER table.
+11. ~~**T23 → T29**~~ ✅ PR #26. **T30** remaining: Sarthak's IndicConformer re-run (see T30). T77's comparison needs it.
 12. **T15** — two ONNX runtimes still ship in the APK (`libsherpa-onnx-jni.so` 23.7 MB with its own runtime, plus `libonnxruntime.so` 16.3 MB). Consolidating is the next APK-size win after the Assistant removal.
 13. **T75** — remove stale claims from `app_metadata.json`, `AppMetadata.kt` and the manifest metadata (small).
 14. **Decide on 32-bit phones** — see the T14 note.
@@ -183,13 +193,15 @@ The PS mandates 10 languages. You ship 9 STT and 5 TTS.
   `core/download/ModelRegistry.kt`. The release publishes `-int8.tar.bz2` variants the registry isn't using: Hindi 67.2→21.0 MB, Malayalam 67.2→20.8 MB, English 67.1→21.1 MB. **Verified saving: 138.6 MB for three string changes.** Must update `sizeBytes` and `sha256` too — the old hash belongs to the old file. Gujarati and Bengali have no int8 variant.
   **Done when:** all three re-download, verify and synthesize. Spec: `IMPLEMENTATION_SPEC.md` T17a.
 
-- [ ] **T17b · Convert the five missing TTS voices from MMS** — *G · ACC/REQ · 2d*
+- [x] **T17b · Convert the five missing TTS voices from MMS** — *G · ACC/REQ · 2d*
   ⚠️ **These do not exist as prebuilt downloads.** The sherpa-onnx release was queried directly: of 645 assets the only MMS voice is `vits-mms-eng`. You must convert `facebook/mms-tts-{mar,kan,tam,tel,ory}` yourself using sherpa-onnx's documented script, package as `.tar.bz2`, host them, and point `ModelRegistry` at your host.
   **Done when:** all five download, extract and synthesize. Spec: `IMPLEMENTATION_SPEC.md` T17b.
+  ✅ PR #24 (`7619193`, `282c52a`, `8e1e9a8`). Licence CC-BY-NC 4.0. A truncated Malayalam voice was found while testing, see `KNOWN_ISSUES.md`.
 
-- [ ] **T18 · Register the five codes in `TTSModule`** — *G · ACC/REQ · 1h*
+- [x] **T18 · Register the five codes in `TTSModule`** — *G · ACC/REQ · 1h*
   `LANGUAGE_TO_PACK` map: `mr`, `kn`, `ta`, `te`, `or`. Depends on T17b.
   **Done when:** `synthesize()` returns audio for all 10 languages.
+  ✅ Done inside T17b (PR #24): `LANGUAGE_TO_PACK` has `mr`, `kn`, `ta`, `te`, `or`.
 
 - [ ] ⚠️ ~~**T19 · Document the Odia STT gap**~~ — **superseded by T64.**
   The earlier position ("no Odia model exists upstream") was wrong: only the mirror lacks it. AI4Bharat publishes `ai4bharat/indicconformer_stt_or_hybrid_ctc_rnnt_large`. Still never substitute Assamese.
@@ -209,6 +221,7 @@ The PS mandates 10 languages. You ship 9 STT and 5 TTS.
 - [ ] **T64 · Odia STT + CTC-only INT8 export of all ten languages (absorbs T55)** — *G · REQ/ACC/EFF · 3d* 🔬
   Export the AI4Bharat hybrid checkpoints CTC-only, INT8, with their own `tokens.txt`; Odia first, then the other nine if the size win is real (~120 M params → expect ~125 MB, vs the mirror's ~197 MB). Host with the T17b voices. Add `STT_ODIA`. Needs a human for the hosting URL.
   **Done when:** Odia transcribes on device and has a row in the T30 WER table. Spec: `IMPLEMENTATION_SPEC_2.md` T64.
+  ⚠️ **Gated by T77 (2026-09-25).** Do T64 only if T77 keeps IndicConformer, or stops early because SraVaani can't be exported. If T77 adopts the hybrid, SraVaani supplies Odia, and T64 plus its Step 6 (re-exporting the other nine) are dropped.
 
 **Week 2 exit:** 10/10 TTS · 10/10 STT · bundle < 250 MB per pair.
 
@@ -306,15 +319,17 @@ Treat this as the most important week in the plan.
 - [ ] **T37 · Wire phone mode to the UI** — *S · REQ · 1d*
   `ConnectionMode.PHONE_MODE` exists and `setConnectionMode()` handles it, but **nothing in `ui/` ever calls it**. The PS requires: *"if turned off it should work like a phone."*
   **Done when:** toggling PTT off gives continuous VAD-gated operation.
-  ⚠️ **Must ship in the same PR as T63.**
+  ⚠️ ~~Must ship in the same PR as T63.~~ T63 is merged (PR #22), so T37 can ship on its own.
 
-- [ ] **T63 · Echo gate** — *G · REQ · 3h*
+- [x] **T63 · Echo gate** — *G · REQ · 3h*
   Without it, phone mode transcribes its own loudspeaker and sends received messages back to the sender. Discard microphone input while `AudioPlaybackManager` is playing, plus a 250 ms tail.
   **Done when:** two phones in phone mode exchange one sentence and nothing comes back. Spec: `IMPLEMENTATION_SPEC_2.md` T63.
+  ✅ `c7a0447`, PR #22. The phone-mode half of the check waits for T37.
 
-- [ ] **T69 · Send on every live transport + receive dedup** — *G · REQ · 2h*
+- [x] **T69 · Send on every live transport + receive dedup** — *G · REQ · 2h*
   Bluetooth is used only if *this* phone started the Bluetooth server, so a phone connected as the Bluetooth client sends over TCP to nobody (Bluetooth works in one direction unless both phones have Host Beacon on). Send on every transport with a peer; drop the duplicate on receive.
   **Done when:** B (beacon off) connected to A over Bluetooth can send to A. Spec: `IMPLEMENTATION_SPEC_2.md` T69.
+  ✅ `132745f`, PR #23. Two-phone evidence in `7212958`.
 
 - [x] **T38 · Single-consumer playback queue** — *G · REQ · 4h*
   `AudioPlaybackManager.play()` builds a new `AudioTrack` per call with no mutex; concurrent messages overlap and garble.
@@ -472,19 +487,27 @@ flowchart LR
   T30 --> T56
   T16 --> T56
   T37["T37 phone mode + T63 echo gate"] --> T56
-  T64["T64 Odia STT"] --> T56
+  T77["T77 SraVaani phone test"] --> T64["T64 Odia STT or hybrid switch"]
+  T64 --> T56
   T69["T69 transport"] --> T66["T66 SOS"]
   T66 --> T56
   T67["T67 voice notes"] --> T56
   T56 --> T59["T59 deck"]
 ```
 
-**Cannot be cut:** T05, T10, T13, T14, T16, T17, T18, T23–T30, T37, T38, **T43, T45, T46, T62 or T32, T63, T64, T66, T67, T69, T72, T73**, T56, T57, T59.
+**Cannot be cut:** T05, T10, T13, T14, T16, T17, T18, T23–T30, T37, T38, **T43, T45, T46, T62 or T32, T63, T77 → T64 or hybrid switch, T66, T67, T69, T72, T73**, T56, T57, T59.
 
-- [ ] **T76 · Evaluate SraVaani 1.0 against IndicConformer** — *G · ACC · 1–1.5d* 🔬 — **Stage C, optional, highest priority of the optional items**
+- [x] **T76 · Evaluate SraVaani 1.0 against IndicConformer** — *G · ACC · 1–1.5d* 🔬 — **Stage C, optional, highest priority of the optional items**
   [SraVaani 1.0](https://huggingface.co/ARTPARK-IISc/SraVaani-1.0) (IISc SPIRE Lab + ARTPARK, MIT) is one ~430M-parameter model for 65 Indian languages, Odia included, ~900 MB FP16. It may be more accurate than our ~120M-parameter, ~197 MB-per-language IndicConformer models, but it is ~3.5× the compute, which works against Efficiency, Latency and low-end phones. Measure both on the same 100 FLEURS test clips per language (WER, CER, CPU speed, size); quantise and phone-test SraVaani only if it wins by ≥ 3 WER points.
   Runs offline in Python (Linux/Colab), needs no app changes, and depends on nothing — start any time.
   **Done when:** `docs/evaluation/sravaani/` has `results.csv`, per-clip hypotheses and a README with a verdict (adopt / Odia-only / keep IndicConformer). Spec: `IMPLEMENTATION_SPEC_2.md` Group I → T76.
+  ✅ PR #27. WER over the 9 shared languages: SraVaani 19.63% vs IndicConformer 19.18%. Excluding English: 19.31% vs 19.99%. English 22.16% vs 12.73%. Odia 21.69% (SraVaani only). 903 MB FP16 vs ~1.84 GB for ten IndicConformer models. ~1.8× slower on 1 CPU thread.
+  ⚠️ **Rule retired 2026-09-25.** The ≥ 3-point / ≤ 500 MB gates were our own thresholds, not the PS's, and they skipped the phone test. That test is now T77.
+
+- [ ] **T77 · SraVaani INT8 on the phone: hybrid vs T64** — *G (+S decides) · ACC/LAT/EFF/REQ · 1.5–2d* 🔬 — **Stage C, next**
+  Export SraVaani's CTC head to INT8 ONNX (~430–500 MB expected), re-check its WER on the T76 clips, then run it on the cheapest phone and the run-1..3 phone by swapping it into the Hindi slot by hand (no merged code). Measure RTF, speech end → STT complete, peak PSS, load time, and low-memory kills over 10 min, each next to IndicConformer on the same phone.
+  Hard fails: killed or ANR on the low-range phone, RTF ≥ 1, or INT8 non-English WER worse than IndicConformer. Otherwise weigh by the PS rubric. The `ACTION_PLAN.md` §5 targets are guides, not gates.
+  **Done when:** `docs/evaluation/sravaani/phone/README.md` has the rubric table and a decision signed off by both of us: **hybrid** (drop T64, write the switch design) or **keep IndicConformer** (do T64; SraVaani for Odia only if T64 fails). Spec: `IMPLEMENTATION_SPEC_2.md` Group I → T77.
 
 - [ ] **T75 · Remove stale claims from app metadata** — *S · DOC · 1h*
   `app/src/main/assets/app_metadata.json` (and the copy at the repo root), `AppMetadata.kt` and the `com.itantra.*` meta-data in `AndroidManifest.xml` still claim things the app does not do — e.g. "8–16 kbps Opus narrowband encoded streaming", "AI4Bharat IndicTTS VITS, ~14 MB per language", "Silero VAD v4". Replace each with the real component, or delete it.

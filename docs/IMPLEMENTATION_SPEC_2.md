@@ -1169,7 +1169,7 @@ T69 (transport + dedup) ─┬─> T66 (SOS UI) ──> T68 (ESP32, stretch)
 T37 (phone mode) + T63 (echo gate)   ← always in the same PR
 T62 (Silero VAD) ──> T41 ──> T65 (phrase pipelining)   (T65 also needs T38 on the receiver)
 T13 ──> T67 (voice notes)
-T64 (Odia + CTC re-export)            — Python/offline, can run in parallel with everything
+T77 (SraVaani INT8 phone test) ──> T64 (Odia + CTC re-export) only if T77 does not adopt the hybrid
 ```
 
 ---
@@ -1602,6 +1602,8 @@ REPLACEMENT:
 **Files:** new `model-export/export_ctc_int8.py`, `domain/model/ModelManifest.kt`, `core/download/ModelRegistry.kt`
 **Criterion:** REQ (10/10 languages), ACC, EFF (size)
 **Depends on:** a hosting location decided by a human (same one as T17b). **If no hosting URL has been given to you, do Steps 1–5, then stop and report.**
+
+> **Gated by T77 (2026-09-25).** Start T64 only if T77 keeps IndicConformer, or if T77 stops early because SraVaani cannot be exported. If T77 adopts the hybrid, SraVaani supplies Odia and T64 is dropped. Step 6 (re-exporting the other nine) is dropped too, since those languages would move to SraVaani.
 
 ### Background you need
 
@@ -3726,6 +3728,8 @@ For every hypothesis and reference: Unicode NFC → lowercase → strip punctuat
 
 ### Step 6 — only if SraVaani wins on accuracy
 
+> **Superseded 2026-09-25 by T77.** The 3-point gate below skipped this step. The gate was a threshold we set ourselves, not a PS requirement, and the phone test it skipped is the one measurement that can settle the question. T77 now runs it unconditionally. Kept as written for the record.
+
 If SraVaani's average WER over the 9 shared languages is **at least 3 points lower**:
 
 1. Take its ONNX export (the model card links one), keep the CTC head, and quantise with `onnxruntime.quantization.quantize_dynamic(..., weight_type=QuantType.QUInt8)`. Re-run Steps 3–5 on the INT8 file and record the WER change and the new size.
@@ -3739,6 +3743,14 @@ If SraVaani's average WER over the 9 shared languages is **at least 3 points low
 | Better on accuracy, but too big or too slow for the phone | **Use for Odia only** if T64's export fails; otherwise keep IndicConformer |
 | Not ≥ 3 points better | **Keep IndicConformer.** Cite this evaluation when judges ask "why not SraVaani?" |
 
+> **Result and revision (2026-09-25).** T76 ran (PR #27). Under this rule the verdict was *keep IndicConformer*: over the 9 shared languages SraVaani scored 19.63% WER vs 19.18%. **This rule is now retired.** Its three thresholds (≥ 3 points, ≤ ~500 MB, RTF ≤ 0.5) were our own guesses. Read against the PS, the results favour SraVaani more than the rule allowed:
+> - **Odia is mandatory.** SraVaani covers it today (21.69% WER). T64 is still an unproven export.
+> - **"Model size" most plausibly means the whole shipped set for 10 languages.** SraVaani is 903 MB FP16, projected ~450 MB INT8. IndicConformer is ~1.84 GB for all ten.
+> - **Excluding English, SraVaani is 0.69 points better on WER** (19.31% vs 19.99%). English is much worse (22.16% vs 12.73%), which points to a hybrid: English stays on IndicConformer.
+> - **Against it:** the PS asks for "lightweight" models that run "smoothly on low and mid range phones". SraVaani is 430 M parameters, one resident model, and ~1.8× slower on desktop CPU.
+>
+> Those trade-offs can only be settled on a phone. **The decision now comes from T77**, which measures INT8 SraVaani on the target phones and weighs the results by the PS rubric.
+
 ### Deliverables
 
 `docs/evaluation/sravaani/`:
@@ -3751,6 +3763,125 @@ If SraVaani's average WER over the 9 shared languages is **at least 3 points low
 - Do not change any app code, `ModelRegistry`, or downloads in this task.
 - Do not compare on different clips, or with different normalisation.
 - Do not quote the model card's WER numbers as if measured here.
+
+---
+
+## T77 🔬 · SraVaani INT8 on the phone: decide hybrid vs T64
+
+**Criterion:** ACC (40%), LAT (20%), EFF (20%), REQ (10/10 STT languages)
+**Owner:** Gaurav (`model-export/**`, `core/audio/**`). Results go in `docs/evaluation/sravaani/phone/` (Sarthak's folder, so tell him).
+**Depends on:** T76 (done, PR #27), T23/T29 (done, PR #26). Needs one Colab session and the test phones.
+**Output:** an INT8 SraVaani file, a results folder, and a decision: **hybrid**, **SraVaani for Odia only**, or **keep IndicConformer + T64**. No merged app change in this task.
+
+### Why
+
+T76 measured accuracy on a desktop and skipped the phone test (see the revision note under T76's decision rule). The PS scores three things that only the phone can answer for a 430 M-parameter model: whether it runs "smoothly on low and mid range phones", its RAM footprint, and its latency. The candidate being tested is the **hybrid**: SraVaani for `hi gu mr kn ml ta te bn or`, and IndicConformer kept for `en`. The app already knows the chosen language (T72), so routing by language code needs no language detection.
+
+### Rules for this task
+
+- **Do not guess any API.** Every export call must come from the model card, the installed package's own docs or `help()`, or sherpa-onnx's documentation for the exact version. If a documented call fails, stop and report the error text.
+- **Measure both models on the same phone, the same phrases and the same build.** A SraVaani number without its IndicConformer twin is not usable.
+- Report every number, including ones that favour IndicConformer.
+- If an early step fails (no working export in Steps 1–3), stop T77 and tell the team **the same day**, so T64 can start. Odia STT is mandatory either way.
+
+### Step 1 — find an export route (Colab)
+
+Load the model exactly as T76 did (revision `f5dd5358325a5208775b91dad98918e079ea2b27`), then inspect it before exporting:
+
+```python
+print(type(model).__name__)
+# Look for an underlying NeMo model object and its cfg; print what exists, do not assume names:
+print([a for a in dir(model) if not a.startswith("_")])
+```
+
+Also list the files in the Hugging Face repository (an ONNX export may already be published). Choose the first route that works, in this order:
+
+| Route | What it is | App impact |
+| --- | --- | --- |
+| **A — CTC-only ONNX** (preferred) | SraVaani is hybrid TDT-CTC. Export only the CTC head, as T64 does for IndicConformer (`set_export_config({"decoder_type": "ctc"})` on a NeMo hybrid model, if the wrapper exposes one) | Reuses `STTModule`'s existing path: 80-bin mel features `[1, 80, T]` + length in, CTC log-probs out, blank = last id |
+| **B — TDT transducer ONNX** (encoder / decoder / joiner) | Only if sherpa-onnx's documentation for the version in use lists NeMo TDT transducer support | Needs a new decoding path in the app. Record the route, do not build it here |
+
+If neither route can be done with documented calls, **stop and report** (verdict: keep IndicConformer + T64).
+
+### Step 2 — compare the preprocessor
+
+Print SraVaani's preprocessor config and compare it field by field with `docs/evaluation/nemo_preprocessor_hi.txt`, which is what the app now reproduces (T23/T29). Check the number of mel bins, window, hop, preemphasis, normalisation, dither and log guard.
+- **Identical:** the app's features are already correct for SraVaani, so on-phone transcripts are meaningful.
+- **Different:** list the differences. The phone run in Step 5 still gives valid **speed and memory** numbers, but not valid on-device accuracy. Accuracy then comes from Step 4 only. Do not change `STTModule` in this task.
+
+### Step 3 — quantise and check the interface
+
+For route A, quantise exactly as T64 Step 3 does (`quantize_dynamic(..., weight_type=QuantType.QUInt8)`). Then:
+- Print the graph's inputs and outputs. The names must be ones `STTModule.resolveIoNames()` accepts (T64 Step 3 lists them). If not, stop and report; do not rename graph nodes.
+- Write `tokens.txt` in the format `CtcDecoder.parseTokens` reads (T64 Step 4), generated from the model's vocabulary with the blank last. The line count must equal the output's last dimension.
+- Record the INT8 file size and sha256. **Expected ~430–500 MB**; if it is over 600 MB, say so.
+
+### Step 4 — desktop accuracy of what would ship
+
+The T76 SraVaani numbers came from the card's `transcribe()`, which likely decodes with the **TDT** head. The CTC head in INT8 can score differently, so re-measure it:
+1. Same 100 FLEURS clips per language, same normalisation and scoring as T76 Steps 1 and 4.
+2. Features from SraVaani's own preprocessor, the INT8 graph, and greedy CTC decoding (argmax, merge repeats, drop blank).
+3. Write `results_int8.csv` with the same columns as T76's `results.csv`. Add a table to the README: T76 SraVaani (TDT) → INT8 CTC → IndicConformer, per language, plus the average over the 8 non-English shared languages and Odia on its own.
+
+### Step 5 — the phone run (no merged code)
+
+Phones: the **cheapest phone the team has** (low range, record its RAM) and the phone used for runs 1–3 (mid range). On each, with a debug build of current `main`:
+
+1. **IndicConformer baseline first.** Select Hindi. Run a fixed set of 10 phrases (~2–4 s each, the same text every time), then a 10-minute phone-mode session. Pull `files/telemetry.csv` and record `dumpsys meminfo com.itantra.debug` (TOTAL PSS) while STT is active. Keep the TTS voice and VAD loaded as in normal use.
+2. **Swap in SraVaani.** Back up the Hindi files, then put SraVaani's INT8 graph and tokens in the Hindi slot. `STTModule` loads `filesDir/models/stt_hi_int8.onnx` and `stt_hi_tokens.txt`:
+   ```bash
+   adb push sravaani.int8.onnx sravaani_tokens.txt /data/local/tmp/
+   adb shell run-as com.itantra.debug cp files/models/stt_hi_int8.onnx files/models/stt_hi_int8.onnx.bak
+   adb shell run-as com.itantra.debug cp files/models/stt_hi_tokens.txt files/models/stt_hi_tokens.txt.bak
+   adb shell run-as com.itantra.debug cp /data/local/tmp/sravaani.int8.onnx files/models/stt_hi_int8.onnx
+   adb shell run-as com.itantra.debug cp /data/local/tmp/sravaani_tokens.txt files/models/stt_hi_tokens.txt
+   ```
+   Force-stop and restart the app. If the app detects the changed file and re-downloads or refuses it, stop and report. Do not patch the download checks; ask for a throwaway spike branch instead.
+3. Repeat step 1 exactly: the same Hindi phrases, **plus** 5 Odia and 5 Tamil phrases. SraVaani picks the language itself, so the Hindi slot serves them all.
+4. Restore the backups when done.
+
+Record per phone, for both models:
+- **RTF** and **speech end → STT complete** (medians from `telemetry.csv`).
+- **Model load time** (the `STT('hi') loaded in … ms` log line).
+- **Peak TOTAL PSS** while STT is active.
+- Whether the app was ever **killed by the low-memory killer or showed an ANR** during the 10-minute session (`adb logcat -b events | grep -iE "am_kill|am_anr|lowmem"`).
+- Transcripts of the fixed phrases (meaningful only if Step 2 found identical preprocessing).
+
+Save logcats, CSVs and `meminfo` output in `docs/evaluation/sravaani/phone/`, with a `README.md` holding the tables.
+
+### Step 6 — decide
+
+**Hard fails.** Any one of these on the low-range phone means SraVaani cannot be the main model, because the PS requires smooth running on low and mid range phones:
+- The app is killed or shows an ANR during the 10-minute session.
+- The RTF is ≥ 1.0 (it cannot keep up with speech).
+- The INT8 CTC average WER over the 8 non-English languages is worse than IndicConformer's.
+
+**Otherwise, weigh by the PS rubric.** Fill in this table in the README:
+
+| PS criterion (weight) | Metric | IndicConformer | Hybrid (SraVaani + IndicConformer en) | Better |
+| --- | --- | --- | --- | --- |
+| Accuracy (40%) | STT languages working | 9/10 (10/10 only if T64 works) | 10/10 | |
+| Accuracy (40%) | WER, 8 non-English shared languages (Step 4) | | | |
+| Latency (20%) | Speech end → STT complete, median, both phones | | | |
+| Latency (20%) | RTF, median, both phones | | | |
+| Efficiency (20%) | Model flash, all 10 languages | ~1.84 GB (9 models + Odia from T64, per T76) | INT8 size + 188 MB (English) | |
+| Efficiency (20%) | Peak TOTAL PSS, both phones | | | |
+
+The team targets in `ACTION_PLAN.md` §5 (RTF < 0.5, speech end → STT complete < 1.2 s, peak PSS < 700 MB) are **guides, not gates**. Quote them next to the numbers, but let the comparison decide.
+
+| Outcome | Next step |
+| --- | --- |
+| No hard fail, and the hybrid wins or ties on the rubric overall | **Adopt the hybrid.** Drop T64. Write the switch design (G5b in `WORK_SPLIT.md`) before any code |
+| A hard fail, or IndicConformer clearly wins | **Keep IndicConformer**, do T64 for Odia. If T64's export fails, ship SraVaani for Odia only |
+
+Gaurav and Sarthak make the final call together from the table. Write the decision and the reasoning at the end of the README.
+
+### DO NOT
+
+- Do not merge any app change in this task. The phone swap is done by hand, and a spike branch, if one is needed, is never merged.
+- Do not change `STTModule`'s feature pipeline to suit SraVaani here. If Step 2 finds a difference, record it.
+- Do not compare SraVaani on one phone with IndicConformer on another.
+- Do not leave SraVaani in the Hindi slot after the test.
 
 ---
 
@@ -3798,6 +3929,7 @@ Before/after table from the week-0 and week-6 CSVs; rehearsed two-device demo; d
 | G — second audit | T62 🔬, T63, T64 🔬, T65, T66 🎨, T67 🎨, T68, T69 | Specced, anchors verified against committed code and working tree on 2026-09-23. T62, T65 done |
 | G — after first device run | T70, T71, T72 🎨; T45 revised | Anchors verified against `feature/latency-pipeline` @ `e57fb7d` on 2026-09-24. All four done in PR #17 |
 | H — after second device run | T43 (re-anchored), T73, T46 (explicit), T74 | Anchors verified against `feature/latency-pipeline-2` @ `71b2c17` (PR #17) on 2026-09-24 |
+| I — revised specs and evaluations | T20 (revised), T76 🔬, T77 🔬 | T76 done (PR #27); its decision rule retired 2026-09-25. T77 added 2026-09-25 and decides T64 vs the hybrid |
 | Judgement only | T01, T03, T04, T16, T25–T28, T36, T54 | Trivial, or covered inline in Part 1 |
 | Superseded | T19 → T64; T55 → merged into T64 Step 6 | — |
 

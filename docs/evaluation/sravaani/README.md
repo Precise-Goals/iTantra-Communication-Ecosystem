@@ -56,7 +56,14 @@ Per the decision rule in `docs/IMPLEMENTATION_SPEC_2.md` T76:
 
 **Verdict: Keep IndicConformer.** SraVaani's average WER (19.63%) is not better than IndicConformer's (19.18%) — it is 0.44 points *worse* — so it fails the first gate outright. Step 6 (INT8 quantization + on-phone timing) was **not run**, since it only applies if SraVaani wins on accuracy.
 
-This decides **G5** (`docs/WORK_SPLIT.md` §4): Gaurav should proceed with **T64** (export Odia STT from AI4Bharat's checkpoint), not the SraVaani switch design.
+~~This decides **G5** (`docs/WORK_SPLIT.md` §4): Gaurav should proceed with **T64** (export Odia STT from AI4Bharat's checkpoint), not the SraVaani switch design.~~
+
+> **Superseded 2026-09-25: the decision now comes from T77.** The verdict above is correct *under the decision rule as written*, and the numbers stand. But that rule's thresholds (≥ 3 points, ≤ ~500 MB) were set by us, not by the PS, and the rule skipped the one test that can settle the question: INT8 on a real phone. Read against the PS, this evaluation argues for testing a **hybrid** before exporting Odia:
+> - **Odia is mandatory.** SraVaani covers it today.
+> - The 10-language footprint is about half (next section).
+> - SraVaani is +0.69 points better on the 8 non-English languages. English stays on IndicConformer.
+>
+> The open questions are RAM, speed and smooth running on a low-range phone. **T77** (`docs/IMPLEMENTATION_SPEC_2.md` Group I) measures exactly that. G5 in `WORK_SPLIT.md` is now T77, followed by either the hybrid switch design or T64. Results will go in `phone/`.
 
 ## Discussion: scope of the size comparison, and a hybrid option (raised in PR review, not evaluated)
 
@@ -85,7 +92,7 @@ Excluding English, SraVaani is **+0.69 points better on WER** — a genuine, if 
 
 **This suggests an option the spec's binary adopt/keep rule has no slot for: a hybrid deployment** — route English through IndicConformer (where it's clearly ahead) and the other 9 languages through SraVaani (where it's roughly even-to-better). Since the app already knows the user-selected language from the UI before invoking STT, no auto-language-detection is needed to make this routing decision. Size-wise this would be SraVaani's 903 MB (still a monolithic file, needed even to serve only 9 of its languages) plus IndicConformer's English model (188 MB) ≈ 1.09 GB total — still a meaningful reduction from IndicConformer's full 1.84 GB, just not the full ~2× of the pure-swap comparison.
 
-**This hybrid option was not evaluated here** — no phone RTF/memory test, no engineering estimate of running two different inference backends (sherpa-onnx NeMo-CTC + transformers/trust_remote_code SraVaani) side by side, and it is a real architecture decision (added complexity, two model formats to maintain) that belongs to Gaurav and Sarthak to weigh, not something this evaluation run decides. Recorded here so the option isn't lost.
+**This hybrid option was not evaluated here** — no phone RTF/memory test, no engineering estimate of running two different inference backends (sherpa-onnx NeMo-CTC + transformers/trust_remote_code SraVaani) side by side, and it is a real architecture decision (added complexity, two model formats to maintain) that belongs to Gaurav and Sarthak to weigh, not something this evaluation run decides. Recorded here so the option isn't lost. **Picked up 2026-09-25 as T77**, which measures exactly these open points.
 
 ## Limitations
 
