@@ -58,6 +58,35 @@ Per the decision rule in `docs/IMPLEMENTATION_SPEC_2.md` T76:
 
 This decides **G5** (`docs/WORK_SPLIT.md` §4): Gaurav should proceed with **T64** (export Odia STT from AI4Bharat's checkpoint), not the SraVaani switch design.
 
+## Discussion: scope of the size comparison, and a hybrid option (raised in PR review, not evaluated)
+
+The initial draft of this README compared SraVaani's size against a *single selected language's* IndicConformer model (~188 MB), since the app's own download flow (T20/T21) only pulls the language(s) a user actually selects. That's the wrong comparison for this PS: **the problem statement requires the app to support all 10 languages**, not just whichever one a given user picks, so the size comparison that matters is against IndicConformer's *full* footprint if all 10 languages are provisioned. Reworking it on that basis:
+
+| | Full 10-language footprint |
+| --- | --- |
+| IndicConformer (9 measured + 1 projected Odia model from T64, same architecture/size family) | ~1,884 MB (~1.84 GB) |
+| SraVaani (one file, all languages including Odia, no T64 needed) | 903 MB (~0.88 GB) |
+| **Ratio** | **SraVaani ≈ 48% of IndicConformer's full-repertoire size — genuinely about half** |
+
+That correction is real and worth recording. It does not change the top-line verdict, for two reasons that are independent of which size comparison is used:
+
+1. **The decision rule's "Adopt" gate requires an accuracy win first** ("≥3 points better"), and on average over the 9 shared languages SraVaani is still 0.44 points *worse* (19.63% vs 19.18%), not better — there is no accuracy gain being traded for the smaller size here, on that measure.
+2. **The decision rule's 500 MB cap is absolute**, not relative to IndicConformer's total — 903 MB fails it either way. That threshold plausibly encodes the PS's "low-power device" requirement (likely RAM at inference time for a 430M-param model, not just disk size), and Step 6 — the on-phone test that would actually confirm this — was skipped because the accuracy gate wasn't met.
+
+**A second correction, also from review discussion: averaging in English hides a real win on the other languages.** English is already IndicConformer's strongest language (12.73% WER) and SraVaani's weakest relative showing (22.16%, a −9.43 point gap) — including it in a flat average buries SraVaani's gains elsewhere. Recomputed over the 8 non-English shared languages:
+
+| | 8-language avg (excl. English) |
+| --- | --- |
+| IndicConformer WER | 19.99% |
+| SraVaani WER | **19.31%** |
+| SraVaani CER | 6.62% vs IndicConformer's 6.58% (essentially tied, SraVaani marginally worse) |
+
+Excluding English, SraVaani is **+0.69 points better on WER** — a genuine, if modest, net win, not a wash. Still well short of the ≥3-point bar for a full swap, but it changes the shape of the trade from "no upside" to "small upside, on the languages that aren't already solved."
+
+**This suggests an option the spec's binary adopt/keep rule has no slot for: a hybrid deployment** — route English through IndicConformer (where it's clearly ahead) and the other 9 languages through SraVaani (where it's roughly even-to-better). Since the app already knows the user-selected language from the UI before invoking STT, no auto-language-detection is needed to make this routing decision. Size-wise this would be SraVaani's 903 MB (still a monolithic file, needed even to serve only 9 of its languages) plus IndicConformer's English model (188 MB) ≈ 1.09 GB total — still a meaningful reduction from IndicConformer's full 1.84 GB, just not the full ~2× of the pure-swap comparison.
+
+**This hybrid option was not evaluated here** — no phone RTF/memory test, no engineering estimate of running two different inference backends (sherpa-onnx NeMo-CTC + transformers/trust_remote_code SraVaani) side by side, and it is a real architecture decision (added complexity, two model formats to maintain) that belongs to Gaurav and Sarthak to weigh, not something this evaluation run decides. Recorded here so the option isn't lost.
+
 ## Limitations
 
 - Read speech only (FLEURS), not spontaneous/noisy speech representative of real walkie-talkie use.
