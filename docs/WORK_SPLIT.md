@@ -3,6 +3,12 @@
 > Smart India Hackathon 2026 · PS-26173 · Written 2026-09-24
 > Splits everything left in [`TASKS.md`](TASKS.md) between two people, with a ready-to-paste AI prompt for every run.
 
+> **Status 2026-09-26 — read this first.**
+> - **Merged since the last update:** S2/T37 phone mode (PR #32), S3/T66 alert toggle (PR #33), S4/T67 voice notes (PR #35, plus a Transceiver screen overhaul), **S5/T20 + T21 per-language download (PRs #37, #38)**, T78 Steps 1–4 and Step 6's registry half (PR #34), and the S5a task write-up (PR #36).
+> - **Blocker:** **S5a (Sarthak) is not done.** `main` sends the nine Indic codes to SraVaani, which still can't be downloaded and has no fallback. So on a fresh install **only English transcribes**. T20 is merged, so S5b can follow straight after.
+> - **Gaurav next:** §4 G8–G13. In order: review S5a, the second phone and the 10-minute runs, re-score SraVaani with the app's real preprocessor, fix and finish T11, T78 Step 7, then quick wins and the baseline.
+> - **Sarthak next:** S5a → S5b → S1b (T30) → S6 → S7.
+>
 > **Status 2026-09-25.** Done and merged: **G1** (Stage A, PR #21, and the Assistant removal, PR #19), **G2** (T63 PR #22, T69 PR #23), **G3** (T17b PR #24), **G4** (T23 + T29 PR #26), **S0** and **S1** (T76 PR #27).
 > **Changed:** G5 no longer follows T76's own verdict. T76's decision rule was our own threshold, and it skipped the phone test. **G5 is now T77**, which measures INT8 SraVaani on the phones. Its result decides between **G5b-hybrid** (SraVaani for the nine Indic languages, IndicConformer for English, no T64) and **G5b-T64** (keep IndicConformer, export Odia). See §4 G5.
 >
@@ -53,13 +59,14 @@ Day 1 = the first working day after Day 0. Times are AI work plus human testing,
 | --- | --- | --- | --- |
 | 0 | ✅ G1 — finish Stage A | ✅ S0 — set-up, first build | Stage A PR → PR #19 → PR #20 |
 | 1 | ✅ **G2** — T63 echo gate + T69 two-way Bluetooth | ✅ **S1** — T76 SraVaani evaluation (Colab; runs all day, no app code) | T63, then T69 |
-| 2 | ✅ **G3** — T17b five missing TTS voices (Colab conversion) | **S2** — T37 phone mode UI (needs T63 merged) → **S3** — T66 alert toggle (needs T69 merged) | T37, then T66 |
-| 3 | ✅ G3 continued — host voices, register them | **S4** — T67 voice notes · **joint two-phone Stage B test** | T67, T17b |
-| 4 | ✅ **G4** — T23 + T29 match the NeMo preprocessor, golden test | **S5** — T20 + T21 download only the selected language | T20/T21, T23/T29 |
+| 2 | ✅ **G3** — T17b five missing TTS voices (Colab conversion) | ✅ **S2** — T37 phone mode UI (needs T63 merged) → **S3** — T66 alert toggle (needs T69 merged) | T37, then T66 |
+| 3 | ✅ G3 continued — host voices, register them | ✅ **S4** — T67 voice notes · **joint two-phone Stage B test** | T67, T17b |
+| 4 | ✅ **G4** — T23 + T29 match the NeMo preprocessor, golden test | ✅ **S5** — T20 + T21 download only the selected language | T20/T21, T23/T29 |
 | 5 | ✅ **G5** — T77 SraVaani INT8 test (PR #29: CTC route failed, TDT scoped) | **S6** — T75 metadata cleanup + README pass · **T30** IndicConformer re-run (S1 note) | — |
-| 6–12 | **G5b** — **T78 SraVaani TDT engine**, in progress (PR #34): Steps 1-4 done; C1 missed/overridden, C2 passed, C3 passes on the low-range phone only (memory flagged); Step 6 Gaurav's half done | **S5a** (T78 gap fix: SraVaani downloadable + IndicConformer fallback) — **do first, now; `main` has only English STT until it merges** · **S1b** (T30) — **not done yet**, still the day-6 blocker it was meant to avoid · **S5** (T20/T21) — **not merged**, was due day 4, now blocking T78 Step 6's other half · joins T78 phone run (mid-range phone + full session still outstanding) · **S5b** (T78 Step 6 manifest) blocked on S5 | T78 steps in order; S5 before S5b |
+| 6–12 | **G5b** — **T78 SraVaani TDT engine** (PR #34): Steps 1–4 done; C1 missed/overridden, C2 passed, C3 passes on the low-range phone only; Step 6 registry half done | ✅ **S5** (T20 PR #37, T21 PR #38) · **S5a** (SraVaani downloadable + IndicConformer fallback) — **not done, do first; `main` has only English STT until it merges** · **S5b** (T78 Step 6 manifest) — unblocked by T20, after S5a · **S1b** (T30) — not done | S5a → S5b |
+| 13–15 | **G8–G13** (§4): review S5a · second phone + 10-min runs + native Tamil/Odia · SraVaani re-score · T11 · T78 Step 7 · quick wins + T16 baseline | S6 (T75), S7 (T54) · joins G8 phone runs | S5a before G8 |
 | 6–7 | ~~G6 — T15 single-runtime spike · G7 — T68 ESP32~~ **deferred behind T78**, only if time remains | **S7** — T54 TTS listening test | — |
-| 13+ | Dossier: T56–T61 together (§6) | | |
+| 16+ | Dossier: T56–T61 together (§6) | | |
 
 **Why this order:**
 - **T63 lands before T37.** The echo gate is harmless on its own; phone mode without it re-transmits every received message. So the gate merges first and phone mode builds on it.
@@ -294,6 +301,114 @@ Build must pass; one commit; push; DRAFT PR. Report size, sha256, the Step 5 tra
 
 **You do:** host the files; phone test — pick Odia, speak Odia, see the transcription. Merge. **If T64's export fails**, fall back to SraVaani for Odia only, using the INT8 file from T77.
 
+### G8 · T78 phone validation — second phone, 10-minute runs, native speakers (after S5a merges)
+
+These close Checkpoint 3 properly. S5a must be merged first, so the SraVaani pack downloads through the app and the baseline can use the fallback (no temporary edit).
+
+1. **Vivo V2338 (mid-range).** Fix its adb connection. Try a different cable or port, `adb kill-server && adb start-server`, re-authorise USB debugging, or use `adb tcpip 5555` and connect over Wi-Fi. Then run the same protocol as CPH2467 (`docs/evaluation/sravaani/phone/tdt/README.md`):
+   - **IndicConformer baseline:** SraVaani pack not downloaded, so S5a's fallback serves Hindi.
+   - **SraVaani:** download the pack, force-stop, repeat.
+2. **A 10-minute sustained phone-mode session on both phones**, for each engine. This is what catches thermal throttling and slow memory growth. Take `dumpsys meminfo com.itantra.debug` at minutes 0, 5 and 10, and record whether RTF drifts across the session in `telemetry.csv`.
+3. **Native (or fluent) speakers** for the Tamil phrases, and for Odia once S5b puts it in the picker. Use the same 5 phrases each, with the spoken text written down beforehand, so the transcripts are real evidence.
+
+Save everything under `docs/evaluation/sravaani/phone/tdt/<phone>/` with a README section per phone. **Checkpoint 3 is final only when both phones pass.**
+
+### G9 · Re-score SraVaani INT8 with the app's real preprocessor (Colab, ~½ day)
+
+The 20.09% WER in T78 Step 1 came from the model card's `sravaani_onnx_infer.py`, whose feature code **leaves out preemphasis**. The app computes features with SraVaani's real preprocessor (`SraVaaniProcessor`, which is what `SraVaaniMelGoldenTest` locks in). So the WER of what ships has not been measured. If possible, run this in the same Colab session as Sarthak's S1b (T30).
+
+```text
+You are working on iTantra. Repo: D:\Desktop\Projects\iTantra-Communication-Ecosystem.
+Task: G9 — WER of SraVaani INT8 TDT with the SAME features the app computes. Evaluation only.
+
+Read docs/evaluation/sravaani/tdt/README.md (Steps 1–3) and
+app/src/test/java/com/itantra/SraVaaniMelGoldenTest.kt. Colab: give me the cells one at a time.
+- Same 100 FLEURS clips per language as T76/T78 (hi gu mr kn ml ta te bn or), same normalisation
+  and jiwer scoring.
+- Features: SraVaaniProcessor via AutoProcessor.from_pretrained(..., trust_remote_code=True),
+  revision f5dd5358325a5208775b91dad98918e079ea2b27. First check it reproduces
+  app/src/test/resources/golden_features_sravaani.npy to 1e-3; if not, STOP and tell me.
+- Model: the INT8 pair from the hosted sravaani_tdt.tar.bz2 (the file the app downloads — take the
+  URL and sha256 from ModelRegistry.sravaaniTdtInfo; verify the sha256 before use).
+- Decode: the greedy TDT loop exactly as in the model card's decode_rnnt (print graph I/O first).
+- Save per-clip hypotheses this time (hypotheses/sravaani_int8_tdt_app_<lang>.tsv).
+Then: git fetch origin; git switch -c eval/g9-sravaani-app-features origin/main
+Add results_int8_tdt_app.csv (same columns as results_int8_tdt.csv), the hypotheses, and a README
+section "G9 — INT8 TDT with the app's features": per-language WER vs Step 1 (card script) vs
+IndicConformer, and the 8-language non-English average. Report every number. Commit
+"G9: SraVaani INT8 WER with the app's preprocessor". Push; DRAFT PR. Never push to main.
+```
+
+### G10 · T11 — cross-device latency, with the clock-offset bug fixed (~½ day)
+
+The PS scores "the time delta between the sentence said and the same sentence started as audio in another phone". Nothing computes it yet, and **the offset that exists is wrong.**
+- In `SocketTransport.kt`, the ACK reply overwrites `timestamp` with phone B's clock. Phone A then does `now − message.timestamp` and stores half of it in `Telemetry.peerClockOffsetMs`.
+- With unsynchronised clocks, that number is B's clock offset plus the one-way delay, not a round trip. So it can't be used as an offset or as latency.
+
+```text
+You are working on iTantra. Repo: D:\Desktop\Projects\iTantra-Communication-Ecosystem.
+Task: T11 — measure firstAudioFrame(B) − speechEnd(A) across two phones.
+
+Read docs/IMPLEMENTATION_SPEC.md §0 (binding), docs/TASKS.md T11,
+app/src/main/java/com/itantra/core/network/SocketTransport.kt (PING/ACK handling),
+app/src/main/java/com/itantra/core/telemetry/Telemetry.kt and app/src/main/proto/*.proto.
+
+1. Fix the clock offset. Today the ACK overwrites `timestamp` with B's clock, so A's
+   "now − timestamp" mixes B's clock offset with the delay. Do a standard NTP-style exchange
+   without changing the wire format if possible: A remembers t0 (its send time) per PING
+   sequence; B's ACK carries t1 (B's clock) in `timestamp` and echoes the PING's `sequence`;
+   A records t2 on receipt. Then RTT = t2 − t0 and offset(B − A) = t1 − (t0 + t2)/2.
+   Store the offset and RTT in Telemetry; keep onLatencyMeasured reporting the RTT.
+   If the proto must change, stop and tell me first.
+2. Put the sender's speech-end time on the wire: the message `timestamp` is documented as
+   "epoch ms when STT inference completed". Keep that meaning, and add nothing to the proto unless
+   needed — instead log on A, per message sequence, epoch ms of the VAD cut (captureEndNs converted
+   to wall clock at the same moment) so the pair can be joined after the run. If you conclude a
+   new proto field is cleaner, propose it and wait.
+3. On B, log per received message: sequence, sender, epoch ms of firstAudioFrameNs, and the current
+   offset. Add columns to telemetry.csv (e.g. peer_offset_ms, first_audio_epoch_ms) — do not break
+   existing columns.
+4. A small script (model-export/ or docs/latency-evidence/) joins A's and B's CSVs by
+   (sender, sequence) and computes firstAudio(B) − offset − speechEnd(A) per message, with medians.
+Build + unit tests must pass (add a unit test for the offset formula). Commit per step, prefix
+"T11:". Push; DRAFT PR. Then walk me through a two-phone run (10 messages, Wi-Fi Direct, then
+Bluetooth) and commit the CSVs and the joined result under docs/latency-evidence/t11/.
+Never push to main.
+```
+
+### G11 · T78 Step 7 — switch over and prove it (after S5b and G8)
+
+```text
+You are working on iTantra. Repo: D:\Desktop\Projects\iTantra-Communication-Ecosystem.
+Task: T78 Step 7. Read docs/IMPLEMENTATION_SPEC_2.md → T78 Step 7 and DO NOT, and
+docs/evaluation/sravaani/phone/tdt/README.md (G8 results). Confirm S5a and S5b are merged
+(`grep -n STT_SRAVAANI app/src/main/java/com/itantra/domain/model/ModelManifest.kt` and
+`grep -n sttPackFor ...ModelManifest.kt` both match) and that G8's Checkpoint 3 passed on both
+phones. If not, STOP.
+git fetch origin; git switch -c feature/t78-step7-switchover origin/main
+1. Remove the nine Indic mirror STT packs from the compulsory/optional download lists (keep
+   STT_ENGLISH). Keep S5a's fallback code — it is what serves a language before the pack downloads.
+2. Update the T30 WER table in docs/evaluation/sravaani/README.md with the SHIPPED numbers: G9's
+   INT8 TDT (app features) for the nine, IndicConformer for English.
+3. README.md: model table, sizes (from ModelRegistry, not estimates), licence rows.
+Build + tests green. Then the release-candidate phone run (both phones, G8 protocol, short form)
+and commit its logs. Commit "T78 step 7: switch over to SraVaani for the nine Indic languages".
+Push; DRAFT PR.
+```
+
+### G12 · Quick wins (each ≤ half a day; do in any order when blocked)
+
+- **T17a — int8 Piper voices.** Three registry changes (Hindi, Malayalam, English) save 138.6 MB. Update `sizeBytes` and `sha256` too. Spec: `IMPLEMENTATION_SPEC.md` T17a.
+- **T42 — sentence formation.** The PS says STT should "form the sentences detected". First check 20 SraVaani and 20 IndicConformer transcripts for punctuation. If there is none, add sentence-final punctuation per phrase (the VAD phrase boundary is already a sentence boundary), plus `।` for Devanagari/Bengali/Odia scripts, and `.` elsewhere. Unit-test it. Don't add a model.
+- **T31 — VAD pre-roll.** Keep 300 ms of audio before the trigger and prepend it, so word onsets aren't clipped (`AudioCaptureModule`/`VADModule`).
+- **T44 — confidence.** Both paths average raw logits clipped to [0, 1]: `STTModule.estimateConfidence` for CTC, and the TDT closure in `transcribeSraVaani`. That value goes on the wire. Use the softmax probability of the chosen token, averaged over emitted tokens.
+
+Use the standard pattern for each: spec section, `git switch -c feature/<task> origin/main`, build and tests green, one commit per task, DRAFT PR.
+
+### G13 · T03 + T16 — name the target phone, take the baseline (before the dossier)
+
+Pick **one** phone for every judged number (CPH2467 is the obvious low-range choice) and write its model, RAM and SoC into `ACTION_PLAN.md` §5. Then take the T16 baseline on it: RTF, speech end → STT complete, text received → first audio, the T11 cross-device delta, APK size, peak PSS, and idle CPU in phone mode over 10 minutes. Commit the CSVs under `docs/latency-evidence/baseline/`. This is the "before" column T56 and T57 need.
+
 ### G6 · T15 single ONNX runtime — investigation only (optional, Days 6–7)
 
 ```text
@@ -441,7 +556,7 @@ average. Commit "T30: IndicConformer WER with the app's feature pipeline". Push;
 
 **You do:** run the cells, then tell Gaurav the 8-language non-English average, which becomes T78's C1 bar if it differs from 19.99%.
 
-### S2 · T37 — Phone mode toggle (Day 2, after T63 is merged)
+### S2 · T37 — Phone mode toggle (Day 2, after T63 is merged) — ✅ done (PR #32)
 
 ```text
 <paste the standard header>
@@ -469,7 +584,7 @@ Build must pass. Commit "T37: phone mode toggle (PTT off = continuous listening)
 
 **You do (with Gaurav, two phones):** both phones in phone mode. Speak one sentence on phone A; phone B speaks it; **nothing comes back to A** (this proves T63 and T37 together). Then speak on B: A hears it. Record the result in the PR. Merge.
 
-### S3 · T66 — "Next message is an ALERT" toggle (Day 2, after T69 is merged)
+### S3 · T66 — "Next message is an ALERT" toggle (Day 2, after T69 is merged) — ✅ done (PR #33)
 
 ```text
 <paste the standard header>
@@ -496,7 +611,7 @@ Build must pass. Commit "T66: next-message-is-an-ALERT toggle". Push; DRAFT PR.
 
 **You do (two phones):** toggle on, hold PTT, speak: the other phone plays it at alarm volume. The next message is normal. Merge.
 
-### S4 · T67 — Voice notes (Day 3)
+### S4 · T67 — Voice notes (Day 3) — ✅ done (PR #35)
 
 ```text
 <paste the standard header>
@@ -525,7 +640,7 @@ Build must pass. Commit "T67: keep received speech as replayable voice notes". P
 
 **Joint Stage B test (Day 3, both of you, ~1 hour):** on the same two phones as run 3, test phone mode (no echo), two-way Bluetooth, an alert, and voice-note replay. Save the logcats under `docs/latency-evidence/stage-b/` with a short README of pass/fail lines, in one small PR.
 
-### S5 · T20 + T21 — Download only the selected language (Day 4)
+### S5 · T20 + T21 — Download only the selected language (Day 4) — ✅ done (PRs #37, #38)
 
 ```text
 <paste the standard header>

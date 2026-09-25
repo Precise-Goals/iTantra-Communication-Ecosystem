@@ -14,15 +14,15 @@
 | --- | --- | --- | --- | --- |
 | 0 | Stop work / clear the decks | 4 | 1 / 4 | — |
 | 1 | Make it fast, make it measurable | 12 | 9 / 12 | T11 |
-| 2 | Close the language gap | 7 | 2 / 7 | — |
+| 2 | Close the language gap | 7 | 4 / 7 | — |
 | 3 | Accuracy — the 40% week | 15 | 8 / 15 | — |
-| 4 | PS compliance + remaining latency | 21 | 14 / 21 | T39 |
+| 4 | PS compliance + remaining latency | 21 | 17 / 21 | T39 |
 | 5 | Quality and headroom | 8 | 0 / 8 | — |
 | 6 | The dossier | 6 | 0 / 6 | — |
 | C | Listed after the critical path (T75–T78) | 4 | 2 / 4 | — |
-| — | **Total** | **77** (T19, T55 superseded and not counted) | **36 / 77** | |
+| — | **Total** | **77** (T19, T55 superseded and not counted) | **41 / 77** | |
 
-Recounted from the checkboxes on 2026-09-25.
+Recounted from the checkboxes on 2026-09-26.
 
 ### Status key
 
@@ -30,9 +30,9 @@ Recounted from the checkboxes on 2026-09-25.
 - 🟡 partly done — the note on the task says which part remains
 - ⚠️ corrected or superseded — read the note before starting
 
-### Status as of 2026-09-25
+### Status as of 2026-09-26
 
-Everything below is merged to `main` (PRs #15, #17, #19, #21–#27):
+Everything below is merged to `main` (PRs #15, #17, #19, #21–#38):
 
 | Commit | Tasks | Where |
 | --- | --- | --- |
@@ -60,6 +60,14 @@ Everything below is merged to `main` (PRs #15, #17, #19, #21–#27):
 | `7619193`, `282c52a`, `8e1e9a8` | T17b + T18 five MMS voices (mr/kn/ta/te/or), team-hosted — **10/10 TTS** | `main` (PR #24) |
 | `7942307`, `a125fba` | T23–T29 NeMo preprocessor match + golden test | `main` (PR #26) |
 | `c8c3fa5`, `6e9dd3e` | T76 SraVaani vs IndicConformer evaluation | `main` (PR #27) |
+| `e400a1b`, `495b93a` | T77 SraVaani INT8 CTC evaluation + TDT design | `main` (PR #29) |
+| `9d357bf` | T37 phone mode toggle | `main` (PR #32) |
+| `1b6c77e` | T66 next-message-is-an-ALERT toggle | `main` (PR #33) |
+| `570931a`…`90e705f` | T78 Steps 1–4, Step 5 (low-range phone), Step 6 registry half | `main` (PR #34) |
+| `256e2a8`, `b5ec289` | T67 voice notes; Transceiver screen overhaul (PTT gestures, peer discovery) | `main` (PR #35) |
+| `10afb91`, `0e2ee5f` | T20 download only the selected language; T21 per-language selection | `main` (PRs #37, #38) |
+
+⚠️ **Open blocker (2026-09-26):** S5a is not done, so on a fresh install `main` transcribes only English. See the T78 entry.
 
 **Measured so far** (from `docs/latency-evidence/`, run 2, warm models; every figure re-checked against the raw files):
 - Phrase 1 finished transcribing **4.39 s before** PTT release and phrase 2 **0.20 s before** (run 1, cold models: +0.24 s / −0.14 s).
@@ -76,17 +84,18 @@ Everything below is merged to `main` (PRs #15, #17, #19, #21–#27):
 **0. ~~Finish Stage A and the removal.~~** ✅ Done: PR #21 (Stage A + run 3 evidence) and PR #19 (Assistant removal) are merged.
 
 **Stage B — PS requirements that are still pass/fail (≈ 2.5 days).** Specs: `IMPLEMENTATION_SPEC_2.md` Group G.
-5. **T37** — phone mode. T63 (echo gate) is merged (PR #22), so T37 can go in on its own.
+5. ~~**T37** — phone mode.~~ ✅ PR #32.
 6. ~~**T69** — Bluetooth in both directions.~~ ✅ PR #23.
-7. **T66 (minimum)** — a "next message is an ALERT" toggle beside PTT. That is all the PS needs; alert playback (alarm stream, max volume, non-interruptible) already works. ~2 h. See the T66 entry for what was dropped.
-8. **T67** — voice notes.
+7. ✅ PR #33 — ~~**T66 (minimum)**~~ — a "next message is an ALERT" toggle beside PTT. That is all the PS needs; alert playback (alarm stream, max volume, non-interruptible) already works. ~2 h. See the T66 entry for what was dropped.
+8. ~~**T67** — voice notes.~~ ✅ PR #35.
 
 **Stage C — the 40% Accuracy criterion and the footprint (needs a human for hosting).**
 8a. ~~**T76**~~ ✅ PR #27. Its own ≥ 3-point rule said "keep IndicConformer". That rule is retired, see T76.
 8b. ~~**T77**~~ ✅ PR #29. The CTC route failed (22.44% vs 19.99% WER), and the TDT route was scoped in `docs/evaluation/sravaani/tdt-engine-design.md`.
 8c. **T78 (now, one week)** — SraVaani TDT engine for the nine Indic languages, Odia included, with IndicConformer for English. Three checkpoints; any fail switches to T64 the same day.
 9. ~~**T17b**~~ ✅ PR #24 (10/10 TTS). **T64** (Odia STT) is now T78's fallback. 10/10 STT comes from T78 or T64.
-10. **T20 (revised) + T21** — download only the selected language (2.18 GB → ~250 MB). Easy now that T72 gives the app a selected language.
+10. ~~**T20 (revised) + T21**~~ ✅ PRs #37, #38.
+10a. **Now, in order:** S5a (Sarthak, the blocker) → Gaurav's G8–G13 in `WORK_SPLIT.md` §4 (phone validation, G9 SraVaani re-score, T11 with its clock-offset bug fixed, T78 Step 7, quick wins T17a/T42/T31/T44, T03 + T16 baseline) · Sarthak's S5b → S1b (T30) → S6 → S7.
 11. ~~**T23 → T29**~~ ✅ PR #26. **T30** remaining: Sarthak's IndicConformer re-run (see T30). T77's comparison needs it.
 12. **T15** — two ONNX runtimes still ship in the APK (`libsherpa-onnx-jni.so` 23.7 MB with its own runtime, plus `libonnxruntime.so` 16.3 MB). Consolidating is the next APK-size win after the Assistant removal.
 13. **T75** — remove stale claims from `app_metadata.json`, `AppMetadata.kt` and the manifest metadata (small).
@@ -157,7 +166,8 @@ Nothing after this week can be evaluated until this week lands.
 - [ ] 🟡 **T11 · Cross-device latency via clock offset** — *G · LAT · 4h*
   Derive offset ≈ RTT/2 from the existing `SocketTransport` ping/ACK loop, then report `firstAudioFrame(B) − speechEnd(A)`. This is the headline demo number.
   **Done when:** the two-device delta is measurable without external timing gear.
-  🟡 *Partial:* the offset (`Telemetry.peerClockOffsetMs = latency / 2`) is recorded in the working tree; nothing yet computes `firstAudioFrame(B) − speechEnd(A)`.
+  🟡 *Partial:* the offset (`Telemetry.peerClockOffsetMs = latency / 2`) is recorded; nothing yet computes `firstAudioFrame(B) − speechEnd(A)`.
+  ⚠️ **Bug found 2026-09-26:** the ACK overwrites `timestamp` with phone B's clock, so A's "latency" is B's clock offset plus the one-way delay, not an RTT. `latency / 2` is not an offset. Fix with an NTP-style t0/t1/t2 exchange. Prompt: `WORK_SPLIT.md` G10.
 
 - [x] **T12 · CSV export of all metrics** — *G · DOC · 3h*
   One row per utterance to `filesDir`, pullable via adb.
@@ -207,11 +217,11 @@ The PS mandates 10 languages. You ship 9 STT and 5 TTS.
 - [ ] ⚠️ ~~**T19 · Document the Odia STT gap**~~ — **superseded by T64.**
   The earlier position ("no Odia model exists upstream") was wrong: only the mirror lacks it. AI4Bharat publishes `ai4bharat/indicconformer_stt_or_hybrid_ctc_rnnt_large`. Still never substitute Assamese.
 
-- [ ] **T20 · Rework `coreTransceiverPacks()` to one language pair** — *G · EFF · 4h*
+- [x] **T20 · Rework `coreTransceiverPacks()` to one language pair** — *G · EFF · 4h*
   `domain/model/ModelManifest.kt` — currently forces all 17 packs (2.18 GB). Make the compulsory set VAD + espeak-ng + the chosen pair.
   **Done when:** first-run download for one pair is < 250 MB.
 
-- [ ] **T21 · Per-language selection in the Downloads screen** — *S · EFF · 1d*
+- [x] **T21 · Per-language selection in the Downloads screen** — *S · EFF · 1d*
   `ui/screen/DownloadsScreen.kt` — pick languages, show honest sizes, download on demand.
   **Done when:** a user can run the app having downloaded only their pair.
 
@@ -317,7 +327,7 @@ Treat this as the most important week in the plan.
 
 ## Week 4 — PS compliance and remaining latency
 
-- [ ] **T37 · Wire phone mode to the UI** — *S · REQ · 1d*
+- [x] **T37 · Wire phone mode to the UI** — *S · REQ · 1d*
   `ConnectionMode.PHONE_MODE` exists and `setConnectionMode()` handles it, but **nothing in `ui/` ever calls it**. The PS requires: *"if turned off it should work like a phone."*
   **Done when:** toggling PTT off gives continuous VAD-gated operation.
   ⚠️ ~~Must ship in the same PR as T63.~~ T63 is merged (PR #22), so T37 can ship on its own.
@@ -342,13 +352,13 @@ Treat this as the most important week in the plan.
   🟡 *Partial:* `setWillPauseWhenDucked(false)` is in (`5c3ea07`). Pre-emption is not: an ALERT still waits behind queued messages.
   *Optional:* the PS says alerts must be "non-interruptible", i.e. an alert must not be cut off once playing — the T38 queue already guarantees that. Jumping ahead of queued messages is a nice extra, not a requirement.
 
-- [ ] ⚠️ **T66 · Send alert-type messages (minimum version)** — *S+G · REQ · 2h* 🎨
+- [x] ⚠️ **T66 · Send alert-type messages (minimum version)** — *S+G · REQ · 2h* 🎨
   Nothing in `ui/` can send an ALERT, so "alert type messages will be announced at highest volume non-interruptible" cannot be demonstrated. The receive side (alarm stream, forced max volume, DND bypass attempt, non-interruptible playback) already works.
   **Trimmed 2026-09-24:** the PS asks only that alert-*type* messages exist and play loudly without interruption. It does not ask for an SOS screen, preset phrases or a full-screen dialog. Do only the "next message is an ALERT" toggle — no dependency on T69 any more. Presets, the receiver dialog and recorded phrase clips are optional polish.
   ⚠️ After T43, an alert in a language with no voice yet (Marathi, Kannada, Tamil, Telugu, Odia) arrives as text only. T17b closes that; until then, say so in the demo.
   **Done when:** with the toggle on, a spoken PTT message plays on the other phone at alarm volume; the next message is normal. Spec: `IMPLEMENTATION_SPEC_2.md` T66 → "Minimum version".
 
-- [ ] **T67 · Voice notes** — *G+S · REQ · 0.5d* 🎨
+- [x] **T67 · Voice notes** — *G+S · REQ · 0.5d* 🎨
   The PS says TTS output is "played as a voice note". Store each received utterance as a WAV and add replay on the bubble. Depends on T13.
   **Done when:** received messages can be replayed. Spec: `IMPLEMENTATION_SPEC_2.md` T67.
 
