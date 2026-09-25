@@ -127,11 +127,17 @@ class STTModule(
         }
     }
 
+    private fun sraVaaniFilesPresent(): Boolean =
+        ModelAssetExtractor.getPhysicalModelPath(context, SRAVAANI_ENCODER_FILE) != null &&
+            ModelAssetExtractor.getPhysicalModelPath(context, SRAVAANI_DECODER_JOINT_FILE) != null &&
+            ModelAssetExtractor.getPhysicalModelPath(context, SRAVAANI_TOKENS_FILE) != null
+
     /** Resolves the cache key for a requested language: every SraVaani-backed code shares
-     *  [SRAVAANI_CACHE_KEY], so switching e.g. "hi" -> "ta" reuses the same loaded pair instead
-     *  of loading a second ~465MB copy. IndicConformer languages key by their own code. */
+     *  [SRAVAANI_CACHE_KEY] when SraVaani files are present on disk, so switching e.g. "hi" -> "ta"
+     *  reuses the same loaded pair instead of loading a second ~465MB copy. If SraVaani files are
+     *  missing or for non-SraVaani languages, it keys by the language code directly. */
     private fun cacheKeyFor(languageCode: String): String =
-        if (languageCode in SRAVAANI_LANGUAGES) SRAVAANI_CACHE_KEY else languageCode
+        if (languageCode in SRAVAANI_LANGUAGES && sraVaaniFilesPresent()) SRAVAANI_CACHE_KEY else languageCode
 
     // Bounded LRU (T46, reworked T78 Step 4 for shared-pair caching). Keyed by *model identity*
     // (cacheKeyFor), not the requested language — the SraVaani pair (~465MB, two sessions) and an
@@ -308,9 +314,12 @@ class STTModule(
         try {
             val startMs = System.currentTimeMillis()
 
-            val backend = if (languageCode in SRAVAANI_LANGUAGES) {
+            val backend = if (cacheKey == SRAVAANI_CACHE_KEY) {
                 loadSraVaaniBackend()
             } else {
+                if (languageCode in SRAVAANI_LANGUAGES) {
+                    Log.d(TAG, "STT('$languageCode'): SraVaani not downloaded, using IndicConformer")
+                }
                 loadIndicConformerBackend(languageCode)
             } ?: return@withContext false
 

@@ -86,6 +86,13 @@ enum class ModelPack(
         isRequired = false,
         requiredFor = "Transceiver"
     ),
+    STT_SRAVAANI(
+        "SraVaani STT Engine (9 languages)",
+        "SraVaani INT8 TDT (T78) — shared encoder + decoder_joint for hi/gu/mr/kn/ml/ta/te/bn/or",
+        sizeMb = 383,
+        isRequired = false,
+        requiredFor = "Transceiver"
+    ),
     ESPEAK_NG_DATA(
         "Speech Phonemizer Data",
         "Shared espeak-ng phoneme data — required by every voice pack below for real speech synthesis",
