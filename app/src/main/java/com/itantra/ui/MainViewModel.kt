@@ -175,7 +175,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun downloadPack(pack: ModelPack) = downloadManager.download(pack)
     fun downloadModel(pack: ModelPack) = downloadManager.download(pack)
     fun downloadAll(packs: List<ModelPack>) = downloadManager.downloadAll(packs)
-    fun downloadCorePacks() = downloadManager.downloadAll(ModelPack.coreTransceiverPacks())
+    fun downloadCorePacks() = downloadManager.downloadAll(ModelPack.coreTransceiverPacks(_selectedLanguage.value))
     fun cancelDownload(pack: ModelPack) = downloadManager.cancel(pack)
     fun deleteModel(pack: ModelPack) = downloadManager.delete(pack)
     fun modelPath(pack: ModelPack) = downloadManager.modelPath(pack)
