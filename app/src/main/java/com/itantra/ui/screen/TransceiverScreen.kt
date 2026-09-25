@@ -41,6 +41,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SignalWifi4Bar
 import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material.icons.outlined.PersonAdd
@@ -71,12 +72,16 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import android.widget.Toast
 import com.itantra.core.service.ITantraForegroundService
 import com.itantra.domain.model.ConnectionType
+import com.itantra.domain.model.Direction
 import com.itantra.domain.model.DownloadState
 import com.itantra.domain.model.IndicLanguage
+import com.itantra.domain.model.MessageType
 import com.itantra.domain.model.ModelPack
 import com.itantra.domain.model.PeerDevice
+import com.itantra.domain.model.TransceiverMessage
 import com.itantra.ui.MainViewModel
 import com.itantra.ui.component.ModelDownloadGate
 import com.itantra.ui.component.STT_LANGUAGES
@@ -110,6 +115,7 @@ fun TransceiverScreen(
     val selectedLanguage by viewModel.selectedLanguage.collectAsState()
     val isPhoneMode by viewModel.isPhoneMode.collectAsState()
     val alertArmed by viewModel.alertArmed.collectAsState()
+    val messages by viewModel.messageLog.collectAsState()
 
     // ── Paired Bluetooth devices (BluetoothRFCOMMManager.connectToDevice needs a real
     // BluetoothDevice, which only bonded-device enumeration can supply without a scan) ──
@@ -501,6 +507,46 @@ fun TransceiverScreen(
                     .border(1.dp, iTantraBorder, RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
             ) {
                 Column {
+                    // ── Transceiver Messages / Voice Notes (T67) ─────────
+                    if (messages.isNotEmpty()) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Transmissions (${messages.size})",
+                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                color = iTantraBlack
+                            )
+                            Text(
+                                text = "tap ▶ to replay",
+                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                color = iTantraBlack60
+                            )
+                        }
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(minOf(messages.size * 68, 180).dp),
+                            contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 8.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            items(messages, key = { "${it.senderId}_${it.sequence}_${it.timestamp}" }) { msg ->
+                                MessageBubbleItem(
+                                    message = msg,
+                                    onReplay = {
+                                        if (!viewModel.replayVoiceNote(msg)) {
+                                            Toast.makeText(context, "Voice note not ready yet", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                )
+                            }
+                        }
+                    }
+
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -711,6 +757,93 @@ private fun PeerRowItemWhite(
                 tint = if (peer.isAuthorized) iTantraSuccess else iTantraBlack60,
                 modifier = Modifier.size(18.dp)
             )
+        }
+    }
+}
+
+@Composable
+private fun MessageBubbleItem(
+    message: TransceiverMessage,
+    onReplay: () -> Unit
+) {
+    val isReceived = message.direction == Direction.RECEIVED
+    val timeStr = remember(message.timestamp) {
+        java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date(message.timestamp))
+    }
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalAlignment = if (isReceived) Alignment.Start else Alignment.End
+    ) {
+        Box(
+            modifier = Modifier
+                .clip(
+                    RoundedCornerShape(
+                        topStart = 16.dp,
+                        topEnd = 16.dp,
+                        bottomStart = if (isReceived) 4.dp else 16.dp,
+                        bottomEnd = if (isReceived) 16.dp else 4.dp
+                    )
+                )
+                .background(if (isReceived) iTantraWhite else iTantraBlack)
+                .border(
+                    1.dp,
+                    if (message.type == MessageType.ALERT) iTantraError
+                    else if (isReceived) iTantraBorder
+                    else iTantraBlack,
+                    RoundedCornerShape(16.dp)
+                )
+                .padding(horizontal = 12.dp, vertical = 8.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                if (isReceived) {
+                    // Small play icon button on RECEIVED message bubbles (T67)
+                    IconButton(
+                        onClick = onReplay,
+                        modifier = Modifier.size(28.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.PlayArrow,
+                            contentDescription = "Replay voice note",
+                            tint = if (message.type == MessageType.ALERT) iTantraError else iTantraBlack,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+                Column {
+                    if (message.type == MessageType.ALERT) {
+                        Text(
+                            text = "ALERT",
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, fontWeight = FontWeight.Bold),
+                            color = iTantraError
+                        )
+                    }
+                    Text(
+                        text = message.text,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = if (isReceived) iTantraBlack else iTantraWhite
+                    )
+                    Spacer(Modifier.height(2.dp))
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "[${message.srcLang.uppercase()}]",
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, fontWeight = FontWeight.Bold),
+                            color = if (isReceived) iTantraBlack60 else Color(0xFFD4D4D4)
+                        )
+                        Text(
+                            text = timeStr,
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                            color = if (isReceived) iTantraBlack40 else Color(0xFF999999)
+                        )
+                    }
+                }
+            }
         }
     }
 }

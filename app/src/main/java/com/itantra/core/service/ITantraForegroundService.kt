@@ -228,6 +228,14 @@ class ITantraForegroundService : Service() {
                 utt.ttsDoneNs = System.nanoTime()
                 if (synth != null) {
                     utt.ttsAudioDurationMs = synth.samples.size * 1000L / synth.sampleRate
+                    // Keep it as a replayable voice note (T67). Off the playback path.
+                    val noteSamples = synth.samples
+                    val noteRate = synth.sampleRate
+                    serviceScope.launch(Dispatchers.IO) {
+                        com.itantra.core.audio.VoiceNoteStore.save(
+                            this@ITantraForegroundService, message.senderId, message.sequence, noteSamples, noteRate
+                        )
+                    }
                     audioPlayback.play(synth.samples, synth.sampleRate, isAlert) {
                         utt.firstAudioFrameNs = System.nanoTime()
                         Telemetry.complete(this@ITantraForegroundService, utt)
@@ -551,6 +559,17 @@ class ITantraForegroundService : Service() {
 
     fun setSTTLanguage(lang: String) { sttLanguage = lang; audioCaptureModule.currentLanguage = lang }
     fun setTTSLanguage(lang: String) { ttsLanguage = lang }
+
+    /** Replays a stored voice note through the normal playback path (T67). False if none exists. */
+    fun replayVoiceNote(senderId: String, sequence: Int): Boolean {
+        val file = com.itantra.core.audio.VoiceNoteStore.fileFor(this, senderId, sequence)
+        if (!file.exists()) return false
+        serviceScope.launch(Dispatchers.IO) {
+            val (samples, rate) = com.itantra.core.audio.VoiceNoteStore.load(file) ?: return@launch
+            audioPlayback.play(samples, rate)
+        }
+        return true
+    }
 
     /** When true, the next STT result is sent as an ALERT instead of SPEECH, then resets (T66). */
     @Volatile var sendNextAsAlert: Boolean = false
