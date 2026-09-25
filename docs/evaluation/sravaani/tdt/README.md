@@ -94,8 +94,8 @@ this is the number that says why.
 per-clip hypothesis TSVs (only the aggregate WER/CER/RTF numbers above survived, from console
 output) and the model cold-load time (`load_ms` in `results_int8_tdt.csv` is blank, not
 measured — not fabricated). The Step 1.4 parity fixture (one clip's encoder output + reference
-token ids, for the Step 3 `TdtDecoderParityTest`) was also lost and will need regenerating before
-Step 3 begins.
+token ids, for the Step 3 `TdtDecoderParityTest`) was also lost and was regenerated in Step 3
+below.
 
 ## Step 2 — 128-mel features, with a golden test
 
@@ -136,3 +136,61 @@ Fixtures committed: `app/src/test/resources/fixture_sravaani.wav` (32-bit float 
 
 **VERIFY:** `.\gradlew.bat :app:testDebugUnitTest` — both `MelFeatureGoldenTest` (unchanged,
 80-mel) and `SraVaaniMelGoldenTest` (new, 128-mel) green at 1e-3 tolerance.
+
+## Step 3 — `TdtDecoder.kt`, with a decode-parity test
+
+New pure-Kotlin `app/src/main/java/com/itantra/core/audio/TdtDecoder.kt`, kept separate from ONNX
+like `CtcDecoder.kt`, implementing the greedy TDT loop from the design doc §1c: `blank=5000`,
+`durations=[0,1,2,3,4]`, `max_symbols=10`, LSTM state zeroed per utterance, token/duration logits
+split at `vocab_size+1`. The `decoder_joint` ONNX call is taken as a function parameter
+(`TdtDecoder.DecoderJointCall`) so the loop is unit-tested without a model.
+
+### Parity fixture (regenerated after the runtime reset)
+
+The encoder + decoder_joint pair was re-quantized (same method as Step 1; not re-verified against
+the committed sha256s since a fresh Colab runtime produces a fresh file each time, but decoding
+the same hi_in clip through them reproduced the **exact same token ids and hypothesis text** as
+Step 1's original sanity check — confirming determinism). `decode_rnnt` was re-run on the same
+fixture clip (`10011266027513218401.wav`) with every one of its 97 `decoder_joint` calls recorded:
+the encoder time index and last-emitted-token fed in, the LSTM state in and out, and the full 5006
+logits out. Fixtures committed under `app/src/test/resources/`:
+
+| File | Shape/content |
+| --- | --- |
+| `parity_encoder_out.npy` | `[1024, 114]` float32 (encoder output, batch dim dropped) |
+| `parity_encoder_len.txt` | `114` |
+| `parity_trace_t.txt` / `parity_trace_last_token.txt` | 97 lines each — per-step encoder time index and last token |
+| `parity_trace_h_in.npy` / `parity_trace_c_in.npy` | `[97, 640]` — LSTM state fed into each step |
+| `parity_trace_logits.npy` | `[97, 5006]` — decoder_joint output at each step |
+| `parity_trace_h_out.npy` / `parity_trace_c_out.npy` | `[97, 640]` — updated LSTM state from each step |
+| `parity_reference_tokens.txt` | the 43 final emitted token ids |
+
+`TdtDecoderParityTest` replays this trace through a stub `DecoderJointCall`: at every step it
+asserts the encoder frame and last-token `TdtDecoder.decode` requests match the recorded ones
+exactly (not just the final answer), then returns the recorded logits/state. **Passed** — every
+step's inputs matched, and the decoded token list equals `parity_reference_tokens.txt` exactly.
+
+### Tokenizer: piece-join rule vs `sp.decode()`
+
+Exported SraVaani's SentencePiece vocabulary as a flat `<piece> <id>` file (`sravaani_tokens.txt`,
+committed alongside this README; blank last, `<blk> 5000`, 5001 lines — same format
+`CtcDecoder.parseTokens` reads). Rather than re-downloading ~4 GB of FLEURS audio across 8
+languages to re-derive "every Step 1 hypothesis" (lost to the runtime reset), the piece-join rule
+(`▁`→space, same as `CtcDecoder.decodeToken`) was checked against `sp.decode()` on **every one of
+the 5000 vocabulary pieces individually** — broader coverage than a sample of hypotheses would
+give.
+
+**Result: 4999/5000 match exactly.** The one mismatch is id 0 (`<unk>`): `sp.decode([0])` renders
+it as `" ⁇ "`, but the literal piece text is `"<unk>"`. Follow-up checks (embedding id 0 between
+real tokens) showed the substitution `" ⁇ "` is correct in every position; the only remaining
+divergence is a single incidental leading/trailing space when `<unk>` is the very first or last
+token of the **whole utterance**, caused by `CtcDecoder`-style final `.trim()` — a whitespace-only
+edge case, not a text-content one, and consistent with the trim already applied everywhere else in
+this codebase.
+
+**Decision (Gaurav):** special-case `UNK_ID=0` in `TdtDecoder.decodeToText` to emit `" ⁇ "`
+directly, rather than adding a native SentencePiece dependency. Implemented and documented in
+`TdtDecoder.kt`.
+
+**Checkpoint 2 — PASSED.** `MelFeatureGoldenTest`, `SraVaaniMelGoldenTest`, and
+`TdtDecoderParityTest` are all green (`.\gradlew.bat :app:testDebugUnitTest`). No override needed.
