@@ -109,6 +109,7 @@ fun TransceiverScreen(
     val pipelineStage by viewModel.pipelineStage.collectAsState()
     val selectedLanguage by viewModel.selectedLanguage.collectAsState()
     val isPhoneMode by viewModel.isPhoneMode.collectAsState()
+    val alertArmed by viewModel.alertArmed.collectAsState()
 
     // ── Paired Bluetooth devices (BluetoothRFCOMMManager.connectToDevice needs a real
     // BluetoothDevice, which only bonded-device enumeration can supply without a scan) ──
@@ -360,7 +361,7 @@ fun TransceiverScreen(
                             .size(230.dp)
                             .scale(if (isPttActive) 1.05f else if (isPhoneMode) 1f else pulseScale)
                             .clip(CircleShape)
-                            .background(if (isPttActive) Color(0x1FDC2626) else if (isPhoneMode) iTantraBackground else Color(0xFFF3F4F6)),
+                            .background(if (isPttActive || alertArmed) Color(0x1FDC2626) else if (isPhoneMode) iTantraBackground else Color(0xFFF3F4F6)),
                         contentAlignment = Alignment.Center
                     ) {
                         // Middle ring
@@ -368,10 +369,10 @@ fun TransceiverScreen(
                             modifier = Modifier
                                 .size(185.dp)
                                 .clip(CircleShape)
-                                .background(if (isPttActive) Color(0x33DC2626) else if (isPhoneMode) iTantraBackground else iTantraWhite)
+                                .background(if (isPttActive) Color(0x33DC2626) else if (alertArmed) Color(0x1FDC2626) else if (isPhoneMode) iTantraBackground else iTantraWhite)
                                 .border(
                                     2.dp,
-                                    if (isPttActive) iTantraError else if (isPhoneMode) iTantraBorder.copy(alpha = 0.5f) else iTantraBorder,
+                                    if (isPttActive || alertArmed) iTantraError else if (isPhoneMode) iTantraBorder.copy(alpha = 0.5f) else iTantraBorder,
                                     CircleShape
                                 ),
                             contentAlignment = Alignment.Center
@@ -383,13 +384,13 @@ fun TransceiverScreen(
                                     .shadow(if (isPhoneMode) 0.dp else 8.dp, CircleShape)
                                     .clip(CircleShape)
                                     .background(
-                                        if (isPttActive) iTantraError
+                                        if (isPttActive || alertArmed) iTantraError
                                         else if (isPhoneMode) iTantraCardAlt
                                         else iTantraBlack
                                     )
                                     .border(
                                         2.dp,
-                                        if (isPttActive) Color(0xFFF87171)
+                                        if (isPttActive || alertArmed) Color(0xFFF87171)
                                         else if (isPhoneMode) iTantraBorder
                                         else iTantraBlack,
                                         CircleShape
@@ -414,8 +415,8 @@ fun TransceiverScreen(
                                     verticalArrangement = Arrangement.Center
                                 ) {
                                     Icon(
-                                        imageVector = if (isPttActive) Icons.Filled.Mic else Icons.Filled.GraphicEq,
-                                        contentDescription = if (isPhoneMode) "Phone mode active" else "Push to Talk",
+                                        imageVector = if (isPttActive || alertArmed) Icons.Filled.Mic else Icons.Filled.GraphicEq,
+                                        contentDescription = if (isPhoneMode) "Phone mode active" else if (alertArmed) "Send Alert" else "Push to Talk",
                                         tint = if (isPhoneMode) iTantraBlack40 else iTantraWhite,
                                         modifier = Modifier.size(46.dp)
                                     )
@@ -423,6 +424,7 @@ fun TransceiverScreen(
                                     Text(
                                         text = if (isPttActive) "RELEASE"
                                             else if (isPhoneMode) "PHONE MODE"
+                                            else if (alertArmed) "SEND ALERT"
                                             else "HOLD PTT",
                                         style = MaterialTheme.typography.labelSmall.copy(
                                             fontWeight = FontWeight.Bold,
@@ -440,18 +442,53 @@ fun TransceiverScreen(
 
                     Text(
                         text = if (isPttActive) "Transmitting Audio Data…"
+                            else if (alertArmed) "Emergency Alert Mode (Highest Volume)"
                             else if (isPhoneMode) "Continuous Listening (Phone Mode)"
                             else "Push to Talk (Walkie-Talkie)",
                         style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                        color = if (isPttActive) iTantraError else iTantraBlack
+                        color = if (isPttActive || alertArmed) iTantraError else iTantraBlack
                     )
                     Spacer(Modifier.height(3.dp))
                     Text(
                         text = if (isPhoneMode) "Continuous VAD-gated speech capture (PTT disabled)"
+                            else if (alertArmed) "Next transmission announces at max volume non-interruptible"
                             else "Silero VAD → IndicConformer STT → ~200B Protobuf Frame",
                         style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
                         color = iTantraBlack60
                     )
+
+                    Spacer(Modifier.height(14.dp))
+
+                    // ── Next message is an ALERT toggle (T66) ─────────────
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(if (alertArmed) Color(0x1FDC2626) else iTantraCardAlt)
+                            .border(1.dp, if (alertArmed) iTantraError else iTantraBorder, RoundedCornerShape(20.dp))
+                            .padding(start = 12.dp, end = 6.dp, top = 3.dp, bottom = 3.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Next message is an ALERT",
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontSize = 11.sp,
+                                fontWeight = if (alertArmed) FontWeight.Bold else FontWeight.SemiBold
+                            ),
+                            color = if (alertArmed) iTantraError else iTantraBlack
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Switch(
+                            checked = alertArmed,
+                            onCheckedChange = { viewModel.setAlertArmed(it) },
+                            modifier = Modifier.scale(0.75f).height(20.dp),
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = iTantraWhite,
+                                checkedTrackColor = iTantraError,
+                                uncheckedThumbColor = iTantraBlack60,
+                                uncheckedTrackColor = iTantraBorder
+                            )
+                        )
+                    }
                 }
             }
 
