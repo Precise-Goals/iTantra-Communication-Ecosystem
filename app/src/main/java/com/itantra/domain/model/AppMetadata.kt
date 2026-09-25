@@ -16,19 +16,19 @@ object AppMetadata {
 
     // Hardware specifications
     const val MIN_RAM_TARGET = "4GB+ RAM (Optimized for Low & Mid-range Android smartphones)"
-    const val TARGET_ARCHITECTURES = "arm64-v8a, armeabi-v7a, x86_64"
+    const val TARGET_ARCHITECTURES = "arm64-v8a"
     const val MIN_ANDROID_SDK = "Android 8.0 (API 26)"
     const val TARGET_ANDROID_SDK = "Android 15 (API 35)"
 
     // Network & Transport
     const val PRIMARY_TRANSPORT = "Wi-Fi Direct P2P (High-Throughput Mesh)"
     const val FALLBACK_TRANSPORT = "Bluetooth RFCOMM / SPP (Ultra-Low-Power)"
-    const val PACKET_STREAMING = "Low-bitrate Protobuf Lite + Chunked Streaming (8-16 kbps)"
+    const val PACKET_STREAMING = "Length-prefixed Protobuf TransceiverMessage frames (~50–300 bytes per phrase)"
 
     // Neural Models
-    const val STT_MODEL = "AI4Bharat IndicConformer (INT8 ONNX, ~150MB)"
-    const val TTS_MODEL = "AI4Bharat IndicTTS VITS (INT8 ONNX, ~14MB per language)"
-    const val VAD_MODEL = "Silero VAD v4 (ONNX, ~2MB)"
+    const val STT_MODEL = "AI4Bharat IndicConformer (sherpa-onnx INT8 ONNX, ~197MB per language)"
+    const val TTS_MODEL = "sherpa-onnx VITS (Piper / Coqui / Mimic3 / MMS, ~20–108MB per language)"
+    const val VAD_MODEL = "Silero VAD (v5+ export, release v6.2.3, ~2.2MB)"
 
     // Supported Indic Languages
     val SUPPORTED_LANGUAGES = listOf(
