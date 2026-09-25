@@ -39,6 +39,10 @@ class STTModule(
         private const val MAX_CACHED_LANGUAGES = 2
         const val SAMPLE_RATE = 16000
         private const val N_MELS = 80
+        /** T78: SraVaani's encoder needs 128 mel bins (confirmed via T77 Step 2 and the real
+         *  preproc.pt params) — every other STFT field (N_FFT, FRAME_LENGTH, HOP_LENGTH, preemph,
+         *  log guard, per-feature normalization) is identical to IndicConformer's. */
+        internal const val SRAVAANI_N_MELS = 128
         private const val FRAME_LENGTH = 400   // 25ms window at 16kHz
         private const val HOP_LENGTH = 160     // 10ms hop at 16kHz
         /** FFT size: next power of two at or above FRAME_LENGTH. NeMo pads the 400-sample
@@ -109,7 +113,11 @@ class STTModule(
     /** Sparse mel filterbank: for each mel band, the first FFT bin and its triangular weights. */
     private class MelBank(val startBin: IntArray, val weights: Array<FloatArray>)
 
-    private val melBank: MelBank by lazy { buildMelBank() }
+    /** T78: built once per distinct mel-bin count (80 for IndicConformer, 128 for SraVaani),
+     *  not once per class instance — [buildMelBank] takes no other per-call parameters, so the
+     *  bin count alone determines the bank. */
+    private val melBankCache = mutableMapOf<Int, MelBank>()
+    private fun melBankFor(nMels: Int): MelBank = melBankCache.getOrPut(nMels) { buildMelBank(nMels) }
 
     /** Scratch buffers, reused across frames to keep allocation constant per utterance. */
     private val fftRe = DoubleArray(N_FFT)
@@ -124,19 +132,19 @@ class STTModule(
      * (`htk=False`, the call's default since NeMo never passes `htk=True`) — a separate thing
      * from the area normalization, and previously wrong (T23).
      */
-    private fun buildMelBank(): MelBank {
+    private fun buildMelBank(nMels: Int): MelBank {
         val nBins = N_FFT / 2 + 1
         val melMin = hzToMel(0.0)
         val melMax = hzToMel(SAMPLE_RATE / 2.0)
-        val melPoints = DoubleArray(N_MELS + 2) { i ->
-            melToHz(melMin + i * (melMax - melMin) / (N_MELS + 1))
+        val melPoints = DoubleArray(nMels + 2) { i ->
+            melToHz(melMin + i * (melMax - melMin) / (nMels + 1))
         }
         val binFreq = DoubleArray(nBins) { k -> k.toDouble() * SAMPLE_RATE / N_FFT }
 
-        val starts = IntArray(N_MELS)
-        val weightRows = Array(N_MELS) { FloatArray(0) }
+        val starts = IntArray(nMels)
+        val weightRows = Array(nMels) { FloatArray(0) }
 
-        for (m in 0 until N_MELS) {
+        for (m in 0 until nMels) {
             val lower = melPoints[m]
             val center = melPoints[m + 1]
             val upper = melPoints[m + 2]
@@ -391,13 +399,18 @@ class STTModule(
     }
 
     /**
-     * Extract 80-dimensional log-mel spectrogram features from raw PCM audio, matching NeMo's
-     * AudioToMelSpectrogramPreprocessor as configured for the AI4Bharat IndicConformer
+     * Extract [nMels]-dimensional log-mel spectrogram features from raw PCM audio, matching
+     * NeMo's AudioToMelSpectrogramPreprocessor as configured for the AI4Bharat IndicConformer
      * checkpoints — confirmed field-by-field against the real checkpoint config and the
      * installed nemo_toolkit's FilterbankFeatures source (T23), not assumed defaults.
+     *
+     * T78: [nMels] defaults to 80 (IndicConformer) so this call is byte-for-byte unchanged for
+     * every existing caller; pass [SRAVAANI_N_MELS] (128) for the SraVaani path. Every other STFT
+     * field (N_FFT, FRAME_LENGTH, HOP_LENGTH, preemph, log guard, normalization) is identical
+     * between the two models (confirmed against SraVaani's real preproc.pt in T77/T78 Step 2).
      */
     @androidx.annotation.VisibleForTesting
-    internal fun extractLogMelSpectrogram(input: FloatArray): FloatArray {
+    internal fun extractLogMelSpectrogram(input: FloatArray, nMels: Int = N_MELS): FloatArray {
         // NeMo applies preemph=0.97 once to the whole signal before framing, not per-frame.
         val audio = FloatArray(input.size)
         if (input.isNotEmpty()) {
@@ -405,7 +418,7 @@ class STTModule(
             for (i in 1 until input.size) audio[i] = input[i] - 0.97f * input[i - 1]
         }
 
-        val bank = melBank
+        val bank = melBankFor(nMels)
         // NeMo's log_zero_guard_value default is 2**-24, not the 1e-10 used previously.
         val logGuard = 5.9604645e-8
 
@@ -414,7 +427,7 @@ class STTModule(
         // index outside the audio treated as zero. Physical frame count is 1 + size/HOP_LENGTH.
         val half = FRAME_LENGTH / 2
         val numFrames = audio.size / HOP_LENGTH + 1
-        val frames = Array(numFrames) { FloatArray(N_MELS) }
+        val frames = Array(numFrames) { FloatArray(nMels) }
 
         for (t in 0 until numFrames) {
             val frameStart = t * HOP_LENGTH - half
@@ -428,7 +441,7 @@ class STTModule(
 
             fftPowerInPlace()
 
-            for (m in 0 until N_MELS) {
+            for (m in 0 until nMels) {
                 val w = bank.weights[m]
                 val s = bank.startBin[m]
                 var energy = 0f
@@ -450,7 +463,7 @@ class STTModule(
         // exactly zero. Reproduced here because the golden reference (T29) comes from that exact
         // code path, and unbiased (N-1) variance, per NeMo's normalize_batch.
         val validLen = numFrames - 1
-        for (m in 0 until N_MELS) {
+        for (m in 0 until nMels) {
             var mean = 0.0
             for (t in 0 until validLen) mean += frames[t][m]
             mean /= validLen
@@ -465,10 +478,10 @@ class STTModule(
             frames[validLen][m] = 0f
         }
 
-        // Flatten [T, N_MELS] → [N_MELS, T] (transpose for model input)
-        val result = FloatArray(N_MELS * numFrames)
+        // Flatten [T, nMels] → [nMels, T] (transpose for model input)
+        val result = FloatArray(nMels * numFrames)
         for (t in 0 until numFrames) {
-            for (m in 0 until N_MELS) {
+            for (m in 0 until nMels) {
                 result[m * numFrames + t] = frames[t][m]
             }
         }
