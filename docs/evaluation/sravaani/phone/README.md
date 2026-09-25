@@ -212,6 +212,14 @@ objective), but as measured here it is not close enough to reconsider, and the 1
 mismatch would still need a real `STTModule` engineering change (a second, parallel feature
 pipeline) before any phone test could even run.
 
+**The more promising route this task did not build:** SraVaani's *native TDT decoder* (not CTC)
+scored better than IndicConformer in T76 (19.31% vs 19.99% avg WER, 8 non-English languages) —
+T77 tested CTC instead only because sherpa-onnx has no TDT decoding support to lean on, not because
+TDT itself is worse. `docs/evaluation/sravaani/tdt-engine-design.md` scopes what a hand-written
+Kotlin TDT decode engine would actually require (files, algorithm, effort estimate, ~4.5–6 days) as
+input for a real go/no-go decision — it is a design sketch only, not a recommendation to build it,
+and no code has been written.
+
 ## Final decision
 
 *(Gaurav and Sarthak: confirm here.)*
