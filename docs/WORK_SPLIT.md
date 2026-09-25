@@ -7,6 +7,16 @@
 > **Changed:** G5 no longer follows T76's own verdict. T76's decision rule was our own threshold, and it skipped the phone test. **G5 is now T77**, which measures INT8 SraVaani on the phones. Its result decides between **G5b-hybrid** (SraVaani for the nine Indic languages, IndicConformer for English, no T64) and **G5b-T64** (keep IndicConformer, export Odia). See §4 G5.
 >
 > **Update 2026-09-25 (later):** **G5 (T77) is done** (PR #29). The CTC route failed, and the TDT route was scoped. **G5b is now T78, the SraVaani TDT engine**, one week with three stop checkpoints. T64 is its fallback. See §4 G5b.
+>
+> **Update 2026-09-25 (T78 progress, PR #34):** Steps 1-4 done. **C1 missed by 0.10 points
+> (20.09% vs 19.99% WER) — Gaurav explicitly overrode it** to continue (size passes comfortably).
+> **C2 passed.** **C3 passes on the low-range phone (CPH2467) only** — no kill/ANR, RTF and
+> latency both within gate, but **TOTAL PSS nearly doubles (737MB→1364MB)** with the pair loaded,
+> flagged for the adopt/keep decision. Mid-range phone, the full 10-minute session, and native
+> Tamil/Odia speakers still needed. **Step 6: Gaurav's `ModelRegistry.kt` half done** (real bundle
+> uploaded and verified); **Sarthak's half still blocked — T20 (S5) has not merged**, despite being
+> scheduled for Day 4 in §3 below. Full detail: `docs/evaluation/sravaani/tdt/README.md` and
+> `docs/evaluation/sravaani/phone/tdt/README.md`.
 
 | Person | Area | AI assistant | Owns these files |
 | --- | --- | --- | --- |
@@ -47,7 +57,7 @@ Day 1 = the first working day after Day 0. Times are AI work plus human testing,
 | 3 | ✅ G3 continued — host voices, register them | **S4** — T67 voice notes · **joint two-phone Stage B test** | T67, T17b |
 | 4 | ✅ **G4** — T23 + T29 match the NeMo preprocessor, golden test | **S5** — T20 + T21 download only the selected language | T20/T21, T23/T29 |
 | 5 | ✅ **G5** — T77 SraVaani INT8 test (PR #29: CTC route failed, TDT scoped) | **S6** — T75 metadata cleanup + README pass · **T30** IndicConformer re-run (S1 note) | — |
-| 6–12 | **G5b** — **T78 SraVaani TDT engine** (checkpoints C1 day 6, C2 day 9, C3 day 11; T64 on any fail) | **S1b** (T30) before day 6 · **S5** (T20/T21) before T78 Step 6 · joins T78 phone run (day 11) · **S5b** (T78 Step 6 manifest) on day 12 | T78 steps in order; S5 before S5b |
+| 6–12 | **G5b** — **T78 SraVaani TDT engine**, in progress (PR #34): Steps 1-4 done; C1 missed/overridden, C2 passed, C3 passes on the low-range phone only (memory flagged); Step 6 Gaurav's half done | **S1b** (T30) — **not done yet**, still the day-6 blocker it was meant to avoid · **S5** (T20/T21) — **not merged**, was due day 4, now blocking T78 Step 6's other half · joins T78 phone run (mid-range phone + full session still outstanding) · **S5b** (T78 Step 6 manifest) blocked on S5 | T78 steps in order; S5 before S5b |
 | 6–7 | ~~G6 — T15 single-runtime spike · G7 — T68 ESP32~~ **deferred behind T78**, only if time remains | **S7** — T54 TTS listening test | — |
 | 13+ | Dossier: T56–T61 together (§6) | | |
 
@@ -223,14 +233,17 @@ Never push to main.
 
 *Decided 2026-09-25 by Gaurav, after T77 (PR #29).* T77's CTC route failed (22.44% vs 19.99% WER). The native TDT decoder, which T76 scored at 19.31%, needs a Kotlin decoder, and that is the work of this week. Spec: `IMPLEMENTATION_SPEC_2.md` Group I → **T78**. Design: `docs/evaluation/sravaani/tdt-engine-design.md`.
 
-| Day | Step | Checkpoint (fail → stop, do T64 the same day) |
-| --- | --- | --- |
-| 6 | 1 — INT8 TDT pair: size, WER, RTF, fixtures (Colab) | **C1:** 8-language INT8 TDT WER ≤ 19.99% and pair ≤ ~550 MB |
-| 7 | 2 — 128-mel features + `SraVaaniMelGoldenTest` | — |
-| 8–9 | 3 — `TdtDecoder.kt`, tokenizer check, `TdtDecoderParityTest` | **C2:** both golden tests + parity test green |
-| 10 | 4 — dual-session loading, one shared pair for 9 codes | — |
-| 11 | 5 — phone run, both phones, with Sarthak | **C3:** no kill/ANR, RTF < 1, STT time ≤ ~1.5× IndicConformer |
-| 12 | 6–7 — shared pack (after S5), switch-over, WER table | Past day 7 of T78 without C3 → T64 |
+**Status 2026-09-25: PR #34, Steps 1-6 (Steps 5-6 partial).** Full detail:
+`docs/evaluation/sravaani/tdt/README.md`, `docs/evaluation/sravaani/phone/tdt/README.md`.
+
+| Day | Step | Checkpoint (fail → stop, do T64 the same day) | Actual result |
+| --- | --- | --- | --- |
+| 6 | 1 — INT8 TDT pair: size, WER, RTF, fixtures (Colab) | **C1:** 8-language INT8 TDT WER ≤ 19.99% and pair ≤ ~550 MB | **Missed by 0.10pt (20.09%); pair 464.7MB passes. Gaurav explicitly overrode the stop rule.** |
+| 7 | 2 — 128-mel features + `SraVaaniMelGoldenTest` | — | Done, green |
+| 8–9 | 3 — `TdtDecoder.kt`, tokenizer check, `TdtDecoderParityTest` | **C2:** both golden tests + parity test green | **Passed**, no override needed |
+| 10 | 4 — dual-session loading, one shared pair for 9 codes | — | Done |
+| 11 | 5 — phone run, both phones, with Sarthak | **C3:** no kill/ANR, RTF < 1, STT time ≤ ~1.5× IndicConformer | **Passes on CPH2467 (low-range) only.** TOTAL PSS 737MB→1364MB flagged. Vivo (mid-range), full 10-min session, native Tamil/Odia speaker still needed |
+| 12 | 6–7 — shared pack (after S5), switch-over, WER table | Past day 7 of T78 without C3 → T64 | **Gaurav's ModelRegistry.kt half done** (bundle uploaded + verified). Sarthak's ModelManifest.kt half blocked — T20 (S5) still not merged. Step 7 not started |
 
 ```text
 You are working on iTantra. Repo: D:\Desktop\Projects\iTantra-Communication-Ecosystem.
@@ -546,19 +559,28 @@ Build must pass. Commit "T21: per-language download selection". Push; DRAFT PR.
 
 ### S5b · T78 Step 6 — the shared SraVaani pack in the manifest (after S5, and after Gaurav's T78 Steps 1–5 pass)
 
-Do this only when Gaurav says T78 passed Checkpoint 3 and his PR has the `ModelRegistry.kt` entries, with real sizes and sha256.
+**Status 2026-09-25:** Gaurav's registry half is done in **PR #34** (`feature/t78-tdt-engine`) —
+`ModelRegistry.kt`'s `sravaaniTdtInfo(pack)` has the real, verified URL/sha256/size. **Checkpoint 3
+only passes on the low-range phone (CPH2467) so far** — the mid-range phone, the full 10-minute
+session, and native Tamil/Odia speakers are still outstanding (`docs/evaluation/sravaani/phone/tdt/README.md`).
+This task is otherwise still gated on **your own T20 (S5)** — `git grep "fun sttPackFor"
+origin/main` still finds nothing as of PR #34, so start this only once that's merged; whether to
+start before C3 is fully closed out is Gaurav's call, not fixed here.
 
 ```text
 <paste the standard header>
 
 TASK T78 Step 6 (manifest + downloads UI part). Read docs/IMPLEMENTATION_SPEC_2.md → "T78 🔬 ·
-SraVaani TDT engine", Step 6, and Gaurav's T78 PR (I will give you its number): it contains the new
-ModelRegistry entries and the exact ModelManifest.kt change he needs.
+SraVaani TDT engine", Step 6, and PR #34 (feature/t78-tdt-engine): it contains the new
+ModelRegistry.kt entry (sravaaniTdtInfo(pack), a single sravaani_tdt.tar.bz2 bundle — NOT two
+separate hosted entries, since ModelInfo/ModelDownloadManager only support one main + one aux file
+per pack) and the exact ModelManifest.kt change needed, both spelled out in
+docs/evaluation/sravaani/tdt/README.md's "Step 6 (Gaurav's half)" section.
 
 Setup: git fetch origin; git switch -c feature/t78-shared-pack origin/main
 Confirm first: `grep -n "fun sttPackFor" app/src/main/java/com/itantra/domain/model/ModelManifest.kt`
-prints a match (T20 merged) AND the registry entries from Gaurav's PR exist on main. If either is
-missing, STOP and tell me.
+prints a match (T20 merged) AND `grep -n "sravaaniTdtInfo" app/src/main/java/com/itantra/core/download/ModelRegistry.kt`
+prints a match (Gaurav's PR #34 merged). If either is missing, STOP and tell me.
 
 1. ModelManifest.kt: add ONE pack STT_SRAVAANI exactly as Gaurav's PR specifies. sttPackFor(code)
    returns it for hi gu mr kn ml ta te bn or, and the existing mirror pack for en. Do not delete the
@@ -570,7 +592,7 @@ missing, STOP and tell me.
 Build must pass. Commit "T78: shared SraVaani STT pack in the manifest". Push; DRAFT PR.
 ```
 
-**You do (with Gaurav):** clear app data, pick Odia: one ~500 MB SraVaani download unlocks it, and switching to Tamil downloads nothing new. Pick English: the IndicConformer English model downloads. Merge.
+**You do (with Gaurav):** clear app data, pick Odia: one ~383 MB SraVaani download unlocks it (real size from `sravaani_tdt.tar.bz2`, not the earlier ~500 MB estimate), and switching to Tamil downloads nothing new. Pick English: the IndicConformer English model downloads. Merge.
 
 ### S6 · T75 — Remove stale claims from metadata + README pass (Day 5)
 
