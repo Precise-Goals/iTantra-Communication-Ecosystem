@@ -42,6 +42,8 @@ class AudioCaptureModule(
         private const val AUDIO_FORMAT = android.media.AudioFormat.ENCODING_PCM_16BIT
         private const val CHUNK_SIZE = VADModule.CHUNK_SIZE  // 1600 samples = 100ms
         private const val MAX_SPEECH_BUFFER_SAMPLES = SAMPLE_RATE * 30 // 30s max
+        /** T31: 300ms of lookback at 100ms per chunk. */
+        private const val PRE_ROLL_CHUNKS = 3
     }
 
     private var audioRecord: AudioRecord? = null
@@ -95,6 +97,9 @@ class AudioCaptureModule(
     // flushAndTranscribe() while the capture loop is still appending the next chunk).
     private val bufferLock = Any()
     private val speechBuffer = mutableListOf<FloatArray>()
+    /** T31: most recent chunks heard while no segment is open; prepended when speech starts.
+     *  Guarded by bufferLock. */
+    private val preRoll = ArrayDeque<FloatArray>()
     private var silenceChunkCount = 0
     // Endpoint sooner once enough speech has been captured to be confident it was a real
     // utterance. The flat 800ms wait was a hard floor under the "words said -> STT complete"
@@ -175,6 +180,7 @@ class AudioCaptureModule(
                 if (isSuppressed()) {
                     synchronized(bufferLock) {
                         speechBuffer.clear()
+                        preRoll.clear()
                         silenceChunkCount = 0
                         speechChunkCount = 0
                     }
@@ -189,6 +195,14 @@ class AudioCaptureModule(
                 if (isSpeech) {
                     silenceChunkCount = 0
                     synchronized(bufferLock) {
+                        // T31: on the rising edge, prepend the lookback. The VAD fires once the
+                        // phrase is already under way, so unvoiced onsets (/k/ /t/ /p/, initial
+                        // fricatives) sit in the chunks just before the trigger and were lost.
+                        // Not counted in speechChunkCount: it is context, not detected speech.
+                        if (speechBuffer.isEmpty()) {
+                            preRoll.forEach { speechBuffer.add(it) }
+                        }
+                        preRoll.clear()
                         // Guard against infinite accumulation
                         if (speechBuffer.sumOf { it.size } < MAX_SPEECH_BUFFER_SAMPLES) {
                             speechBuffer.add(floatChunk)
@@ -215,6 +229,12 @@ class AudioCaptureModule(
                                 speechChunkCount = 0
                                 readySegment = combined
                             }
+                        } else {
+                            // T31: no segment open — keep the last PRE_ROLL_CHUNKS as lookback.
+                            // Only here, so a segment's trailing silence is never replayed at
+                            // the start of the next segment.
+                            preRoll.addLast(floatChunk)
+                            while (preRoll.size > PRE_ROLL_CHUNKS) preRoll.removeFirst()
                         }
                     }
                 }
@@ -237,6 +257,7 @@ class AudioCaptureModule(
             offset += chunk.size
         }
         speechBuffer.clear()
+        preRoll.clear()
         silenceChunkCount = 0
         speechChunkCount = 0
         combined
@@ -248,7 +269,7 @@ class AudioCaptureModule(
         audioRecord?.stop()
         audioRecord?.release()
         audioRecord = null
-        synchronized(bufferLock) { speechBuffer.clear(); speechChunkCount = 0 }
+        synchronized(bufferLock) { speechBuffer.clear(); preRoll.clear(); speechChunkCount = 0 }
         Log.d(TAG, "Audio capture stopped")
     }
 
