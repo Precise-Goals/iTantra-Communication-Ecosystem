@@ -6,7 +6,7 @@
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Platform: Android](https://img.shields.io/badge/Platform-Android%208.0+-green.svg)](https://developer.android.com)
 [![Version](https://img.shields.io/badge/version-2.0.0-informational.svg)]()
-[![Languages: 9 Indic (STT) / 5 (TTS)](https://img.shields.io/badge/Languages-9%20STT%20%2F%205%20TTS-orange.svg)]()
+[![Languages: 10 STT / 10 TTS](https://img.shields.io/badge/Languages-10%20STT%20%2F%2010%20TTS-brightgreen.svg)]()
 
 > **This document describes the real, working implementation** on branch `feature/latency-pipeline`, verified through extensive on-device testing across two physical Android devices. See [`PRD.md`](PRD.md) and [`team.md`](team.md) for the original sprint-planning design docs, kept for historical reference.
 
@@ -16,7 +16,7 @@
 
 **iTantra** is an Android app for offline, AI-powered multilingual voice communication over ad-hoc **Wi-Fi Direct** and **Bluetooth Classic (RFCOMM)** mesh links — built for disaster zones, tactical field operations, and rural areas without GSM infrastructure.
 
-Instead of streaming raw audio, iTantra converts speech to text **on-device** using AI4Bharat's IndicConformer STT models, sends the transcript as a small Protobuf message (~50–300 bytes) over the mesh link, and re-synthesizes it as natural speech on the receiving device using real espeak‑ng‑phonemized VITS voices (via [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx)).
+Instead of streaming raw audio, iTantra converts speech to text **on-device** using the shared SraVaani INT8 TDT engine (for 9 Indic languages) and AI4Bharat IndicConformer (for English), sends the transcript as a small Protobuf message (~50–300 bytes) over the mesh link, and re-synthesizes it as natural speech on the receiving device using real espeak‑ng‑phonemized VITS voices (via [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx)).
 
 **Internet is used exactly once** — for the initial one-time download of neural model files from Hugging Face / GitHub release CDNs. Every P2P communication and every VAD/STT/TTS inference afterwards is 100% on-device with zero network calls.
 
@@ -26,8 +26,8 @@ Instead of streaming raw audio, iTantra converts speech to text **on-device** us
 | --- | --- |
 | Wi-Fi Direct + Bluetooth Classic mesh networking | ✅ Verified end-to-end across two real physical devices |
 | Push-to-talk voice pipeline (capture → VAD → STT → transmit) | ✅ Fully wired into a persistent foreground service, with **phrase-level pipelining**: sentences spoken mid-hold are cut and transmitted while PTT is still held, verified end-to-end on two physical devices against real human speech (see [`docs/latency-evidence/`](docs/latency-evidence/)) — with models warmed at start (T45), phrases finish transcribing seconds before PTT release instead of the one-time model load erasing the head start |
-| On-device Speech-to-Text (AI4Bharat IndicConformer, sherpa-onnx INT8) | ✅ Real neural inference across **9 Indic languages** |
-| On-device Text-to-Speech (real espeak-ng-phonemized VITS voices) | ✅ Natural-sounding voices for Hindi, Gujarati, Malayalam, Bengali & English, with more languages in progress |
+| On-device Speech-to-Text (SraVaani INT8 TDT + IndicConformer) | ✅ Real neural inference across **all 10 languages** (shared SraVaani INT8 TDT engine for 9 Indic languages + IndicConformer for English) |
+| On-device Text-to-Speech (real espeak-ng-phonemized VITS voices) | ✅ Natural-sounding voices across **all 10 languages** (Piper / Mimic3 / Coqui for Hindi, Gujarati, Malayalam, Bengali & English; self-converted MMS voices for Marathi, Kannada, Tamil, Telugu & Odia) |
 | Voice Activity Detection | ✅ Real neural **Silero VAD** (v5+ export, pinned to release `v6.2.3`) with the required 64-sample inter-window context and release hysteresis — repaired after diagnosing a missing-context bug that had forced an energy-only fallback. A real RMS-energy detector remains as an automatic fallback if the model is missing or throws at runtime. On a first install, the service can start before the VAD model finishes downloading; it now re-initializes itself to the neural backend the moment the download completes, with no app restart needed (verified: `BASIC_ENERGY` → `NEURAL` in 21s on a real fresh install, see [`docs/latency-evidence/README.md`](docs/latency-evidence/README.md) "Run 3") |
 | Model download / integrity pipeline | ✅ Resumable, SHA-256 verified downloads with automatic archive extraction |
 | Peer authorization whitelist | ✅ Room-persisted, survives app restarts |
@@ -267,16 +267,30 @@ Clean separation between domain models, contracts, and infrastructure:
 
 ## 📦 Model Download & Integrity Pipeline
 
-Models are fetched at runtime by `ModelDownloadManager` into `context.filesDir/models/` (aside from small always-available assets extracted on first launch). The Downloads screen tracks **21 model packs**, of which **16 form the "compulsory" core Transceiver bundle**.
+Models are fetched at runtime by `ModelDownloadManager` into `context.filesDir/models/` (aside from small always-available assets extracted on first launch). With T20 per-language downloads and T78 SraVaani shared STT, downloading only the core bundle for the active language requires just ~210–280 MB instead of the full multilingual catalog.
+
+### Model Catalog & Measured Sizes
+
+| Pack | Model / Asset | Type | Languages | Size (Bytes) | Size (MB) | Source / Repo | License |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `VAD_MODEL` | Silero VAD v6.2.3 | VAD | Universal | 2,327,524 B | 2.22 MB | snakers4/silero-vad (GitHub) | MIT |
+| `ESPEAK_NG_DATA` | espeak-ng-data.tar.bz2 | Phonemizer | Universal | 7,252,012 B | 6.92 MB | k2-fsa/sherpa-onnx | GPL-3.0 / Apache 2.0 |
+| `STT_SRAVAANI` | sravaani_tdt.tar.bz2 | STT (INT8 TDT) | `hi, gu, mr, kn, ml, ta, te, bn, or` | 401,576,328 B | 382.97 MB | huggingface.co/Chgauravpc/itantra (ARTPARK-IISc) | MIT |
+| `STT_ENGLISH` | sherpa-onnx IndicConformer | STT (INT8 CTC) | `en` | 197,595,500 B | 188.44 MB | parismitaglobalsolutions/indicconformer-sherpa-onnx | Apache 2.0 |
+| `TTS_HINDI` | vits-piper-hi_IN-pratham-medium | TTS (VITS) | `hi` | 67,238,438 B | 64.12 MB | k2-fsa/sherpa-onnx | MIT |
+| `TTS_GUJARATI` | vits-mimic3-gu_IN-cmu_indic | TTS (VITS) | `gu` | 79,908,125 B | 76.21 MB | k2-fsa/sherpa-onnx | Apache 2.0 |
+| `TTS_MALAYALAM` | vits-piper-ml_IN-radhika-medium | TTS (VITS) | `ml` | 67,405,960 B | 64.28 MB | k2-fsa/sherpa-onnx | MIT |
+| `TTS_BENGALI` | vits-coqui-bn-multi_accent | TTS (VITS) | `bn` | 108,258,516 B | 103.24 MB | k2-fsa/sherpa-onnx | MPL-2.0 |
+| `TTS_ENGLISH` | vits-piper-en_US-libritts_r-medium | TTS (VITS) | `en` | 66,969,939 B | 63.87 MB | k2-fsa/sherpa-onnx | MIT |
+| `TTS_MARATHI` | vits-mms-marathi | TTS (VITS) | `mr` | 27,852,449 B | 26.56 MB | huggingface.co/Chgauravpc/itantra (Meta MMS) | CC-BY-NC 4.0 |
+| `TTS_KANNADA` | vits-mms-kannada | TTS (VITS) | `kn` | 27,852,449 B | 26.56 MB | huggingface.co/Chgauravpc/itantra (Meta MMS) | CC-BY-NC 4.0 |
+| `TTS_TAMIL` | vits-mms-tamil | TTS (VITS) | `ta` | 27,852,449 B | 26.56 MB | huggingface.co/Chgauravpc/itantra (Meta MMS) | CC-BY-NC 4.0 |
+| `TTS_TELUGU` | vits-mms-telugu | TTS (VITS) | `te` | 27,852,449 B | 26.56 MB | huggingface.co/Chgauravpc/itantra (Meta MMS) | CC-BY-NC 4.0 |
+| `TTS_ODIA` | vits-mms-odia | TTS (VITS) | `or` | 27,852,449 B | 26.56 MB | huggingface.co/Chgauravpc/itantra (Meta MMS) | CC-BY-NC 4.0 |
+
+*Note: All sizes above are byte-exact measurements from `ModelRegistry.kt`, verified via HTTP `Content-Length`/`X-Linked-Size` headers, not speculative estimates.*
 
 **Flow:** `download(pack)` → OkHttp GET streamed in 32KB chunks to a `.part` file (resuming any already-good piece on retry) → SHA-256 verified against (1) a hash pinned in `ModelRegistry`, (2) HuggingFace's `X-Linked-ETag` header, correctly read from the redirect response, or (3) trust-on-first-download for sources with no published hash → on success, renamed to the final filename → archive bundles are extracted via `ArchiveExtractor` (tar.bz2, de-duplicating shared `espeak-ng-data/` copies) → `Downloaded`.
-
-Concurrency is explicitly tuned (`maxRequests`/`maxRequestsPerHost` raised well above OkHttp's conservative default) so all 17 core packs can download in parallel without stalling.
-
-**Model sources:**
-- STT: AI4Bharat IndicConformer (sherpa-onnx export), Hugging Face — 9 Indic languages.
-- TTS: `k2-fsa/sherpa-onnx` `tts-models` release — 5 languages (see table above).
-- VAD: Silero VAD ONNX, pinned to GitHub release tag `v6.2.3` (SHA-256 verified, not trust-on-first-download).
 
 ---
 
@@ -311,12 +325,10 @@ Bottom navigation, left to right: **Home → Radar → Radio (Transceiver, cente
 | Kannada | ✅ | ✅ |
 | Tamil | ✅ | ✅ |
 | Telugu | ✅ | ✅ |
-| Odia | 🔜 | ✅ |
+| Odia | ✅ | ✅ |
 
-✅ Text-to-Speech for Marathi, Kannada, Tamil, Telugu and Odia (T17b) is self-converted from
-`facebook/mms-tts` — see the Text-to-Speech section. 🔜 Odia Speech-to-Text still needs an export
-from AI4Bharat's `indicconformer_stt_or_hybrid_ctc_rnnt_large` checkpoint (T64) — the current
-download mirror has no Odia model.
+✅ **10/10 Speech-to-Text coverage**: 9 Indic languages (Hindi, Gujarati, Marathi, Kannada, Malayalam, Tamil, Telugu, Bengali, Odia) powered by the shared SraVaani INT8 TDT engine (`sravaani_tdt.tar.bz2`, T78); English powered by IndicConformer INT8 (`stt_en_int8.onnx`).
+✅ **10/10 Text-to-Speech coverage**: Hindi, Gujarati, Malayalam, Bengali & English via Piper/Mimic3/Coqui; Marathi, Kannada, Tamil, Telugu & Odia via self-converted MMS-TTS (T17b).
 
 ---
 
@@ -413,6 +425,7 @@ The commit history documents genuine, iterative on-device engineering:
 | sherpa-onnx / Piper / Coqui / Mimic3 voices | Apache 2.0 / MIT (voice-dependent) |
 | MMS voices (Marathi/Kannada/Tamil/Telugu/Odia, self-converted, T17b) | **CC-BY-NC 4.0 (non-commercial)** |
 | Silero VAD | MIT |
+| eSpeak-NG (phoneme data) | GPL-3.0 / Apache 2.0 |
 | ONNX Runtime Mobile | MIT |
 | Protocol Buffers (javalite) | BSD-3-Clause |
 | Jetpack Compose, Room, DataStore, WorkManager | Apache 2.0 |
