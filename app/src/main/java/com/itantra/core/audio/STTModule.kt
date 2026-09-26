@@ -553,7 +553,8 @@ class STTModule(
         val logits = outputs[0].value as Array<Array<FloatArray>>
         // NeMo/IndicConformer CTC convention: blank is the LAST vocab entry, not id 0
         // (confirmed on-device: hi's tokens.txt has "<unk> 0" ... "<blk> 5632").
-        val text = CtcDecoder.greedyDecode(logits[0], backend.vocab, blankId = backend.vocab.size - 1)
+        val decoded = CtcDecoder.greedyDecode(logits[0], backend.vocab, blankId = backend.vocab.size - 1)
+        val text = TextPostProcessor.finish(decoded, languageCode)
 
         val inferenceMs = System.currentTimeMillis() - inferenceStart
         Log.d(TAG, "STT inference: '${text.take(50)}' in ${inferenceMs}ms [${languageCode}]")
@@ -661,7 +662,7 @@ class STTModule(
         }
 
         val tokens = TdtDecoder.decode(encoderOutFlat, encoderLen, decoderJointCall)
-        val text = TdtDecoder.decodeToText(tokens, backend.vocab)
+        val text = TextPostProcessor.finish(TdtDecoder.decodeToText(tokens, backend.vocab), languageCode)
 
         val inferenceMs = System.currentTimeMillis() - inferenceStart
         Log.d(TAG, "STT inference: '${text.take(50)}' in ${inferenceMs}ms [${languageCode}]")
