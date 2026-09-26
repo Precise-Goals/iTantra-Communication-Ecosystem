@@ -63,8 +63,10 @@ five MMS voices run at RTF 0.48–0.52 and Coqui Bengali at 0.59. Piper hi/ml/en
 RTF of 0.20–0.35 *projects* RTF ≈ 1–2.4 on the phone for mr/kn/ta/te/or/bn. That is slower than
 real time, and a 3 s sentence would take several seconds before it finished synthesizing. **This is
 the largest open TTS latency risk, and it is independent of quantization.** G13 must time one MMS
-language and Bengali (§5). If confirmed, the options are: synthesize and play sentence by sentence
-(T40 already splits segments), and raise `numThreads` from 2 for these voices only.
+language and Bengali (§5). If confirmed, the fixes are **T85–T88** (§4b): synthesize and play clause
+by clause, and tune `numThreads`. *Correction (2026-09-26):* an earlier version said "T40 already
+splits segments". That is wrong. `TTSModule` makes one `generate()` call per message, and nothing
+plays until it returns.
 
 ### 2.2 Quantization variants — size and speed
 
@@ -317,9 +319,46 @@ speaker → a second phone's mic at 1 m → IndicConformer. CER must improve, no
 
 ---
 
+## 4b. Making TTS faster without changing the voices (T84–T88)
+
+**Measured starting point** (POCO, P1 / PR #47, Hindi, ~3 s sentences): text received → first audio
+is **1,868 ms** on main (T17a int8 voice) and **942 ms** with FP32. The PRD target is < 500 ms.
+The reason, from the code: `TTSModule` makes one `tts.generate(text)` call per message on 2 threads,
+and `AudioPlaybackManager` writes the finished buffer, so **nothing plays until the whole message is
+synthesized**. The app's sherpa-onnx 1.13.7 AAR has `generateWithCallback` and `maxNumSentences`, so
+no new dependency is needed. T86 splits clauses in Kotlin instead, which is simpler and does not
+depend on sherpa's sentence-splitting rules.
+
+| ID | Task | Files | Expected effect (*projected* unless noted) | Effort |
+| --- | --- | --- | --- | --- |
+| **T84** | Revert T17a: Hindi/Malayalam/English back to FP32 until T80 ships. Skip it if T80b merges within ~2 days | `ModelRegistry.kt` | 1,868 → ~942 ms (**measured**, PR #47). Costs +138.6 MB flash | 1 h |
+| **T85** | Streamed playback: `AudioPlaybackManager.playStreaming()` returns a channel of chunks, played back to back on one AudioTrack | `AudioPlaybackManager.kt` | enables T87 | ½ d |
+| **T86** | Clause splitter `TextPostProcessor.splitForTts()`: cut after `. ! ? । ॥ , ; :`, or every 10 words; merge later pieces under 3 words | `TextPostProcessor.kt` + unit test | enables T87 | 2 h |
+| **T87** | Chunked synthesis `TTSModule.synthesizeChunked()` + service receive path streams normal messages. Alerts are unchanged (alarm stream) | `TTSModule.kt`, `ITantraForegroundService.kt` | first audio after the first clause: **~450–550 ms** for Hindi (about half of 942 ms, for two-clause sentences). The biggest relative gain is for MMS/bn | 1 d |
+| **T88** | Tune `numThreads` (2 → 3/4) from phone measurements | `TTSModule.kt` (one literal) | 20–40 % less synthesis time; must not slow concurrent STT | ½ d |
+
+**Telemetry needs no change.** `tts_ms` is already "text received → first audio frame", so after T87
+it measures the first clause. `tts_synth_ms` stays "text received → all synthesis done". Voice notes
+(T67) are saved from the concatenated clauses as before.
+
+**Verified before handing over:** the T85/T86/T87 code in `TTS_QUANT_PROMPTS.md` P8–P10 was applied
+to main @ `dca41b0`. `compileDebugKotlin` passed, all unit tests passed (including 6 new splitter
+tests), and the change was reverted. It has not been run on a phone.
+
+**Risks:**
+- A gap between clauses, if a clause synthesizes slower than the previous one plays. That happens
+  when RTF > 1, i.e. for MMS on a slow phone. It is still better than waiting for the whole message.
+- A slight prosody break at clause joins. T54 listeners judge it.
+
+---
+
 ## 5. Order of work
 
-1. **Now (inside G12):** §3, the phone check of T17a before merging it.
+0. **Speed (T84–T88, §4b):** T84 now, unless T80 is days away. T85 → T86 → T87 as one PR series,
+   then T88 on the phone. Re-measure with P1's method.
+1. ~~**Now (inside G12):** §3, the phone check of T17a before merging it.~~ **Done:** T17a merged
+   in #44, and the P1 check (PR #47, POCO) measured **2.0× slower TTS** (RTF 0.297 → 0.591). Hence
+   T84 or T80.
 2. **G13 (baseline), with two additions:**
    - time one MMS language (`mr`) and Bengali alongside Hindi. Neither has ever been timed on a
      phone, and the desktop projects them past real time (§2.1);

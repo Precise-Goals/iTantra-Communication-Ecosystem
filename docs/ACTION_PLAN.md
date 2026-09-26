@@ -156,6 +156,10 @@ That 2.39 GB sits directly against the criterion that scores flash footprint, an
 
 ## 5. The scorecard you need to hit
 
+> **Current numbers live in [`SCORECARD.md`](SCORECARD.md)** (2026-09-26 onward), organised by the three rubric criteria,
+> with every figure labelled Measured / Calculated / Projected / Target and linked to its source file.
+> The "Today" column below is the original 2026-09 baseline and is not kept up to date.
+
 Target numbers, all measured on a **sub-₹15,000 Android phone** (Snapdragon 6-series / Helio G85-class, 4 GB RAM). Pick one device, name it on every slide, and measure everything on it.
 
 | Metric | Today | Target | Stretch |
