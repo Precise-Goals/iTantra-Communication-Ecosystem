@@ -9,6 +9,7 @@ INT8 for every language, unlock NNAPI, add DSP to compensate". Every number belo
 2026-09-26 with the scripts committed alongside it (`model-export/weight_only_int8.py`,
 `eval_tts_quant.py`, `tts_roundtrip_cer.py`), unless it is labelled *projected*.
 Evidence and exact commands: [`docs/evaluation/tts-quant/README.md`](evaluation/tts-quant/README.md).
+**Step-by-step prompts for a coding agent (P1–P6):** [`TTS_QUANT_PROMPTS.md`](TTS_QUANT_PROMPTS.md).
 
 ---
 

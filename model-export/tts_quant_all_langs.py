@@ -16,6 +16,8 @@ Every result is appended as one JSON line to <work>/results.jsonl.
 
 Usage:
     python tts_quant_all_langs.py <phase> <lang> <work_dir> <repo_root> [mms_pkg_dir]
+    python tts_quant_all_langs.py manifest <work_dir>      # sizes + sha256 of the built archives
+Inputs: model-export/tts_quant_fetch.py <work_dir> downloads the non-MMS voices and the ASR models.
 <work_dir> must hold voices/<bundle>/ (extracted FP32 sherpa-onnx release bundles) and
 asr/<lang>/{model.int8.onnx,tokens.txt}. MMS voices come from [mms_pkg_dir]/vits-mms-<code>/.
 """
@@ -101,7 +103,32 @@ def emit(work, rec):
         f.write(json.dumps(rec, ensure_ascii=False) + "\n")
 
 
+def manifest(work):
+    """<work>/wo/*-wo-int8.tar.bz2 -> <work>/wo/manifest.csv: lang, file, bytes, sha256 (for ModelRegistry)."""
+    import hashlib
+    by_bundle = {b: l for l, (b, _, _) in VOICES.items()}
+    rows = []
+    for arc in sorted(glob.glob(os.path.join(work, "wo", "*-wo-int8.tar.bz2"))):
+        name = os.path.basename(arc)
+        h = hashlib.sha256()
+        with open(arc, "rb") as f:
+            for chunk in iter(lambda: f.read(1 << 20), b""):
+                h.update(chunk)
+        rows.append((by_bundle[name[: -len("-wo-int8.tar.bz2")]], name, os.path.getsize(arc), h.hexdigest()))
+    out = os.path.join(work, "wo", "manifest.csv")
+    with open(out, "w", encoding="utf-8", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["lang", "file", "bytes", "sha256"])
+        w.writerows(rows)
+    for r in rows:
+        print(",".join(map(str, r)))
+    print("wrote", out)
+
+
 def main():
+    if sys.argv[1] == "manifest":
+        manifest(sys.argv[2])
+        return
     phase, lang, work, repo = sys.argv[1:5]
     mms_pkg = sys.argv[5] if len(sys.argv) > 5 else ""
     src = fp32_dir(lang, work, mms_pkg)
