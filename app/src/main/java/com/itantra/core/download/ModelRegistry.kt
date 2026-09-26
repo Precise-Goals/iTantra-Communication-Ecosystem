@@ -187,19 +187,19 @@ object ModelRegistry {
 
         // Real, verified voices (sherpa-onnx tts-models release, checked 2026-09-02):
         ModelPack.TTS_HINDI to sherpaTtsInfo(
-            ModelPack.TTS_HINDI, "vits-piper-hi_IN-pratham-medium.tar.bz2", "hi",
-            sizeBytes = 67_238_438L,
-            sha256 = "2084d321e1d2752f2b64ed3012ba27751df01a80da46f52920098cdcb7e35648"
+            ModelPack.TTS_HINDI, "vits-piper-hi_IN-pratham-medium-int8.tar.bz2", "hi",
+            sizeBytes = 20_987_965L,
+            sha256 = "20f568c56207c13b9a0d9478aec8b7d1449122e618aeebc7211f6abc942b58b7"
         ),
         ModelPack.TTS_MALAYALAM to sherpaTtsInfo(
-            ModelPack.TTS_MALAYALAM, "vits-piper-ml_IN-arjun-medium.tar.bz2", "ml",
-            sizeBytes = 67_222_458L,
-            sha256 = "3058d098e8b1ffcdd6069e96b1d492f319333235912a627c309c7c54cea59acf"
+            ModelPack.TTS_MALAYALAM, "vits-piper-ml_IN-arjun-medium-int8.tar.bz2", "ml",
+            sizeBytes = 20_838_242L,
+            sha256 = "4d0b2a58157604b589cddc54884ffd2618b097d15155b254c34bd21830659832"
         ),
         ModelPack.TTS_ENGLISH to sherpaTtsInfo(
-            ModelPack.TTS_ENGLISH, "vits-piper-en_US-lessac-low.tar.bz2", "en",
-            sizeBytes = 67_097_098L,
-            sha256 = "8fb427b8637334072ee5723d72fa418c45bfdd4b7deebeacdf2938662618c1cb"
+            ModelPack.TTS_ENGLISH, "vits-piper-en_US-lessac-low-int8.tar.bz2", "en",
+            sizeBytes = 21_070_568L,
+            sha256 = "af63fbe60d8bdcfccdee61ba057304a11dfc077145da383d4d351ec3c594d5e2"
         ),
         ModelPack.TTS_GUJARATI to sherpaTtsInfo(
             // Only known source: Mimic3/CMU-Indic — lower "low" quality tier, no higher tier exists.
