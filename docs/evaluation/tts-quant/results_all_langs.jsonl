@@ -1,0 +1,40 @@
+{"phase": "convert", "lang": "hi", "fp32_onnx_mb": 63.1, "wo_onnx_mb": 18.3, "wo_archive_mb": 16.3, "has_dp": true}
+{"phase": "convert", "lang": "ml", "fp32_onnx_mb": 62.9, "wo_onnx_mb": 16.5, "wo_archive_mb": 14.9, "has_dp": false}
+{"phase": "convert", "lang": "en", "fp32_onnx_mb": 63.1, "wo_onnx_mb": 18.3, "wo_archive_mb": 16.4, "has_dp": true}
+{"phase": "convert", "lang": "gu", "fp32_onnx_mb": 76.3, "wo_onnx_mb": 19.8, "wo_archive_mb": 18.0, "has_dp": false}
+{"phase": "convert", "lang": "bn", "fp32_onnx_mb": 114.3, "wo_onnx_mb": 30.0, "wo_archive_mb": 25.6, "has_dp": false}
+{"phase": "convert", "lang": "mr", "fp32_onnx_mb": 114.0, "wo_onnx_mb": 31.3, "wo_archive_mb": 27.5, "has_dp": true}
+{"phase": "convert", "lang": "kn", "fp32_onnx_mb": 114.0, "wo_onnx_mb": 31.3, "wo_archive_mb": 27.5, "has_dp": true}
+{"phase": "convert", "lang": "ta", "fp32_onnx_mb": 114.0, "wo_onnx_mb": 31.3, "wo_archive_mb": 27.5, "has_dp": true}
+{"phase": "convert", "lang": "te", "fp32_onnx_mb": 114.0, "wo_onnx_mb": 31.3, "wo_archive_mb": 27.4, "has_dp": true}
+{"phase": "convert", "lang": "or", "fp32_onnx_mb": 114.0, "wo_onnx_mb": 31.3, "wo_archive_mb": 27.5, "has_dp": true}
+{"phase": "rtf", "lang": "hi", "n": 10, "fp32_rtf_2thr": 0.086, "sample_rate": 22050, "wo_rtf_2thr": 0.091}
+{"phase": "rtf", "lang": "ml", "n": 10, "fp32_rtf_2thr": 0.088, "sample_rate": 22050, "wo_rtf_2thr": 0.097}
+{"phase": "rtf", "lang": "en", "n": 10, "fp32_rtf_2thr": 0.074, "sample_rate": 16000, "wo_rtf_2thr": 0.078}
+{"phase": "rtf", "lang": "gu", "n": 10, "fp32_rtf_2thr": 0.098, "sample_rate": 22050, "wo_rtf_2thr": 0.096}
+{"phase": "rtf", "lang": "bn", "n": 10, "fp32_rtf_2thr": 0.594, "sample_rate": 22050, "wo_rtf_2thr": 0.615}
+{"phase": "rtf", "lang": "mr", "n": 10, "fp32_rtf_2thr": 0.478, "sample_rate": 16000, "wo_rtf_2thr": 0.478}
+{"phase": "rtf", "lang": "kn", "n": 10, "fp32_rtf_2thr": 0.478, "sample_rate": 16000, "wo_rtf_2thr": 0.483}
+{"phase": "rtf", "lang": "ta", "n": 10, "fp32_rtf_2thr": 0.499, "sample_rate": 16000, "wo_rtf_2thr": 0.499}
+{"phase": "rtf", "lang": "te", "n": 10, "fp32_rtf_2thr": 0.516, "sample_rate": 16000, "wo_rtf_2thr": 0.505}
+{"phase": "rtf", "lang": "or", "n": 10, "fp32_rtf_2thr": 0.524, "sample_rate": 16000, "wo_rtf_2thr": 0.511}
+{"phase": "dsp", "lang": "hi", "n": 20, "cer_clean_raw": 2.22, "cer_clean_dsp": 2.05, "cer_speaker_raw": 2.22, "cer_speaker_dsp": 2.22, "clipped_pct_speaker_raw": 6.94, "clipped_pct_speaker_dsp": 6.87}
+{"phase": "dsp", "lang": "ml", "n": 18, "cer_clean_raw": 3.41, "cer_clean_dsp": 3.35, "cer_speaker_raw": 3.18, "cer_speaker_dsp": 3.29, "clipped_pct_speaker_raw": 6.63, "clipped_pct_speaker_dsp": 6.42}
+{"phase": "dsp", "lang": "en", "n": 20, "cer_clean_raw": 1.55, "cer_clean_dsp": 1.86, "cer_speaker_raw": 2.63, "cer_speaker_dsp": 2.63, "clipped_pct_speaker_raw": 7.19, "clipped_pct_speaker_dsp": 6.69}
+{"phase": "cer", "lang": "en", "n": 20, "fp32_noise0": [1.55], "fp32_appnoise": [1.44, 2.48], "wo_noise0": [2.06], "wo_appnoise": [2.37, 1.44]}
+{"phase": "cer", "lang": "hi", "n": 20, "fp32_noise0": [2.22], "fp32_appnoise": [2.55, 2.5], "wo_noise0": [1.89], "wo_appnoise": [2.5, 2.39]}
+{"phase": "cer", "lang": "ml", "n": 18, "fp32_noise0": [3.41], "fp32_appnoise": [3.12, 3.93], "wo_noise0": [3.12], "wo_appnoise": [3.35, 3.12]}
+{"phase": "dsp", "lang": "gu", "n": 20, "cer_clean_raw": 8.78, "cer_clean_dsp": 8.11, "cer_speaker_raw": 8.95, "cer_speaker_dsp": 8.78, "clipped_pct_speaker_raw": 5.99, "clipped_pct_speaker_dsp": 6.44}
+{"phase": "cer", "lang": "gu", "n": 20, "fp32_noise0": [8.78], "fp32_appnoise": [12.22, 13.12], "wo_noise0": [9.4], "wo_appnoise": [10.7, 11.43]}
+{"phase": "dsp", "lang": "bn", "n": 20, "cer_clean_raw": 9.74, "cer_clean_dsp": 8.89, "cer_speaker_raw": 8.25, "cer_speaker_dsp": 8.73, "clipped_pct_speaker_raw": 5.5, "clipped_pct_speaker_dsp": 6.3}
+{"phase": "dsp", "lang": "mr", "n": 19, "cer_clean_raw": 4.61, "cer_clean_dsp": 4.61, "cer_speaker_raw": 4.72, "cer_speaker_dsp": 4.5, "clipped_pct_speaker_raw": 7.57, "clipped_pct_speaker_dsp": 7.05}
+{"phase": "dsp", "lang": "kn", "n": 20, "cer_clean_raw": 2.54, "cer_clean_dsp": 2.54, "cer_speaker_raw": 2.43, "cer_speaker_dsp": 2.71, "clipped_pct_speaker_raw": 7.46, "clipped_pct_speaker_dsp": 6.85}
+{"phase": "cer", "lang": "mr", "n": 19, "fp32_noise0": [4.61], "fp32_appnoise": [5.76, 5.76], "wo_noise0": [4.45], "wo_appnoise": [5.1, 6.15]}
+{"phase": "cer", "lang": "bn", "n": 20, "fp32_noise0": [8.84], "fp32_appnoise": [8.84, 8.52], "wo_noise0": [8.89], "wo_appnoise": [8.89, 8.09]}
+{"phase": "dsp", "lang": "ta", "n": 20, "cer_clean_raw": 4.72, "cer_clean_dsp": 5.13, "cer_speaker_raw": 4.77, "cer_speaker_dsp": 4.97, "clipped_pct_speaker_raw": 7.24, "clipped_pct_speaker_dsp": 6.89}
+{"phase": "dsp", "lang": "te", "n": 20, "cer_clean_raw": 9.29, "cer_clean_dsp": 9.88, "cer_speaker_raw": 9.7, "cer_speaker_dsp": 9.94, "clipped_pct_speaker_raw": 7.53, "clipped_pct_speaker_dsp": 6.92}
+{"phase": "cer", "lang": "or", "skipped": "no IndicConformer model for this language"}
+{"phase": "dsp", "lang": "or", "skipped": "no IndicConformer model for this language"}
+{"phase": "cer", "lang": "kn", "n": 20, "fp32_noise0": [2.54], "fp32_appnoise": [3.59, 2.98], "wo_noise0": [2.43], "wo_appnoise": [3.09, 3.48]}
+{"phase": "cer", "lang": "ta", "n": 20, "fp32_noise0": [4.72], "fp32_appnoise": [5.18, 5.39], "wo_noise0": [4.46], "wo_appnoise": [5.28, 5.75]}
+{"phase": "cer", "lang": "te", "n": 20, "fp32_noise0": [9.29], "fp32_appnoise": [8.58, 8.88], "wo_noise0": [9.17], "wo_appnoise": [9.11, 10.95]}

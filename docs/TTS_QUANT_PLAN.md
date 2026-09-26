@@ -21,11 +21,13 @@ Evidence and exact commands: [`docs/evaluation/tts-quant/README.md`](evaluation/
 | INT8 unlocks NNAPI/NPU, RTF < 0.4 | ❌ | Our INT8 is `quantize_dynamic`, which emits `ConvInteger`. That op is not an NPU path, and on CPU it is **~3× slower** (§2.2). NNAPI is deprecated from Android 15. |
 | Piper avoids MMS's transliteration step | ❌ | Our MMS export rejects uroman models (`mms_work/vits-mms.py:62-64`); MMS reads native script directly. Piper is the one with a front-end step (espeak-ng). |
 | DSP can compensate INT8 loss | ❌ as stated | INT8 changes the long-term spectrum by **≤ 0.3 dB in every band** (§2.3). There is no tonal loss for an EQ to undo. The real INT8 effect is timing (2–7 % duration drift), and no filter restores that. |
+| DRC + pre-emphasis "audio output fix" improves clarity | ❌ not shown | Tested in 9 languages, clean and through a simulated loud phone speaker: CER change −0.22 to +0.48 points (mean ≈ +0.1), with clipping essentially unchanged (§2.3c). |
 | 16 kHz voices sound duller | ✅ | True for the five MMS voices (16 kHz). Piper hi/ml is 22.05 kHz and played natively since T13. |
 
 **What survives:** quantize the voices, but with a different method: weight-only INT8, with the
-2.2 MB duration predictor kept in FP32 (§2.2). On Marathi it measured **114 → 31.3 MB, the same
-speed, and no measurable CER loss** (§2.3). The DSP idea survives only as an optional loudspeaker
+2.2 MB duration predictor kept in FP32 (§2.2). Across **all ten voices** it measured **928 → 229 MB
+of downloads, the same speed, and no CER loss beyond +0.62 points** in the nine languages that
+could be scored (§2.3b). The DSP idea survives only as an optional loudspeaker
 chain (T83), not as quantization compensation.
 
 ---
@@ -54,9 +56,14 @@ Phone TTS latency has been measured **for Hindi (Piper FP32) only**:
 | `latency-evidence/t11` POCO | 14 | 387 | 1288 | 500 | 0.28 |
 | `latency-evidence/t11` realme | 3 | 473 | 1277 | 570 | 0.31 |
 
-**No MMS voice has ever been timed on a phone.** On desktop, MMS FP32 runs at RTF 0.71 at 1 thread
-against Piper Hindi's 0.18, so it is ~4× slower (§2.2). The five MMS languages are therefore the
-likeliest to miss the < 500 ms TTS target *regardless of quantization*. G13 must time one of them (§5).
+**No MMS or Coqui voice has ever been timed on a phone.** On desktop at 2 threads (§2.3b), the
+five MMS voices run at RTF 0.48–0.52 and Coqui Bengali at 0.59. Piper hi/ml/en and Mimic3 gu run at
+0.07–0.10, so **bn and the MMS voices are 5–7× slower**. Applying that ratio to Hindi's measured phone
+RTF of 0.20–0.35 *projects* RTF ≈ 1–2.4 on the phone for mr/kn/ta/te/or/bn. That is slower than
+real time, and a 3 s sentence would take several seconds before it finished synthesizing. **This is
+the largest open TTS latency risk, and it is independent of quantization.** G13 must time one MMS
+language and Bengali (§5). If confirmed, the options are: synthesize and play sentence by sentence
+(T40 already splits segments), and raise `numThreads` from 2 for these voices only.
 
 ### 2.2 Quantization variants — size and speed
 
@@ -116,6 +123,66 @@ against a 700 MB team target. T81 measures it.
   speed is also identical, re-timed on an idle CPU: RTF 0.657 vs 0.658 at 1 thread and 0.504 vs
   0.505 at 2. This comes from 19 sentences in one language, so T81/T82 must confirm it on more
   languages and on the phone.
+
+### 2.3b All ten voices (weight-only INT8, duration predictor FP32 where it can be named)
+
+`model-export/tts_quant_all_langs.py`, raw rows in `docs/evaluation/tts-quant/results_all_langs.jsonl`.
+Setup: RTF over 10 sentences at 2 threads (the app's setting), timed one language at a time on an
+idle CPU. CER over 18–20 digit-free sentences, scored by IndicConformer for that language.
+
+| Lang | Voice | model FP32 → WO | WO archive | RTF FP32 → WO | CER noise 0: FP32 → WO (Δ) | CER app noise, mean of 2: FP32 → WO |
+| --- | --- | --- | --- | --- | --- | --- |
+| hi | Piper | 63.1 → 18.3 MB | 16.3 MB | 0.086 → 0.091 | 2.22 → 1.89 (−0.33) | 2.52 → 2.45 |
+| ml | Piper ¹ | 62.9 → 16.5 MB | 14.9 MB | 0.088 → 0.097 | 3.41 → 3.12 (−0.29) | 3.53 → 3.24 |
+| en | Piper | 63.1 → 18.3 MB | 16.4 MB | 0.074 → 0.078 | 1.55 → 2.06 (+0.51) | 1.96 → 1.91 |
+| gu | Mimic3 ¹ | 76.3 → 19.8 MB | 18.0 MB | 0.098 → 0.096 | 8.78 → 9.40 (+0.62) | 12.67 → 11.06 |
+| bn | Coqui ¹ ² | 114.3 → 30.0 MB | 25.6 MB | 0.594 → 0.615 | 8.84 → 8.89 (+0.05) | 8.68 → 8.49 |
+| mr | MMS | 114.0 → 31.3 MB | 27.5 MB | 0.478 → 0.478 | 4.61 → 4.45 (−0.16) | 5.76 → 5.62 |
+| kn | MMS | 114.0 → 31.3 MB | 27.5 MB | 0.478 → 0.483 | 2.54 → 2.43 (−0.11) | 3.29 → 3.29 |
+| ta | MMS | 114.0 → 31.3 MB | 27.5 MB | 0.499 → 0.499 | 4.72 → 4.46 (−0.26) | 5.29 → 5.52 |
+| te | MMS | 114.0 → 31.3 MB | 27.4 MB | 0.516 → 0.505 | 9.29 → 9.17 (−0.12) | 8.73 → 10.03 ³ |
+| or | MMS | 114.0 → 31.3 MB | 27.5 MB | 0.524 → 0.511 | — no Odia IndicConformer | — |
+| **All ten** | | **938 → 240 MB** | **228.6 MB** (today 928.4) | **within ±10 % everywhere** | **Δ −0.33 … +0.62** | |
+
+¹ Their duration predictor could not be kept FP32, so it was quantized too. The ml (older Piper)
+and gu (Mimic3) exports have anonymous node names (`Conv_32`…). For bn, the prefix
+`/duration_predictor/` was only added to the script after this run. None of the three shows a
+loss, so no re-run is needed.
+² The Coqui voice is not fully deterministic at noise 0: two identical FP32 runs gave 8.84 and
+9.74 % (the second is in the DSP table below).
+³ Telugu's two WO app-noise runs were 9.11 and 10.95. The deterministic delta is −0.12, so this
+is sampling spread. T81 should still re-check Telugu with more sentences.
+
+**Verdict:** weight-only INT8 passes the T80 gate (noise-0 CER ≤ FP32 + 1.0) in all nine
+languages that have an ASR model, at unchanged speed, for **−75 % download size**. Odia is
+size- and speed-checked only. It is the same MMS architecture as the four that passed, but T81
+must confirm it by ear or with SraVaani.
+
+### 2.3c The proposed "audio output fix" (DSP), tested in all nine languages
+
+`dsp_chain()` in `tts_quant_all_langs.py` is the proposal as it would run before `AudioTrack.write`:
+DC blocker → 50 % pre-emphasis (α 0.7) → compressor/DRC (−24 dBFS threshold, 3:1, 5/60 ms) →
+peak limiter at −1 dBFS → 5 ms fades. `cheap_speaker()` **simulates** a small phone speaker at
+high volume: level-match, +14 dB, hard clip, 400 Hz high-pass. It is a simulation, not a real
+speaker measurement. FP32 voices, noise 0, CER %:
+
+| Lang | clean | clean + DSP | speaker sim | speaker sim + DSP | clipped samples: raw → DSP |
+| --- | --- | --- | --- | --- | --- |
+| hi | 2.22 | 2.05 (−0.17) | 2.22 | 2.22 (±0) | 6.94 → 6.87 % |
+| ml | 3.41 | 3.35 (−0.06) | 3.18 | 3.29 (+0.11) | 6.63 → 6.42 % |
+| en | 1.55 | 1.86 (+0.31) | 2.63 | 2.63 (±0) | 7.19 → 6.69 % |
+| gu | 8.78 | 8.11 (−0.67) | 8.95 | 8.78 (−0.17) | 5.99 → 6.44 % |
+| bn | 9.74 | 8.89 (−0.85) | 8.25 | 8.73 (+0.48) | 5.5 → 6.3 % |
+| mr | 4.61 | 4.61 (±0) | 4.72 | 4.50 (−0.22) | 7.57 → 7.05 % |
+| kn | 2.54 | 2.54 (±0) | 2.43 | 2.71 (+0.28) | 7.46 → 6.85 % |
+| ta | 4.72 | 5.13 (+0.41) | 4.77 | 4.97 (+0.20) | 7.24 → 6.89 % |
+| te | 9.29 | 9.88 (+0.59) | 9.70 | 9.94 (+0.24) | 7.53 → 6.92 % |
+
+**Verdict:** no measurable benefit. Through the simulated speaker, DSP moves CER by −0.22 to +0.48
+points (mean ≈ +0.1). It barely changes clipping: pre-emphasis raises the very peaks that the
+compressor lowers. The simulated speaker itself barely hurts CER either, so ASR is robust to this
+kind of damage, or the simulation is too mild. Either way, **nothing here justifies shipping the
+chain.** T83 stays optional and is gated on a real phone-speaker loopback test (§4).
 
 ### 2.4 Two text-coverage bugs found on the way (not quantization)
 
@@ -191,14 +258,17 @@ TTS well past the < 500 ms target (PRD §4.3). That scaling is a *projection*, n
    name, `sizeBytes` and `sha256` with real values (`ls -l`, `sha256sum`). Keep the MMS licence
    comment (CC-BY-NC 4.0 still applies to derivatives).
 
-**Size, projected from measured per-voice results:**
+**Size, measured (archives built by `tts_quant_all_langs.py convert`, §2.3b):**
 
 | Voices | Today | After T80 |
 | --- | --- | --- |
-| 5 MMS voices | 538.8 MB | ~140 MB (31.3 MB `model.onnx` measured; 26.0 MB archive measured for the all-layers variant, so ~27–28 MB expected) |
-| 3 Piper voices | 201.5 MB | ~55 MB (16.7 MB `model.onnx` measured for `hi` without `/dp` kept; +2.2 MB with it; archive not yet built) |
-| gu + bn | 188.1 MB | ~50 MB (*projected* at the same ~4× ratio, not yet converted) |
-| **All ten** | **928.4 MB** | **~245 MB** (−74 %) |
+| 5 MMS voices | 538.8 MB | 137.4 MB |
+| 3 Piper voices (hi, ml, en) | 201.5 MB | 47.6 MB |
+| gu (Mimic3) + bn (Coqui) | 188.1 MB | 43.6 MB |
+| **All ten** | **928.4 MB** | **228.6 MB (−75 %)** |
+
+The archives built by the script are exactly what T80 would host. Before hosting, rebuild bn with
+the current script so that its duration predictor is kept FP32.
 
 For comparison, T17a alone reaches 789.8 MB, at a measured 3× TTS slowdown.
 
@@ -229,6 +299,10 @@ human speech + N". Keep MOS for T54.
 
 ### T83 · Optional loudspeaker chain (only if T81/T54 say it's needed)
 
+**Status after §2.3c: deprioritised.** The chain below was already tested in simulation across nine
+languages and showed no CER gain. Do it only if a real phone speaker test (T81 or T54 listeners)
+reports distortion at high volume. Then measure with an actual loopback before merging.
+
 In `AudioPlaybackManager`, before `AudioTrack.write`:
 
 1. DC blocker (`y = x − x₋₁ + 0.995·y₋₁`);
@@ -246,7 +320,8 @@ speaker → a second phone's mic at 1 m → IndicConformer. CER must improve, no
 
 1. **Now (inside G12):** §3, the phone check of T17a before merging it.
 2. **G13 (baseline), with two additions:**
-   - time one MMS language (`mr`) alongside Hindi, since no MMS voice has ever been timed on a phone;
+   - time one MMS language (`mr`) and Bengali alongside Hindi. Neither has ever been timed on a
+     phone, and the desktop projects them past real time (§2.1);
    - record TOTAL PSS with a TTS voice loaded.
 3. **T80 → T81** (with T82 run on desktop in parallel, since it needs no phone).
 4. **T35** (Sarthak), in parallel with 3. It is independent of quantization and fixes dropped numbers
@@ -264,6 +339,7 @@ speaker → a second phone's mic at 1 m → IndicConformer. CER must improve, no
 | MatMul-only mixed precision | These VITS graphs contain no MatMul ops. |
 | Naive FP16 | Conversion produced a graph sherpa-onnx cannot load; weight-only INT8 is smaller anyway. |
 | DSP "quantization compensation" EQ | INT8 changes the spectrum by ≤ 0.3 dB (§2.3). |
+| Shipping the DRC + pre-emphasis chain now | No CER gain in 9 languages, clean or through a simulated speaker (§2.3c). |
 | ESTOI vs FP32 as a quantization gate | INT8 shifts durations 2–7 %, so aligned metrics measure misalignment. |
 
 ## 7. Risks
@@ -274,4 +350,6 @@ speaker → a second phone's mic at 1 m → IndicConformer. CER must improve, no
   opset 13. It still has to be checked in sherpa-onnx's Android build (T81 step 1: it loads).
 - **Desktop ≠ phone.** Every desktop ratio needs confirming on CPH2467 before a number goes on a
   slide.
-- **Coqui/Mimic3 voices (gu, bn)** are not yet converted. Their graphs may differ. Budget a retry.
+- **MMS and Coqui latency on the phone** (§2.1). It is projected past real time, and weight-only
+  INT8 neither causes nor fixes it. This is the first thing G13 should settle.
+- **Odia** is not CER-scored (no IndicConformer). Check it by ear or with SraVaani in T81.

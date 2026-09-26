@@ -82,6 +82,14 @@ thread) / 0.505 (2 threads), `wo_int8_keep_dp` 0.657 / 0.504. An earlier timing 
 concurrently with a CER job read 1.288 / 0.834 vs 0.780 / 0.519. It was discarded for CPU
 contention.
 
+## Results — all ten voices, and the DSP chain
+
+Run with `model-export/tts_quant_all_langs.py`, phases `convert` → `rtf` (sequential, idle CPU) →
+`cer` + `dsp` (4 parallel jobs). Voices are the FP32 bundles the app downloads, plus the T17b MMS
+exports. The ASR is IndicConformer per language from the same mirror; English uses `en/tokens.txt`,
+and Odia has no model. Raw rows: [`results_all_langs.jsonl`](results_all_langs.jsonl). Summary tables
+are in the plan, §2.3b (quantization) and §2.3c (DSP).
+
 ## Results — Piper Hindi (`hi_IN-pratham-medium`, 10 sentences)
 
 | Variant | model.onnx MB | RTF 1 thread | RTF 2 threads |
