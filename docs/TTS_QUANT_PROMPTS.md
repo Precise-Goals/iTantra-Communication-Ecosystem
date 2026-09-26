@@ -9,18 +9,26 @@ What was verified while writing this:
   nothing. Then everything was reverted.
 - **P2 inputs:** `tts_quant_fetch.py` download and extract and the `manifest` phase were run.
 - **P1/P4:** the adb steps were not run; they need the phone.
+- **P8 + P9 dry run (T85–T87, added later):** all edits were applied to main @ `dca41b0`.
+  `compileDebugKotlin` passed, `testDebugUnitTest` passed (6/6 new splitter tests), and everything
+  was reverted. The edit text in P8/P9 was generated from that same compiled source.
 
 **Paste the standard header, then ONE prompt.** Do them in order:
 
 | # | Prompt | Needs you for | Blocks |
 | --- | --- | --- | --- |
-| P1 | T17a phone speed check (**urgent: T17a is already on main**) | phone, 10 min | — |
+| P1 | T17a phone speed check — **done** (PR #47: 2.0× slower) | phone, 10 min | — |
 | P2 | T80a — build and gate the ten weight-only voices (Python only) | nothing | — |
 | — | **You:** upload the ten archives to Hugging Face | HF login | P3 |
 | P3 | T80b — registry + stale-voice fix (Kotlin) | on-device check | P2 + upload |
 | P4 | T81 — prove it on CPH2467 | phone, ~1 h | P3 |
 | P5 | Add-on for the G13 prompt: time MMS and Bengali | phone | — |
 | P6 | T82 — commit the TTS intelligibility table | nothing | P2 |
+| P7 | T84 — revert T17a to FP32 voices (only if T80b is > 2 days away) | phone check | — |
+| P8 | T85 + T86 — streamed playback + clause splitter (unused until P9) | nothing | — |
+| P9 | T87 — stream TTS clause by clause on receive | phone check | P8 merged |
+| P10 | T88 — tune TTS threads from phone measurements | phone, ~1 h | P9 merged |
+| P11 | Re-measure the Latency rows of `SCORECARD.md` | phone | P7/P3, P9, P10 |
 
 **Not delegated:** T35 (numbers to words in ten languages). A model will invent number words for
 Tamil or Odia, so that needs native-speaker-checked tables and its own spec first. T83 (DSP) is
@@ -386,4 +394,407 @@ which shows the table and states: "TTS intelligibility is reported as ASR round-
 not computable for TTS (no aligned human reference)."
 Do NOT edit PRD.md. Tell me the wording to use instead of "STOI > 0.85", and I will decide.
 Commit "T82: TTS round-trip CER table". Push; DRAFT PR.
+```
+
+---
+
+## P7 · T84 — revert T17a (interim FP32 voices)
+
+Use it only if T80b (P3) will not merge within about 2 days. Otherwise skip it; T80 replaces these
+same three entries.
+
+```text
+TASK T84 — put Hindi, Malayalam and English TTS back on the FP32 voices (T17a made TTS 2.0x slower
+on the phone: docs/latency-evidence/t17a-check/, PR #47).
+File: app/src/main/java/com/itantra/core/download/ModelRegistry.kt   (ONLY this file)
+Setup: git fetch origin; git switch -c fix/t84-revert-t17a origin/main
+
+Edit 1. ANCHOR:
+            ModelPack.TTS_HINDI, "vits-piper-hi_IN-pratham-medium-int8.tar.bz2", "hi",
+            sizeBytes = 20_987_965L,
+            sha256 = "20f568c56207c13b9a0d9478aec8b7d1449122e618aeebc7211f6abc942b58b7"
+REPLACEMENT:
+            ModelPack.TTS_HINDI, "vits-piper-hi_IN-pratham-medium.tar.bz2", "hi",
+            sizeBytes = 67_238_438L,
+            sha256 = "2084d321e1d2752f2b64ed3012ba27751df01a80da46f52920098cdcb7e35648"
+
+Edit 2. ANCHOR:
+            ModelPack.TTS_MALAYALAM, "vits-piper-ml_IN-arjun-medium-int8.tar.bz2", "ml",
+            sizeBytes = 20_838_242L,
+            sha256 = "4d0b2a58157604b589cddc54884ffd2618b097d15155b254c34bd21830659832"
+REPLACEMENT:
+            ModelPack.TTS_MALAYALAM, "vits-piper-ml_IN-arjun-medium.tar.bz2", "ml",
+            sizeBytes = 67_222_458L,
+            sha256 = "3058d098e8b1ffcdd6069e96b1d492f319333235912a627c309c7c54cea59acf"
+
+Edit 3. ANCHOR:
+            ModelPack.TTS_ENGLISH, "vits-piper-en_US-lessac-low-int8.tar.bz2", "en",
+            sizeBytes = 21_070_568L,
+            sha256 = "af63fbe60d8bdcfccdee61ba057304a11dfc077145da383d4d351ec3c594d5e2"
+REPLACEMENT:
+            ModelPack.TTS_ENGLISH, "vits-piper-en_US-lessac-low.tar.bz2", "en",
+            sizeBytes = 67_097_098L,
+            sha256 = "8fb427b8637334072ee5723d72fa418c45bfdd4b7deebeacdf2938662618c1cb"
+
+(These FP32 values are exactly what main had before PR #44; check with
+ git show 9d6c724:app/src/main/java/com/itantra/core/download/ModelRegistry.kt | Select-String pratham,arjun,lessac)
+Build. Commit "T84: revert T17a — FP32 Piper voices (int8 was 2.0x slower on the phone)". Push; DRAFT PR.
+IMPORTANT for testing: phones that already have the int8 voice keep it (the app only checks that
+files/models/tts/<lang>/ has an .onnx). Before testing, run:
+  adb shell run-as com.itantra.debug rm -rf files/models/tts/hi files/models/tts/ml files/models/tts/en
+and re-download. Write that into the PR body.
+```
+
+---
+
+## P8 · T85 + T86 — streamed playback + clause splitter
+
+```text
+TASK T85 + T86 — add a streamed playback path and a clause splitter. NOTHING CALLS THEM YET (that is
+P9/T87), so app behaviour must not change in this PR.
+Files: app/src/main/java/com/itantra/core/audio/AudioPlaybackManager.kt (T85),
+       app/src/main/java/com/itantra/core/audio/TextPostProcessor.kt (T86),
+       NEW app/src/test/java/com/itantra/TextPostProcessorSplitUnitTest.kt (T86)
+Setup: git fetch origin; git switch -c feature/t85-t86-stream-split origin/main
+These edits were applied to main @ dca41b0, compiled, and unit-tested (6/6 new tests passing) before
+this prompt was written. If an anchor does not match exactly, STOP.
+
+Edit T85.1 — app/src/main/java/com/itantra/core/audio/AudioPlaybackManager.kt
+ANCHOR:
+    private class PlaybackItem(
+        val waveform: FloatArray,
+        val sampleRate: Int,
+        val isAlert: Boolean,
+        val onFirstFrame: (() -> Unit)?
+    )
+REPLACEMENT:
+    private class PlaybackItem(
+        val waveform: FloatArray,
+        val sampleRate: Int,
+        val isAlert: Boolean,
+        val onFirstFrame: (() -> Unit)?,
+        /** T85: when set, [waveform] is ignored and these chunks are played as they arrive. */
+        val chunks: kotlinx.coroutines.channels.ReceiveChannel<StreamChunk>? = null
+    )
+
+    /** T85: one synthesized piece of a streamed message, at the voice's native rate. */
+    class StreamChunk(val samples: FloatArray, val sampleRate: Int)
+
+Edit T85.2 — app/src/main/java/com/itantra/core/audio/AudioPlaybackManager.kt
+ANCHOR:
+                    if (item.isAlert) playAlert(item.waveform, item.sampleRate, item.onFirstFrame)
+                    else playNormal(item.waveform, item.sampleRate, item.onFirstFrame)
+REPLACEMENT:
+                    val chunks = item.chunks
+                    if (chunks != null) playStream(chunks, item.onFirstFrame)
+                    else if (item.isAlert) playAlert(item.waveform, item.sampleRate, item.onFirstFrame)
+                    else playNormal(item.waveform, item.sampleRate, item.onFirstFrame)
+
+Edit T85.3 — app/src/main/java/com/itantra/core/audio/AudioPlaybackManager.kt
+ANCHOR:
+        playbackQueue.trySend(PlaybackItem(waveform, sampleRate, isAlert, onFirstFrame))
+    }
+REPLACEMENT:
+        playbackQueue.trySend(PlaybackItem(waveform, sampleRate, isAlert, onFirstFrame))
+    }
+
+    /**
+     * T85: queue a streamed (non-alert) playback and return the channel to feed it. Send each
+     * synthesized piece as a [StreamChunk] the moment it exists, then close() the channel — the
+     * caller MUST close it (use try/finally), or the playback queue waits forever. Pieces play
+     * back-to-back on one AudioTrack, so the first clause is heard while later ones are still
+     * being synthesized. Ordering with other messages is the same as [play].
+     */
+    fun playStreaming(onFirstFrame: (() -> Unit)? = null): kotlinx.coroutines.channels.SendChannel<StreamChunk> {
+        val ch = kotlinx.coroutines.channels.Channel<StreamChunk>(kotlinx.coroutines.channels.Channel.UNLIMITED)
+        playbackQueue.trySend(PlaybackItem(FloatArray(0), 0, false, onFirstFrame, ch))
+        return ch
+    }
+
+    /** T85: the AudioTrack is built on the first non-empty chunk (its rate is the voice's). */
+    private suspend fun playStream(
+        chunks: kotlinx.coroutines.channels.ReceiveChannel<StreamChunk>,
+        onFirstFrame: (() -> Unit)?
+    ) {
+        var track: AudioTrack? = null
+        var focused = false
+        try {
+            for (chunk in chunks) {
+                if (chunk.samples.isEmpty()) continue
+                val t = track ?: run {
+                    requestAudioFocus(isAlert = false)
+                    focused = true
+                    val bufferSize = AudioTrack.getMinBufferSize(chunk.sampleRate, CHANNEL_CONFIG, AUDIO_FORMAT)
+                    AudioTrack.Builder()
+                        .setAudioAttributes(
+                            AudioAttributes.Builder()
+                                .setUsage(AudioAttributes.USAGE_MEDIA) // same as playNormal
+                                .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                                .build()
+                        )
+                        .setAudioFormat(
+                            android.media.AudioFormat.Builder()
+                                .setEncoding(AUDIO_FORMAT)
+                                .setSampleRate(chunk.sampleRate)
+                                .setChannelMask(CHANNEL_CONFIG)
+                                .build()
+                        )
+                        .setBufferSizeInBytes(bufferSize)
+                        .setTransferMode(AudioTrack.MODE_STREAM)
+                        .build()
+                        .also {
+                            track = it
+                            it.setVolume(1.0f)
+                            it.play()
+                            onFirstFrame?.invoke()
+                        }
+                }
+                t.write(chunk.samples, 0, chunk.samples.size, AudioTrack.WRITE_BLOCKING)
+            }
+            track?.stop()
+        } finally {
+            track?.release()
+            if (focused) releaseAudioFocus()
+        }
+    }
+
+Edit T86.1 — app/src/main/java/com/itantra/core/audio/TextPostProcessor.kt
+ANCHOR:
+    private val TERMINATORS = charArrayOf('.', '!', '?', '।', '॥')
+REPLACEMENT:
+    private val TERMINATORS = charArrayOf('.', '!', '?', '।', '॥')
+
+    /** T86: a clause for chunked TTS ends after any of these. */
+    private val CLAUSE_END = charArrayOf('.', '!', '?', '।', '॥', ',', ';', ':')
+    private const val MAX_CLAUSE_WORDS = 10
+    private const val MIN_CLAUSE_WORDS = 3
+
+    /**
+     * Splits a message into clauses for chunked TTS (T86), so playback can start after the first
+     * clause instead of the whole message. Cuts after clause punctuation, and after
+     * [MAX_CLAUSE_WORDS] words when there is none. A later piece shorter than [MIN_CLAUSE_WORDS]
+     * words is merged into the one before it (a lone word saves no time and sounds clipped); a
+     * short FIRST piece is kept, because it is what makes the first audio fast.
+     * Joining the result with single spaces gives back the whitespace-normalised input.
+     */
+    fun splitForTts(text: String): List<String> {
+        val words = text.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
+        if (words.isEmpty()) return emptyList()
+        val pieces = mutableListOf(mutableListOf<String>())
+        for (w in words) {
+            pieces.last().add(w)
+            if (w.last() in CLAUSE_END || pieces.last().size >= MAX_CLAUSE_WORDS) pieces.add(mutableListOf())
+        }
+        val out = mutableListOf<MutableList<String>>()
+        for (p in pieces) {
+            if (p.isEmpty()) continue
+            if (out.isNotEmpty() && p.size < MIN_CLAUSE_WORDS) out.last().addAll(p) else out.add(p)
+        }
+        return out.map { it.joinToString(" ") }
+    }
+
+New file app/src/test/java/com/itantra/TextPostProcessorSplitUnitTest.kt, exactly:
+package com.itantra
+
+import com.itantra.core.audio.TextPostProcessor
+import org.junit.Assert.assertEquals
+import org.junit.Test
+
+/** T86: clause splitting for chunked TTS. */
+class TextPostProcessorSplitUnitTest {
+
+    @Test fun splitsAtComma() = assertEquals(
+        listOf("इमारत में आग लगी है,", "तुरंत बाहर निकलें।"),
+        TextPostProcessor.splitForTts("इमारत में आग लगी है, तुरंत बाहर निकलें।"))
+
+    @Test fun singleClauseStaysWhole() = assertEquals(
+        listOf("सभी जवान अपनी वर्तमान स्थिति की रिपोर्ट करें।"),
+        TextPostProcessor.splitForTts("सभी जवान अपनी वर्तमान स्थिति की रिपोर्ट करें।"))
+
+    @Test fun shortTailMergesIntoPrevious() = assertEquals(
+        listOf("हाँ, ठीक है।"),
+        TextPostProcessor.splitForTts("हाँ, ठीक है।"))
+
+    @Test fun longUnpunctuatedCutsEveryTenWords() {
+        val words = (1..23).map { "w$it" }
+        val out = TextPostProcessor.splitForTts(words.joinToString(" "))
+        assertEquals(listOf(10, 10, 3), out.map { it.split(" ").size })
+    }
+
+    @Test fun blankGivesEmpty() = assertEquals(emptyList<String>(), TextPostProcessor.splitForTts("   "))
+
+    @Test fun joinReproducesNormalisedInput() {
+        val s = "  बचाव दल   रास्ते में है, कृपया शांत रहें।  "
+        assertEquals("बचाव दल रास्ते में है, कृपया शांत रहें।", TextPostProcessor.splitForTts(s).joinToString(" "))
+    }
+}
+
+Build: .\gradlew.bat :app:compileDebugKotlin, then .\gradlew.bat :app:testDebugUnitTest. Both must
+pass, and the report must show TextPostProcessorSplitUnitTest with tests="6" failures="0"
+(app\build\test-results\testDebugUnitTest\TEST-com.itantra.TextPostProcessorSplitUnitTest.xml).
+Two commits: "T85: streamed playback path (unused until T87)" and "T86: clause splitter for chunked
+TTS". Push; DRAFT PR.
+```
+
+---
+
+## P9 · T87 — chunked synthesis + stream the receive path
+
+```text
+TASK T87 — synthesize incoming (non-alert) messages clause by clause and play each clause as soon as
+it exists.
+Precondition: the T85 + T86 PR is merged to main (ask me). If `grep -n "fun playStreaming"
+app/src/main/java/com/itantra/core/audio/AudioPlaybackManager.kt` finds nothing, STOP.
+Files: app/src/main/java/com/itantra/core/audio/TTSModule.kt,
+       app/src/main/java/com/itantra/core/service/ITantraForegroundService.kt   (ONLY these two)
+Setup: git fetch origin; git switch -c feature/t87-chunked-tts origin/main
+These edits were compiled and unit-tested together with P8 on main @ dca41b0.
+
+Edit T87.1 — app/src/main/java/com/itantra/core/audio/TTSModule.kt
+ANCHOR:
+    suspend fun synthesize(text: String, languageCode: String): SynthesisResult? =
+        ttsLock.withLock { synthesizeUnlocked(text, languageCode) }
+REPLACEMENT:
+    suspend fun synthesize(text: String, languageCode: String): SynthesisResult? =
+        ttsLock.withLock { synthesizeUnlocked(text, languageCode) }
+
+    /**
+     * T87: synthesize [text] clause by clause ([TextPostProcessor.splitForTts]) and hand each
+     * clause's PCM to [onChunk] as soon as it exists, so playback can start after the first clause.
+     * Holds [ttsLock] for the whole message, so two messages never interleave. Returns all clauses
+     * concatenated (for the voice note and telemetry), or null if any clause failed.
+     */
+    suspend fun synthesizeChunked(
+        text: String,
+        languageCode: String,
+        onChunk: (SynthesisResult) -> Unit
+    ): SynthesisResult? = ttsLock.withLock {
+        val clauses = TextPostProcessor.splitForTts(text)
+        val parts = ArrayList<FloatArray>(clauses.size)
+        var rate = 0
+        for (clause in clauses) {
+            val r = synthesizeUnlocked(clause, languageCode) ?: return@withLock null
+            rate = r.sampleRate
+            parts.add(r.samples)
+            onChunk(r)
+        }
+        if (parts.isEmpty()) return@withLock null
+        val all = FloatArray(parts.sumOf { it.size })
+        var off = 0
+        for (p in parts) {
+            p.copyInto(all, off)
+            off += p.size
+        }
+        SynthesisResult(all, rate)
+    }
+
+Edit T87.2 — app/src/main/java/com/itantra/core/service/ITantraForegroundService.kt
+ANCHOR:
+                val synth = ttsModule.synthesize(message.text, targetLang)
+                utt.ttsDoneNs = System.nanoTime()
+REPLACEMENT:
+                // T87: normal messages are synthesized clause by clause and streamed to the speaker.
+                // Alerts keep the one-shot path below (alarm stream + volume override in playAlert).
+                if (!isAlert) {
+                    streamToSpeaker(message, targetLang, utt)
+                    _pipelineStage.value = PipelineStage.IDLE
+                    return@launch
+                }
+                val synth = ttsModule.synthesize(message.text, targetLang)
+                utt.ttsDoneNs = System.nanoTime()
+
+Edit T87.3 — app/src/main/java/com/itantra/core/service/ITantraForegroundService.kt
+ANCHOR:
+    fun setSTTLanguage(lang: String) { sttLanguage = lang; audioCaptureModule.currentLanguage = lang }
+REPLACEMENT:
+    /**
+     * T87: synthesize [message] clause by clause and play each clause as soon as it is ready.
+     * Telemetry keeps its meaning: tts_ms = text received -> first audio frame (now the first
+     * clause), tts_synth_ms = text received -> last clause synthesized. The row is written once
+     * both have happened, or right after synthesis if no audio will ever play.
+     */
+    private suspend fun streamToSpeaker(message: TransceiverMessage, targetLang: String, utt: Telemetry.Utterance) {
+        val pending = java.util.concurrent.atomic.AtomicInteger(2) // first frame + synthesis done
+        val finish = { if (pending.decrementAndGet() == 0) Telemetry.complete(this@ITantraForegroundService, utt) }
+        val stream = audioPlayback.playStreaming {
+            utt.firstAudioFrameNs = System.nanoTime()
+            finish()
+        }
+        var anyChunk = false
+        val synth = try {
+            ttsModule.synthesizeChunked(message.text, targetLang) { part ->
+                anyChunk = true
+                stream.trySend(com.itantra.core.audio.AudioPlaybackManager.StreamChunk(part.samples, part.sampleRate))
+            }
+        } finally {
+            stream.close() // always: the playback queue waits for this channel to close
+        }
+        utt.ttsDoneNs = System.nanoTime()
+        if (synth != null) {
+            utt.ttsAudioDurationMs = synth.samples.size * 1000L / synth.sampleRate
+            // Keep it as a replayable voice note (T67). Off the playback path.
+            val noteSamples = synth.samples
+            val noteRate = synth.sampleRate
+            serviceScope.launch(Dispatchers.IO) {
+                com.itantra.core.audio.VoiceNoteStore.save(
+                    this@ITantraForegroundService, message.senderId, message.sequence, noteSamples, noteRate
+                )
+            }
+        }
+        finish()                  // synthesis side is done
+        if (!anyChunk) finish()   // nothing will play, so no first frame will ever arrive
+    }
+
+    fun setSTTLanguage(lang: String) { sttLanguage = lang; audioCaptureModule.currentLanguage = lang }
+
+Build + unit tests must pass. Commit "T87: stream TTS clause by clause on receive". Push; DRAFT PR.
+
+On-device check (ask me; phone CPH2467, second phone sends; clear telemetry.csv first):
+  1. Receive the same 10 Hindi sentences as P1 (docs/latency-evidence/t17a-check/README.md §2).
+     Every sentence must be heard complete, in order, with no clause missing or repeated.
+  2. Receive 3 Marathi sentences, and send one ALERT (the alert must still use the alarm path).
+  3. Save telemetry.csv as docs/latency-evidence/t87/telemetry.csv, and write README.md with
+     median tts_ms and tts_synth_ms next to P1's numbers for the same voice. Verdict: first audio
+     (tts_ms) median must drop; note any audible gap between clauses honestly.
+  4. Replay one received message from the voice-note list (T67): it must be the whole sentence.
+```
+
+---
+
+## P10 · T88 — tune TTS threads on the phone
+
+```text
+TASK T88 — pick numThreads for TTS from phone measurements. One literal changes, but only after
+measuring.
+File: app/src/main/java/com/itantra/core/audio/TTSModule.kt   (ONLY this file)
+Precondition: T87 merged (ask me). Phone CPH2467.
+Setup: git fetch origin; git switch -c perf/t88-tts-threads origin/main
+
+The ANCHOR (it occurs once, inside getOrLoadTts's OfflineTtsModelConfig):
+                    numThreads = 2,
+For N in 2, 3, 4:
+  - set that line to `numThreads = N,` (only while measuring — do not commit N=3/4 yet)
+  - .\gradlew.bat assembleDebug ; adb install -r -d app\build\outputs\apk\debug\app-debug.apk
+  - adb shell run-as com.itantra.debug rm files/telemetry.csv
+  - receive the 10 P1 Hindi sentences + 5 Marathi sentences. While the Marathi ones arrive, ALSO
+    speak into this phone (PTT) so STT runs at the same time
+  - save telemetry.csv as docs/latency-evidence/t88/telemetry_threads<N>.csv
+Table in docs/latency-evidence/t88/README.md: N | lang | median tts_ms | median tts_synth_ms |
+median RTF (synth/audio) | median stt_ms (from the rows where you spoke).
+Choose the smallest N whose TTS RTF is within 5 % of the best, AND whose stt_ms is not more than
+10 % worse than N=2. Commit only that value with the comment:
+  // T88: measured on CPH2467, docs/latency-evidence/t88/README.md
+Commit "T88: TTS numThreads = <N> (measured)". Push; DRAFT PR. If N=2 wins, commit only the README.
+```
+
+---
+
+## P11 · Re-take the latency row of the scorecard
+
+```text
+TASK P11 — after T84 or T80, T87 and T88 are merged, re-measure the Latency rows of docs/SCORECARD.md on
+CPH2467. Use G13's procedure (Wi-Fi Direct for the end-to-end number; clocks synchronised by T11).
+Update ONLY the "Now" cells of the Latency table and their source paths, changing the label to
+Measured. Keep the old value in brackets, e.g. "612 ms (was 1,868)". Never edit a cell you did not
+measure. Commit "Scorecard: latency re-measured after T84-T88". Push; DRAFT PR.
 ```
