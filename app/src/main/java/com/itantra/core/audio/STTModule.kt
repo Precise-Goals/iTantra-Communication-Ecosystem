@@ -566,7 +566,7 @@ class STTModule(
             AppResult.Error(ErrorCode.STT_INFERENCE_FAILED, "Empty transcription")
         } else {
             currentUtterance?.charCount = text.length
-            val confidence = estimateConfidence(logits[0])
+            val confidence = estimateConfidence(logits[0], blankId = backend.vocab.size - 1)
             callbacks.onSTTResult(AppResult.Success(text), confidence, inferenceMs)
             AppResult.Success(text)
         }
@@ -618,9 +618,9 @@ class STTModule(
             return AppResult.Error(ErrorCode.STT_INFERENCE_FAILED, "Audio buffer too short to transcribe")
         }
 
-        // Rough analog of estimateConfidence(): average of the winning token logit at every
-        // decoder_joint step (including ones that resolve to blank), clipped to [0,1].
-        val tokenLogitMaxes = mutableListOf<Float>()
+        // T44: same definition as estimateConfidence() — softmax probability of the chosen token
+        // at each decoder_joint step that emits a non-blank token.
+        val emittedTokenProbs = mutableListOf<Float>()
         val decoderJointCall = TdtDecoder.DecoderJointCall { encoderFrame, lastToken, h, c ->
             val frameTensor = OnnxTensor.createTensor(
                 ortEnv, FloatBuffer.wrap(encoderFrame), longArrayOf(1, SRAVAANI_ENCODER_WIDTH.toLong(), 1)
@@ -650,9 +650,15 @@ class STTModule(
             val cOut = FloatArray(TdtDecoder.PRED_HIDDEN)
             cOutTensor.floatBuffer.get(cOut)
 
-            var best = logits[0]
-            for (i in 1..TdtDecoder.VOCAB_SIZE) if (logits[i] > best) best = logits[i]
-            tokenLogitMaxes.add(best)
+            // Softmax over the token slice only (0..VOCAB_SIZE, blank = BLANK_ID). The duration
+            // logits after it are a separate distribution and must not be included.
+            var bestIdx = 0
+            for (i in 1..TdtDecoder.VOCAB_SIZE) if (logits[i] > logits[bestIdx]) bestIdx = i
+            if (bestIdx != TdtDecoder.BLANK_ID) {
+                var expSum = 0.0
+                for (i in 0..TdtDecoder.VOCAB_SIZE) expSum += kotlin.math.exp((logits[i] - logits[bestIdx]).toDouble())
+                emittedTokenProbs.add((1.0 / expSum).toFloat())
+            }
 
             frameTensor.close(); targetsTensor.close(); targetLengthTensor.close()
             hTensor.close(); cTensor.close(); djtOutputs.close()
@@ -670,7 +676,7 @@ class STTModule(
             AppResult.Error(ErrorCode.STT_INFERENCE_FAILED, "Empty transcription")
         } else {
             currentUtterance?.charCount = text.length
-            val confidence = if (tokenLogitMaxes.isEmpty()) 0f else tokenLogitMaxes.average().toFloat().coerceIn(0f, 1f)
+            val confidence = if (emittedTokenProbs.isEmpty()) 0f else emittedTokenProbs.average().toFloat().coerceIn(0f, 1f)
             callbacks.onSTTResult(AppResult.Success(text), confidence, inferenceMs)
             AppResult.Success(text)
         }
@@ -791,14 +797,28 @@ class STTModule(
         if (mel < MEL_MIN_LOG_MEL) MEL_F_SP * mel
         else MEL_MIN_LOG_HZ * Math.exp(MEL_LOG_STEP * (mel - MEL_MIN_LOG_MEL))
 
-    private fun estimateConfidence(logits: Array<FloatArray>): Float {
-        if (logits.isEmpty()) return 0f
-        var sumMax = 0f
+    /**
+     * T44: mean softmax probability of the chosen token, over emitted tokens only (a frame whose
+     * argmax is not blank and differs from the previous frame's argmax — exactly the frames
+     * greedy CTC decoding emits). The old version averaged raw logits clamped to [0,1], which
+     * carried no information and was sent on the wire.
+     */
+    private fun estimateConfidence(logits: Array<FloatArray>, blankId: Int): Float {
+        var sum = 0.0
+        var count = 0
+        var prev = -1
         for (frame in logits) {
-            val maxProb = frame.max()
-            sumMax += maxProb
+            var best = 0
+            for (i in 1 until frame.size) if (frame[i] > frame[best]) best = i
+            if (best != blankId && best != prev) {
+                var expSum = 0.0
+                for (v in frame) expSum += kotlin.math.exp((v - frame[best]).toDouble())
+                sum += 1.0 / expSum   // exp(max - max) / sum
+                count++
+            }
+            prev = best
         }
-        return (sumMax / logits.size).coerceIn(0f, 1f)
+        return if (count == 0) 0f else (sum / count).toFloat().coerceIn(0f, 1f)
     }
 
     fun release() {
