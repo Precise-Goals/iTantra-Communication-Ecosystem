@@ -171,16 +171,7 @@ object ModelRegistry {
             sizeBytes = 2_327_524L // 2.22 MB
         ),
 
-        // No Odia entry: the parismitaglobalsolutions/indicconformer-sherpa-onnx repo has no "or/" model —
-        // it only has "as/" (Assamese). Reusing that mislabeled as Odia would just be a second fabrication.
-        ModelPack.STT_HINDI to sttInfo(ModelPack.STT_HINDI, "hi", 197_595_593L),
-        ModelPack.STT_GUJARATI to sttInfo(ModelPack.STT_GUJARATI, "gu", 197_595_461L),
-        ModelPack.STT_MARATHI to sttInfo(ModelPack.STT_MARATHI, "mr", 197_595_500L),
-        ModelPack.STT_KANNADA to sttInfo(ModelPack.STT_KANNADA, "kn", 197_595_728L),
-        ModelPack.STT_MALAYALAM to sttInfo(ModelPack.STT_MALAYALAM, "ml", 197_595_500L),
-        ModelPack.STT_TAMIL to sttInfo(ModelPack.STT_TAMIL, "ta", 197_595_513L),
-        ModelPack.STT_TELUGU to sttInfo(ModelPack.STT_TELUGU, "te", 197_595_500L),
-        ModelPack.STT_BENGALI to sttInfo(ModelPack.STT_BENGALI, "bn", 197_595_500L),
+        // STT models: English on IndicConformer, 9 Indic languages on shared SraVaani INT8 TDT (T78 Step 7)
         ModelPack.STT_ENGLISH to sttInfo(ModelPack.STT_ENGLISH, "en", 197_595_500L),
         ModelPack.STT_SRAVAANI to sravaaniTdtInfo(ModelPack.STT_SRAVAANI),
 

@@ -65,6 +65,31 @@ Per the decision rule in `docs/IMPLEMENTATION_SPEC_2.md` T76:
 >
 > The open questions are RAM, speed and smooth running on a low-range phone. **T77** (`docs/IMPLEMENTATION_SPEC_2.md` Group I) measures exactly that. G5 in `WORK_SPLIT.md` is now T77, followed by either the hybrid switch design or T64. Results will go in `phone/`. **Update:** T77 is done (`phone/README.md`). Its CTC route failed, and the team chose the TDT engine, **T78**, with T64 as the fallback.
 
+## Shipped Configuration — T78 Step 7 Switchover
+
+> **Shipped Architecture:** SraVaani INT8 TDT engine for the nine Indic languages (`hi, gu, mr, kn, ml, ta, te, bn, or`), and AI4Bharat IndicConformer INT8 for English (`en`). S5a provides automatic runtime fallback to bundled IndicConformer models before the SraVaani pack is downloaded.
+
+### Shipped On-Device STT Performance (10/10 Languages)
+
+| Language | Code | Shipped Engine | Architecture | Model Size | WER | CER | RTF (1 CPU thread) |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Hindi | `hi` | SraVaani | INT8 TDT | Shared (464.7 MB) | **10.00%** | 3.87% | 0.167 |
+| Gujarati | `gu` | SraVaani | INT8 TDT | Shared (464.7 MB) | **19.85%** | 6.28% | 0.173 |
+| Marathi | `mr` | SraVaani | INT8 TDT | Shared (464.7 MB) | **20.14%** | 6.23% | 0.168 |
+| Kannada | `kn` | SraVaani | INT8 TDT | Shared (464.7 MB) | **19.19%** | 4.47% | 0.168 |
+| Malayalam | `ml` | SraVaani | INT8 TDT | Shared (464.7 MB) | **19.94%** | 5.35% | 0.169 |
+| Tamil | `ta` | SraVaani | INT8 TDT | Shared (464.7 MB) | **32.91%** | 16.90% | 0.170 |
+| Telugu | `te` | SraVaani | INT8 TDT | Shared (464.7 MB) | **22.22%** | 6.37% | 0.169 |
+| Bengali | `bn` | SraVaani | INT8 TDT | Shared (464.7 MB) | **16.45%** | 4.96% | 0.165 |
+| Odia | `or` | SraVaani | INT8 TDT | Shared (464.7 MB) | **22.31%** | 6.33% | 0.167 |
+| English | `en` | IndicConformer | INT8 CTC | 188.4 MB | **12.73%** | 7.16% | 0.068 |
+
+**Averages:**
+- **8 non-English shared Indic languages:** **20.09% WER** (vs 19.99% IndicConformer baseline).
+- **All 9 Indic languages (including Odia):** **20.33% WER**.
+- **All 10 shipped languages:** **19.57% WER**.
+- **Footprint:** The 9 Indic languages share a single 383 MB archive (`sravaani_tdt.tar.bz2`, 464.7 MB uncompressed) instead of 9 individual ~188 MB packs (~1.88 GB total), reducing storage by ~75%.
+
 ## Discussion: scope of the size comparison, and a hybrid option (raised in PR review, not evaluated)
 
 The initial draft of this README compared SraVaani's size against a *single selected language's* IndicConformer model (~188 MB), since the app's own download flow (T20/T21) only pulls the language(s) a user actually selects. That's the wrong comparison for this PS: **the problem statement requires the app to support all 10 languages**, not just whichever one a given user picks, so the size comparison that matters is against IndicConformer's *full* footprint if all 10 languages are provisioned. Reworking it on that basis:

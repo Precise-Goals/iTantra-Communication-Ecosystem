@@ -23,62 +23,6 @@ enum class ModelPack(
         isRequired = true,
         requiredFor = "Transceiver"
     ),
-    STT_HINDI(
-        "Hindi STT Engine",
-        "IndicConformer (sherpa-onnx) — Hindi speech recognition",
-        sizeMb = 188,
-        isRequired = true,
-        requiredFor = "Transceiver"
-    ),
-    STT_GUJARATI(
-        "Gujarati STT Engine",
-        "IndicConformer (sherpa-onnx) — Gujarati speech recognition",
-        sizeMb = 188,
-        isRequired = false,
-        requiredFor = "Transceiver"
-    ),
-    STT_MARATHI(
-        "Marathi STT Engine",
-        "IndicConformer (sherpa-onnx) — Marathi speech recognition",
-        sizeMb = 188,
-        isRequired = false,
-        requiredFor = "Transceiver"
-    ),
-    STT_KANNADA(
-        "Kannada STT Engine",
-        "IndicConformer (sherpa-onnx) — Kannada speech recognition",
-        sizeMb = 188,
-        isRequired = false,
-        requiredFor = "Transceiver"
-    ),
-    STT_MALAYALAM(
-        "Malayalam STT Engine",
-        "IndicConformer (sherpa-onnx) — Malayalam speech recognition",
-        sizeMb = 188,
-        isRequired = false,
-        requiredFor = "Transceiver"
-    ),
-    STT_TAMIL(
-        "Tamil STT Engine",
-        "IndicConformer (sherpa-onnx) — Tamil speech recognition",
-        sizeMb = 188,
-        isRequired = false,
-        requiredFor = "Transceiver"
-    ),
-    STT_TELUGU(
-        "Telugu STT Engine",
-        "IndicConformer (sherpa-onnx) — Telugu speech recognition",
-        sizeMb = 188,
-        isRequired = false,
-        requiredFor = "Transceiver"
-    ),
-    STT_BENGALI(
-        "Bengali STT Engine",
-        "IndicConformer (sherpa-onnx) — Bengali speech recognition",
-        sizeMb = 188,
-        isRequired = false,
-        requiredFor = "Transceiver"
-    ),
     STT_ENGLISH(
         "English STT Engine",
         "IndicConformer (sherpa-onnx) — English speech recognition",
@@ -202,17 +146,10 @@ enum class ModelPack(
         fun coreTransceiverPacks(languageCode: String): List<ModelPack> =
             (baselinePacks() + listOfNotNull(sttPackFor(languageCode), ttsPackFor(languageCode))).distinct()
 
-        /** Every pack a full multilingual install uses: all nine STT models and all ten voices. */
+        /** Every pack a full multilingual install uses: shared SraVaani pack, English STT, and all ten voices (T78 Step 7). */
         fun allTransceiverPacks(): List<ModelPack> = listOf(
             VAD_MODEL,
-            STT_HINDI,
-            STT_GUJARATI,
-            STT_MARATHI,
-            STT_KANNADA,
-            STT_MALAYALAM,
-            STT_TAMIL,
-            STT_TELUGU,
-            STT_BENGALI,
+            STT_SRAVAANI,
             STT_ENGLISH,
             ESPEAK_NG_DATA,
             TTS_HINDI,

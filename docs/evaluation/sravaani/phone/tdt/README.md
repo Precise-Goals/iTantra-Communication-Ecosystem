@@ -145,3 +145,23 @@ before this factors into any accuracy conclusion.
 - `cph2467_sravaani_telemetry.csv` — 26 utterances, SraVaani phrase test + abbreviated sustained session
 - `cph2467_sravaani_meminfo.txt` — `dumpsys meminfo com.itantra.debug` snapshot, SraVaani loaded
 - `cph2467_stt_logcat_filtered.txt` — `STTModule` + crash/ANR/kill lines across both runs (load times, transcripts, ANR/kill watch)
+- `poco_x6_rc_telemetry.csv` — Release-candidate verification run on POCO X6 5G (Android 16, Snapdragon 7s Gen 2)
+- `poco_x6_rc_meminfo.txt` — Post-inference meminfo snapshot (~1206 MB PSS) on POCO X6 5G
+- `poco_x6_rc_stt_logcat.txt` — Filtered STT logcat capturing model warm-up (5915 ms) and Hindi phrase transcriptions
+
+## Release-Candidate Verification — T78 Step 7 (POCO X6 5G)
+
+Following the removal of mirror packs and switchover to the unified `STT_SRAVAANI` pack for the nine Indic languages in Step 7, an end-to-end release-candidate smoke test was executed on physical hardware:
+
+| Parameter | Measured Value |
+| --- | --- |
+| Device | POCO X6 5G (`23122PCD1I`, Xiaomi) |
+| OS / Platform | Android 16 (API 36 preview) / Snapdragon 7s Gen 2 |
+| Clean Install Download & Extraction | `sravaani_tdt.tar.bz2` (401.5 MB) downloaded and extracted to `files/models/stt/sravaani/` |
+| Cold Model Load Time | **5915 ms** (NNAPI delegate enabled) |
+| Warm Median RTF | **0.244** (0.255 on 1.6s audio, 0.233 on 1.8s audio) |
+| Speech End → STT Complete | **410.5 ms – 420.8 ms** |
+| Peak TOTAL PSS | **1234.9 MB** (~1206 MB) |
+| Crash / ANR / Kill | **Zero** — app fully stable and responsive throughout |
+| Transcribed Phrases | `"शायद भेजो अभी"`, `"की पुष्टि हो गई"`, `"संदेश मिल गया"` |
+

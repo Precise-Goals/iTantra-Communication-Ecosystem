@@ -1,0 +1,4 @@
+id,lang,audio_ms,chars,stt_ms,wait_ms,feature_ms,infer_ms,rtf,tts_ms,tts_synth_ms,tts_audio_ms,sequence,sender_id,speech_end_epoch_ms,first_audio_epoch_ms,peer_offset_ms,peer_rtt_ms
+1,hi,1700,13,1463.3,6.8,149.8,1306.8,0.8568,0.0,0.0,0,1,a7359602-5827-401a-986c-76548d13ad25,1790414937977,0,0,0
+2,hi,1600,15,410.5,2.5,37.3,370.8,0.2550,0.0,0.0,0,2,a7359602-5827-401a-986c-76548d13ad25,1790414940696,0,0,0
+3,hi,1800,13,420.8,1.5,16.2,403.1,0.2329,0.0,0.0,0,3,a7359602-5827-401a-986c-76548d13ad25,1790414943850,0,0,0
